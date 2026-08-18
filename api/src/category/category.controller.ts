@@ -8,7 +8,13 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { ApiHeader, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+  ApiHeader,
+  ApiNotFoundResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { CategoryService } from './category.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -21,11 +27,17 @@ import { OwnerId } from '@/common/decorators/owner-id.decorator';
   description: 'Shop owner id. Temporary stand-in until AuthGuard lands.',
   required: true,
 })
+@ApiBadRequestResponse({
+  description: 'Validation failed, or the x-user-id header is missing',
+})
 @ApiTags('Categories')
 @Controller('categories')
 export class CategoryController {
   constructor(private readonly categoryService: CategoryService) {}
 
+  @ApiConflictResponse({
+    description: 'This owner already has a category with the same name',
+  })
   @Post()
   async create(
     @OwnerId() ownerId: string,
@@ -39,6 +51,10 @@ export class CategoryController {
     return this.categoryService.findAll(ownerId);
   }
 
+  @ApiNotFoundResponse({ description: 'Category not found' })
+  @ApiConflictResponse({
+    description: 'This owner already has a category with the same name',
+  })
   @Patch(':id')
   async update(
     @OwnerId() ownerId: string,
@@ -48,6 +64,7 @@ export class CategoryController {
     return this.categoryService.update(ownerId, id, dto);
   }
 
+  @ApiNotFoundResponse({ description: 'Category not found' })
   @Delete(':id')
   async remove(
     @OwnerId() ownerId: string,
