@@ -1,0 +1,18 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+
+# Node (fallback in case a package is ever added at root)
+node_modules/
+
+# Env files (fallback; api/ and web/ already ignore their own .env files)
+.env
+.env.local
