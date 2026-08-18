@@ -4,18 +4,23 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/database/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
 }
 
-model categories {
+model Category {
   id           String   @id @default(uuid(7)) @db.Uuid
   ownerId      String   @map("owner_id") @db.Uuid
   name         String   @db.VarChar(100)
   displayOrder Int      @default(0) @map("display_order")
-  createdAt    DateTime @default(now())
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([ownerId, name], map: "uq_category_owner_name")
+  @@map("categories")
 }
