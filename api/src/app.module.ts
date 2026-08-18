@@ -1,14 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { CategoriesModule } from './categories/categories.module';
 import { validate } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
+import { CategoryModule } from './category/category.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validate }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate,
+    }),
     DatabaseModule,
-    CategoriesModule,
+    CategoryModule,
   ],
 })
 export class AppModule {}

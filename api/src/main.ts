@@ -1,34 +1,30 @@
-import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { cleanupOpenApiDoc, ZodValidationPipe } from 'nestjs-zod';
 import { AppModule } from './app.module';
-import type { EnvVariable } from './config/env.validation';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(new ZodValidationPipe());
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+    }),
+  );
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Aum Manage Stocks API')
-    .setDescription('ระบบจัดการสต็อกสินค้าหลังบ้านสำหรับร้านค้ารายย่อย')
-    .setVersion('0.1.0')
+    .setDescription('API documentation for the Aum Manage Stocks backend')
+    .setVersion('1.0')
+    .addBearerAuth()
     .build();
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api', app, swaggerDocument);
 
-  SwaggerModule.setup(
-    'docs',
-    app,
-    cleanupOpenApiDoc(SwaggerModule.createDocument(app, swaggerConfig)),
-  );
-
-  const configService = app.get(ConfigService<EnvVariable, true>);
-  const port = configService.get('PORT', { infer: true });
-
-  await app.listen(port);
-  new Logger('Bootstrap').log(`Swagger UI: http://localhost:${port}/docs`);
+  await app.listen(process.env.PORT ?? 3000);
 }
+
 bootstrap().catch((error) => {
   const logger = new Logger('Bootstrap');
   logger.error('Application failed to start', error);
