@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StockMovementType {
+  MANUAL_ADJUSTMENT
+  CHAT_ADJUSTMENT
+}
+
+enum StockMovementSource {
+  WEB
+  LINE
+}
+
+enum PendingActionSource {
+  WEB
+  LINE
+}
+
+enum PendingActionIntent {
+  ADJUST_STOCK
+}
+
+enum StockOperation {
+  INCREASE
+  DECREASE
+}
+
+enum PendingActionStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+model StockMovement {
+  id               String                 @id @default(uuid()) @db.Uuid
+  shopId           String                 @db.Uuid
+  shopProductId    String                 @db.Uuid
+  actorId          String?                @db.Uuid
+  movementType     StockMovementType
+  quantityDelta    Int
+  quantityBefore   Int
+  quantityAfter    Int
+  source           StockMovementSource
+  note             String?
+  referenceType    String?
+  referenceId      String?
+  createdAt        DateTime               @default(now())
+
+  @@index([shopId, createdAt(sort: Desc)])
+  @@index([shopId, shopProductId, createdAt(sort: Desc)])
+  @@index([shopId, actorId, createdAt(sort: Desc)])
+  @@index([shopId, movementType, createdAt(sort: Desc)])
+  @@unique([referenceType, referenceId])
+  // TODO(shop-products/staff): add relations after the owning models stabilize.
+}
+
+model PendingAction {
+  id               String                @id @default(uuid()) @db.Uuid
+  shopId           String                @db.Uuid
+  actorId          String?               @db.Uuid
+  source           PendingActionSource
+  originalMessage  String
+  intent           PendingActionIntent
+  shopProductId    String?               @db.Uuid
+  productQuery     String
+  operation        StockOperation
+  quantity         Int
+  status           PendingActionStatus   @default(PENDING)
+  payload          Json?
+  expiresAt        DateTime
+  confirmedAt      DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([shopId, status, createdAt(sort: Desc)])
+  @@index([expiresAt, status])
+  // TODO(shop-products/staff): add relations after the owning models stabilize.
+}
