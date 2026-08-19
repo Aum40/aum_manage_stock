@@ -7,6 +7,7 @@ generator client {
   provider     = "prisma-client"
   output       = "../src/database/generated/prisma"
   moduleFormat = "cjs"
+  importFileExtension = ""
 }
 
 datasource db {
@@ -113,11 +114,14 @@ model categories {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  products Product[] // [เซิ่น] back-relation ที่ Prisma บังคับ — บรรทัดเดียว ไม่แตะ field อื่น
+
   @@unique([ownerId, name], map: "uq_category_owner_name")
   @@map("categories")
 }
 
-// ============================================================
+// =====================================================
+
 // feature/subscriptions-resource + feature/shops-resource (พี่ปาน)
 // ============================================================
 
@@ -200,3 +204,28 @@ model Shop {
 //   (allowed = includedShopQuota ตรงๆ ตามแพ็กเกจ, used = COUNT(shops
 //   WHERE ownerId = userId AND deletedAt IS NULL), สร้างร้านได้เมื่อ
 //   status = ACTIVE AND used < allowed)
+// =====================================================================
+// [เซิ่น] feature/products-resource
+// =====================================================================
+
+/// Product Catalog กลาง ระดับเจ้าของร้าน (owner) — ใช้ร่วมกันได้ทุกร้าน
+/// SRS: สินค้าเดียวกันใช้หลายร้าน นับ product quota เพียง 1 รายการ
+model Product {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  ownerId    String    @map("owner_id") @db.Uuid
+  categoryId String?   @map("category_id") @db.Uuid
+  name       String    @db.VarChar(200)
+  barcode    String?   @db.VarChar(50)
+  unit       String    @db.VarChar(20)
+  imageUrl   String?   @map("image_url") @db.VarChar(500)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  category categories? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, deletedAt], name: "idx_product_owner_deleted")
+  @@index([ownerId, name], name: "idx_product_owner_name")
+  @@index([categoryId], name: "idx_product_category")
+  @@map("products")
+}
