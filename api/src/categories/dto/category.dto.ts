@@ -22,11 +22,11 @@ export const createCategorySchema = z.object({
     }),
 });
 
-export class CreateCategoryDto extends createZodDto(createCategorySchema) {}
+export type CreateCategoryDto = z.infer<typeof createCategorySchema>;
 
 export const updateCategorySchema = createCategorySchema.partial();
 
-export class UpdateCategoryDto extends createZodDto(updateCategorySchema) {}
+export type UpdateCategoryDto = z.infer<typeof updateCategorySchema>;
 
 export const categoryResponseSchema = z.object({
   id: z.uuid(),

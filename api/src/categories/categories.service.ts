@@ -22,7 +22,7 @@ export class CategoriesService {
    */
   async create(ownerId: string, dto: CreateCategoryDto) {
     try {
-      return await this.prisma.category.create({
+      return await this.prisma.categories.create({
         data: {
           ownerId,
           name: dto.name,
@@ -35,7 +35,7 @@ export class CategoriesService {
   }
 
   findAll(ownerId: string) {
-    return this.prisma.category.findMany({
+    return this.prisma.categories.findMany({
       where: { ownerId },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
     });
@@ -49,7 +49,7 @@ export class CategoriesService {
     await this.findOwnedOrFail(ownerId, id);
 
     try {
-      return await this.prisma.category.update({
+      return await this.prisma.categories.update({
         where: { id },
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
@@ -63,18 +63,12 @@ export class CategoriesService {
     }
   }
 
-  /** Hard delete. Products in this category survive; their category_id becomes NULL. */
   async remove(ownerId: string, id: string) {
     await this.findOwnedOrFail(ownerId, id);
-    await this.prisma.category.delete({ where: { id } });
+    await this.prisma.categories.delete({ where: { id } });
   }
-
-  /**
-   * Answers 404 both when the category does not exist and when it belongs to
-   * another owner, so callers cannot probe which ids are in the system.
-   */
   private async findOwnedOrFail(ownerId: string, id: string) {
-    const category = await this.prisma.category.findFirst({
+    const category = await this.prisma.categories.findFirst({
       where: { id, ownerId },
     });
 
