@@ -1,5 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { PendingAction, Prisma, StockMovementSource } from '@prisma/client';
+import {
+  PendingAction,
+  Prisma,
+  StockMovementSource,
+} from '../generated/prisma-client/client';
 import { PrismaService } from '../database/prisma.service';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import { STOCK_AUTHORIZATION_PORT } from './ports/stock-authorization.port';

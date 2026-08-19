@@ -7,7 +7,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PendingAction, PendingActionSource, Prisma } from '@prisma/client';
+import {
+  PendingAction,
+  PendingActionSource,
+  Prisma,
+} from '../generated/prisma-client/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import { StockService } from '../stock/stock.service';
