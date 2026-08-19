@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
-  PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
+  PORT: z.coerce.number().int().min(1).max(65_535).default(8000),
   PENDING_ACTION_TTL_MINUTES: z.coerce
     .number()
     .int()
