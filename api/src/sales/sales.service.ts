@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../generated/prisma-client/client';
 import { PrismaService } from '../database/prisma.service';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import type { CreateSaleDto, SaleQueryDto } from './dto/sales.dto';

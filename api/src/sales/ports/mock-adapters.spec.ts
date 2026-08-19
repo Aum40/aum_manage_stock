@@ -18,11 +18,14 @@ describe('sales mock adapters', () => {
       products.scan(SALES_MOCK_SHOP_ID, '8850000000011'),
     ).resolves.toMatchObject({ name: 'Americano', quantity: 20 });
     await expect(
-      products.adjustStock({} as never, {
-        shopId: SALES_MOCK_SHOP_ID,
-        shopProductId: '30000000-0000-4000-8000-000000000001',
-        quantityDelta: -2,
-      }),
+      products.adjustStock(
+        {},
+        {
+          shopId: SALES_MOCK_SHOP_ID,
+          shopProductId: '30000000-0000-4000-8000-000000000001',
+          quantityDelta: -2,
+        },
+      ),
     ).resolves.toEqual({ quantityBefore: 20, quantityAfter: 18 });
     await expect(
       products.scan(SALES_MOCK_SHOP_ID, '8850000000011'),
@@ -35,11 +38,14 @@ describe('sales mock adapters', () => {
       NotFoundException,
     );
     expect(() =>
-      products.adjustStock({} as never, {
-        shopId: SALES_MOCK_SHOP_ID,
-        shopProductId: '30000000-0000-4000-8000-000000000003',
-        quantityDelta: -11,
-      }),
+      products.adjustStock(
+        {},
+        {
+          shopId: SALES_MOCK_SHOP_ID,
+          shopProductId: '30000000-0000-4000-8000-000000000003',
+          quantityDelta: -11,
+        },
+      ),
     ).toThrow(ConflictException);
   });
 
@@ -47,19 +53,25 @@ describe('sales mock adapters', () => {
     const staff = new MockSalesStaffAdapter();
     const subscriptions = new MockSalesSubscriptionAdapter();
     await expect(
-      staff.assertCanManageSales({} as never, {
-        shopId: SALES_MOCK_SHOP_ID,
-        staffId: SALES_MOCK_STAFF_ID,
-      }),
+      staff.assertCanManageSales(
+        {},
+        {
+          shopId: SALES_MOCK_SHOP_ID,
+          staffId: SALES_MOCK_STAFF_ID,
+        },
+      ),
     ).resolves.toBeUndefined();
     await expect(
-      subscriptions.assertSalesEnabled({} as never, SALES_MOCK_SHOP_ID),
+      subscriptions.assertSalesEnabled({}, SALES_MOCK_SHOP_ID),
     ).resolves.toBeUndefined();
     expect(() =>
-      staff.assertCanManageSales({} as never, {
-        shopId: SALES_MOCK_SHOP_ID,
-        staffId: 'wrong',
-      }),
+      staff.assertCanManageSales(
+        {},
+        {
+          shopId: SALES_MOCK_SHOP_ID,
+          staffId: 'wrong',
+        },
+      ),
     ).toThrow(ForbiddenException);
   });
 });

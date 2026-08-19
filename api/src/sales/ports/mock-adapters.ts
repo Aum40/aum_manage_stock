@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../../generated/prisma-client/client';
 import { SalesStaffPort, SalesSubscriptionPort } from './sales-access.port';
 import { SalesProductPort, SellableProduct } from './sales-product.port';
 

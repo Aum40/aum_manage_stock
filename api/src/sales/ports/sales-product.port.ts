@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../../generated/prisma-client/client';
 
 export const SALES_PRODUCT_PORT = Symbol('SALES_PRODUCT_PORT');
 export interface SellableProduct {
