@@ -4,30 +4,19 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { cleanupOpenApiDoc, ZodValidationPipe } from 'nestjs-zod';
 import { AppModule } from './app.module';
-import type { EnvVariable } from './config/env.validation';
+import { Logger, ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(new ZodValidationPipe());
-
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Aum Manage Stocks API')
-    .setDescription('API documentation for the Aum Manage Stocks backend')
-    .setVersion('0.1.0')
-    .build();
-
-  SwaggerModule.setup(
-    'docs',
-    app,
-    cleanupOpenApiDoc(SwaggerModule.createDocument(app, swaggerConfig)),
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+    }),
   );
 
-  const configService = app.get(ConfigService<EnvVariable, true>);
-  const port = configService.get('PORT', { infer: true });
-
-  await app.listen(port);
-  new Logger('Bootstrap').log(`Swagger UI: http://localhost:${port}/docs`);
+  await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap().catch((error) => {
   const logger = new Logger('Bootstrap');

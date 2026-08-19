@@ -13,7 +13,92 @@ datasource db {
   provider = "postgresql"
 }
 
-model Category {
+enum UserRole {
+  SHOP_OWNER
+  SHOP_STAFF
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model User {
+  id                 String     @id @default(uuid()) @db.Uuid
+  firstName          String     @map("first_name")
+  lastName           String     @map("last_name")
+  email              String?    @unique
+  username           String?    @unique @db.VarChar(50)
+  passwordHash       String?    @map("password_hash")
+  lineUserId         String?    @unique @map("line_user_id")
+  googleId           String?    @unique @map("google_id")
+  ownerId            String?    @map("owner_id") @db.Uuid
+  role               UserRole
+  twoFactorEnabled   Boolean    @default(false) @map("two_factor_enabled")
+  twoFactorSecretEnc String?    @map("two_factor_secret_enc")
+  status             UserStatus @default(ACTIVE)
+  lastLoginAt        DateTime?  @map("last_login_at") @db.Timestamptz(2)
+  deletedAt          DateTime?  @map("deleted_at") @db.Timestamptz(2)
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(2)
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(2)
+
+  owner                  User?                   @relation("OwnerStaff", fields: [ownerId], references: [id], onDelete: Restrict)
+  staff                  User[]                  @relation("OwnerStaff")
+  refreshTokens          RefreshToken[]
+  passwordResetTokens    PasswordResetToken[]
+  twoFactorRecoveryCodes TwoFactorRecoveryCode[]
+
+  @@index([email], name: "idx_user_email")
+  @@index([username], name: "idx_user_username")
+  @@index([lineUserId], name: "idx_user_line")
+  @@index([googleId], name: "idx_user_google")
+  @@index([ownerId], name: "idx_user_owner")
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @map("token_hash")
+  familyId  String    @map("family_id") @db.Uuid
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(2)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(2)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(2)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(2)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], name: "idx_refresh_token_user")
+  @@index([familyId], name: "idx_refresh_token_family")
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(2)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(2)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(2)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], name: "idx_password_reset_user")
+  @@map("password_reset_tokens")
+}
+
+model TwoFactorRecoveryCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(2)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(2)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  model categories {
   id           String   @id @default(uuid(7)) @db.Uuid
   ownerId      String   @map("owner_id") @db.Uuid
   name         String   @db.VarChar(100)
@@ -22,5 +107,7 @@ model Category {
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([ownerId, name], map: "uq_category_owner_name")
+  @@index([userId], name: "idx_2fa_recovery_user")
+  @@map("two_factor_recovery_codes")
   @@map("categories")
 }
