@@ -1,24 +1,20 @@
-import { Trim } from '@/common/decorators/trim.decorator';
-import { Type } from 'class-transformer';
-import {
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 
-export class CreateCategoryDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  @Trim()
-  name: string;
+export const createCategorySchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Category name is required')
+    .max(100, 'Category name must be at most 100 characters')
+    .meta({
+      description: 'Unique per owner, shared across every shop they own',
+      example: 'Beverages',
+    }),
+  displayOrder: z.number().int().min(0).optional().meta({
+    description: 'Sort position in listings; lower values come first',
+    example: 0,
+  }),
+});
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  displayOrder?: number;
-}
+export class CreateCategoryDto extends createZodDto(createCategorySchema) {}

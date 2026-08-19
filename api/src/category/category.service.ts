@@ -102,8 +102,8 @@ export class CategoryService {
       ownerId: category.ownerId,
       name: category.name,
       displayOrder: category.displayOrder,
-      createdAt: category.createdAt,
-      updatedAt: category.updatedAt,
+      createdAt: category.createdAt.toISOString(),
+      updatedAt: category.updatedAt.toISOString(),
     };
   }
 }

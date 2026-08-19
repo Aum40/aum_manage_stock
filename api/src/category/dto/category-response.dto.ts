@@ -1,13 +1,13 @@
-export class CategoryResponseDto {
-  id: string;
+import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 
-  ownerId: string;
+export const categoryResponseSchema = z.object({
+  id: z.uuid(),
+  ownerId: z.uuid(),
+  name: z.string(),
+  displayOrder: z.number().int(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
 
-  name: string;
-
-  displayOrder: number;
-
-  createdAt: Date;
-
-  updatedAt: Date;
-}
+export class CategoryResponseDto extends createZodDto(categoryResponseSchema) {}

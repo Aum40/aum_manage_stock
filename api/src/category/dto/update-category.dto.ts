@@ -1,25 +1,6 @@
-import { Trim } from '@/common/decorators/trim.decorator';
-import { Type } from 'class-transformer';
-import {
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { createZodDto } from 'nestjs-zod';
+import { createCategorySchema } from './create-category.dto';
 
-export class UpdateCategoryDto {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  @Trim()
-  name?: string;
+export const updateCategorySchema = createCategorySchema.partial();
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  displayOrder?: number;
-}
+export class UpdateCategoryDto extends createZodDto(updateCategorySchema) {}
