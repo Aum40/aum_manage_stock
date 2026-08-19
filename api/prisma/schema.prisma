@@ -10,6 +10,13 @@ datasource db {
 enum StockMovementType {
   MANUAL_ADJUSTMENT
   CHAT_ADJUSTMENT
+  SALE
+  SALE_VOID
+}
+
+enum SaleStatus {
+  COMPLETED
+  VOIDED
 }
 
 enum StockMovementSource {
@@ -39,48 +46,83 @@ enum PendingActionStatus {
 }
 
 model StockMovement {
-  id               String                 @id @default(uuid()) @db.Uuid
-  shopId           String                 @db.Uuid
-  shopProductId    String                 @db.Uuid
-  actorId          String?                @db.Uuid
-  movementType     StockMovementType
-  quantityDelta    Int
-  quantityBefore   Int
-  quantityAfter    Int
-  source           StockMovementSource
-  note             String?
-  referenceType    String?
-  referenceId      String?
-  createdAt        DateTime               @default(now())
+  id             String              @id @default(uuid()) @db.Uuid
+  shopId         String              @db.Uuid
+  shopProductId  String              @db.Uuid
+  actorId        String?             @db.Uuid
+  movementType   StockMovementType
+  quantityDelta  Int
+  quantityBefore Int
+  quantityAfter  Int
+  source         StockMovementSource
+  note           String?
+  referenceType  String?
+  referenceId    String?
+  createdAt      DateTime            @default(now())
+  // TODO(shop-products/staff): add relations after the owning models stabilize.
 
+  @@unique([referenceType, referenceId])
   @@index([shopId, createdAt(sort: Desc)])
   @@index([shopId, shopProductId, createdAt(sort: Desc)])
   @@index([shopId, actorId, createdAt(sort: Desc)])
   @@index([shopId, movementType, createdAt(sort: Desc)])
-  @@unique([referenceType, referenceId])
-  // TODO(shop-products/staff): add relations after the owning models stabilize.
 }
 
 model PendingAction {
-  id               String                @id @default(uuid()) @db.Uuid
-  shopId           String                @db.Uuid
-  actorId          String?               @db.Uuid
-  source           PendingActionSource
-  originalMessage  String
-  intent           PendingActionIntent
-  shopProductId    String?               @db.Uuid
-  productQuery     String
-  operation        StockOperation
-  quantity         Int
-  status           PendingActionStatus   @default(PENDING)
-  payload          Json?
-  expiresAt        DateTime
-  confirmedAt      DateTime?
-  cancelledAt      DateTime?
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  id              String              @id @default(uuid()) @db.Uuid
+  shopId          String              @db.Uuid
+  actorId         String?             @db.Uuid
+  source          PendingActionSource
+  originalMessage String
+  intent          PendingActionIntent
+  shopProductId   String?             @db.Uuid
+  productQuery    String
+  operation       StockOperation
+  quantity        Int
+  status          PendingActionStatus @default(PENDING)
+  payload         Json?
+  expiresAt       DateTime
+  confirmedAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  // TODO(shop-products/staff): add relations after the owning models stabilize.
 
   @@index([shopId, status, createdAt(sort: Desc)])
   @@index([expiresAt, status])
-  // TODO(shop-products/staff): add relations after the owning models stabilize.
+}
+
+model Sale {
+  id          String     @id @default(uuid()) @db.Uuid
+  shopId      String     @db.Uuid
+  staffId     String     @db.Uuid
+  status      SaleStatus @default(COMPLETED)
+  totalAmount Decimal    @db.Decimal(18, 2)
+  note        String?
+  voidedById  String?    @db.Uuid
+  voidReason  String?
+  voidedAt    DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  items       SaleItem[]
+  // TODO(staff): add relations after the owning model stabilizes.
+
+  @@index([shopId, createdAt(sort: Desc)])
+  @@index([shopId, status, createdAt(sort: Desc)])
+}
+
+model SaleItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  saleId        String   @db.Uuid
+  shopProductId String   @db.Uuid
+  productName   String
+  unitPrice     Decimal  @db.Decimal(18, 2)
+  quantity      Int
+  lineTotal     Decimal  @db.Decimal(18, 2)
+  createdAt     DateTime @default(now())
+  sale          Sale     @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  // TODO(shop-products): add relation after the owning model stabilizes.
+
+  @@index([saleId])
+  @@index([shopProductId])
 }

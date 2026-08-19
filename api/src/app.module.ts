@@ -5,6 +5,7 @@ import { DatabaseModule } from './database/database.module';
 import { LineModule } from './line/line.module';
 import { StockModule } from './stock/stock.module';
 import { validateEnvironment } from './config/env.validation';
+import { SalesModule } from './sales/sales.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { validateEnvironment } from './config/env.validation';
     StockModule,
     ChatCommandModule,
     LineModule,
+    SalesModule,
   ],
 })
 export class AppModule {}

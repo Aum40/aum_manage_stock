@@ -10,6 +10,10 @@ const envSchema = z.object({
     .max(1_440)
     .default(15),
   LINE_CHANNEL_SECRET: z.string().min(1).optional(),
+  SALES_MOCK_MODE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export function validateEnvironment(config: Record<string, unknown>) {
