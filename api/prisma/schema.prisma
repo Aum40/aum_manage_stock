@@ -98,7 +98,11 @@ model TwoFactorRecoveryCode {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  model categories {
+  @@index([userId], name: "idx_2fa_recovery_user")
+  @@map("two_factor_recovery_codes")
+}
+
+model categories {
   id           String   @id @default(uuid(7)) @db.Uuid
   ownerId      String   @map("owner_id") @db.Uuid
   name         String   @db.VarChar(100)
@@ -107,7 +111,5 @@ model TwoFactorRecoveryCode {
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([ownerId, name], map: "uq_category_owner_name")
-  @@index([userId], name: "idx_2fa_recovery_user")
-  @@map("two_factor_recovery_codes")
   @@map("categories")
 }
