@@ -100,4 +100,11 @@ model TwoFactorRecoveryCode {
 
   @@index([userId], name: "idx_2fa_recovery_user")
   @@map("two_factor_recovery_codes")
+  
+model categories {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  ownerId      String   @map("owner_id") @db.Uuid
+  name         String   @db.VarChar(100)
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now())
 }
