@@ -25,13 +25,13 @@ Example flow:
 $shop = '10000000-0000-4000-8000-000000000001'
 $headers = @{ 'x-staff-id' = '20000000-0000-4000-8000-000000000001' }
 
-Invoke-RestMethod -Method Post -Uri "http://localhost:3000/shops/$shop/sales/scan" -Headers $headers -ContentType 'application/json' -Body '{"barcode":"8850000000011"}'
+Invoke-RestMethod -Method Post -Uri "http://localhost:8000/shops/$shop/sales/scan" -Headers $headers -ContentType 'application/json' -Body '{"barcode":"8850000000011"}'
 
-$sale = Invoke-RestMethod -Method Post -Uri "http://localhost:3000/shops/$shop/sales" -Headers $headers -ContentType 'application/json' -Body '{"items":[{"shopProductId":"30000000-0000-4000-8000-000000000001","quantity":2},{"shopProductId":"30000000-0000-4000-8000-000000000003","quantity":1}],"note":"mock order"}'
+$sale = Invoke-RestMethod -Method Post -Uri "http://localhost:8000/shops/$shop/sales" -Headers $headers -ContentType 'application/json' -Body '{"items":[{"shopProductId":"30000000-0000-4000-8000-000000000001","quantity":2},{"shopProductId":"30000000-0000-4000-8000-000000000003","quantity":1}],"note":"mock order"}'
 
-Invoke-RestMethod -Method Get -Uri "http://localhost:3000/shops/$shop/sales" -Headers $headers
-Invoke-RestMethod -Method Get -Uri "http://localhost:3000/shops/$shop/sales/$($sale.id)" -Headers $headers
-Invoke-RestMethod -Method Post -Uri "http://localhost:3000/shops/$shop/sales/$($sale.id)/void" -Headers $headers -ContentType 'application/json' -Body '{"reason":"mock cancellation"}'
+Invoke-RestMethod -Method Get -Uri "http://localhost:8000/shops/$shop/sales" -Headers $headers
+Invoke-RestMethod -Method Get -Uri "http://localhost:8000/shops/$shop/sales/$($sale.id)" -Headers $headers
+Invoke-RestMethod -Method Post -Uri "http://localhost:8000/shops/$shop/sales/$($sale.id)/void" -Headers $headers -ContentType 'application/json' -Body '{"reason":"mock cancellation"}'
 ```
 
 Inventory is in memory and resets whenever the API restarts. Sale records and stock movements are stored in PostgreSQL.
