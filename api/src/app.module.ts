@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CategoriesModule } from './categories/categories.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -20,6 +21,7 @@ import { validate } from './config/env.validation';
     AdminModule,
     PaymentsModule,
     CategoriesModule,
+    SubscriptionsModule,
   ],
 })
 export class AppModule {}
