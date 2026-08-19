@@ -13,11 +13,12 @@ export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * หมวดหมู่ผูกกับเจ้าของร้าน ไม่ได้ผูกกับร้าน -> เจ้าของที่มีหลายร้านใช้ชุดเดียวกันทุกร้าน
+   * Categories belong to the shop owner rather than to a shop, so an owner
+   * with several shops shares one set across all of them.
    *
-   * TODO(staff): เมื่อ feature/staff-resource merge แล้ว ต้องเช็ค
-   * `staff_permissions.can_manage_product` ก่อนอนุญาตให้พนักงานสร้าง/แก้ไข
-   * ส่วนการลบสงวนไว้ให้เจ้าของร้านเท่านั้น
+   * TODO(staff): once feature/staff-resource merges, check
+   * `staff_permissions.can_manage_product` before letting a staff member
+   * create or update. Deleting stays owner-only.
    */
   async create(ownerId: string, dto: CreateCategoryDto) {
     try {
@@ -42,7 +43,7 @@ export class CategoriesService {
 
   async update(ownerId: string, id: string, dto: UpdateCategoryDto) {
     if (dto.name === undefined && dto.displayOrder === undefined) {
-      throw new BadRequestException('ต้องระบุอย่างน้อย 1 ฟิลด์ที่ต้องการแก้ไข');
+      throw new BadRequestException('At least one field must be provided');
     }
 
     await this.findOwnedOrFail(ownerId, id);
@@ -62,15 +63,15 @@ export class CategoriesService {
     }
   }
 
-  /** hard delete ตามที่ตกลงไว้ - สินค้าที่อยู่ในหมวดนี้ไม่ถูกลบตาม แค่ category_id กลายเป็น NULL */
+  /** Hard delete. Products in this category survive; their category_id becomes NULL. */
   async remove(ownerId: string, id: string) {
     await this.findOwnedOrFail(ownerId, id);
     await this.prisma.category.delete({ where: { id } });
   }
 
   /**
-   * ตอบ 404 ทั้งกรณีไม่มีจริงและกรณีเป็นของเจ้าของคนอื่น
-   * เพื่อไม่ให้ผู้เรียกเดาได้ว่า id ไหนมีอยู่ในระบบบ้าง
+   * Answers 404 both when the category does not exist and when it belongs to
+   * another owner, so callers cannot probe which ids are in the system.
    */
   private async findOwnedOrFail(ownerId: string, id: string) {
     const category = await this.prisma.category.findFirst({
@@ -78,7 +79,7 @@ export class CategoriesService {
     });
 
     if (!category) {
-      throw new NotFoundException('ไม่พบหมวดหมู่ที่ต้องการ');
+      throw new NotFoundException('Category not found');
     }
 
     return category;
@@ -91,8 +92,8 @@ export class CategoriesService {
     ) {
       return new ConflictException(
         name === undefined
-          ? 'มีหมวดหมู่ชื่อนี้อยู่แล้ว'
-          : `มีหมวดหมู่ชื่อ "${name}" อยู่แล้ว`,
+          ? 'Category name already exists'
+          : `Category "${name}" already exists`,
       );
     }
 

@@ -13,7 +13,7 @@ async function bootstrap() {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Aum Manage Stocks API')
-    .setDescription('ระบบจัดการสต็อกสินค้าหลังบ้านสำหรับร้านค้ารายย่อย')
+    .setDescription('API documentation for the Aum Manage Stocks backend')
     .setVersion('0.1.0')
     .build();
 

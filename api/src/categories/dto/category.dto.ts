@@ -5,18 +5,21 @@ export const createCategorySchema = z.object({
   name: z
     .string()
     .trim()
-    .min(1, 'ต้องระบุชื่อหมวดหมู่')
-    .max(100, 'ชื่อหมวดหมู่ต้องยาวไม่เกิน 100 ตัวอักษร')
+    .min(1, 'Category name is required')
+    .max(100, 'Category name must be at most 100 characters')
     .meta({
-      description: 'ชื่อหมวดหมู่ ห้ามซ้ำภายในเจ้าของร้านคนเดียวกัน',
-      example: 'เครื่องดื่ม',
+      description: 'Unique per owner, shared across every shop they own',
+      example: 'Beverages',
     }),
   displayOrder: z
     .number()
-    .int('ลำดับการแสดงผลต้องเป็นจำนวนเต็ม')
-    .min(0, 'ลำดับการแสดงผลต้องไม่ติดลบ')
+    .int('Display order must be an integer')
+    .min(0, 'Display order cannot be negative')
     .optional()
-    .meta({ description: 'ลำดับการแสดงผล ยิ่งน้อยยิ่งอยู่บน', example: 0 }),
+    .meta({
+      description: 'Sort position in listings; lower values come first',
+      example: 0,
+    }),
 });
 
 export class CreateCategoryDto extends createZodDto(createCategorySchema) {}

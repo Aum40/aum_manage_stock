@@ -33,26 +33,28 @@ import {
 @ApiHeader({
   name: 'x-user-id',
   description:
-    'UUID ของเจ้าของร้าน (ใช้ชั่วคราวแทน JWT จนกว่า feature/auth-resource จะ merge)',
+    'Shop owner id. Temporary stand-in for the JWT until feature/auth-resource merges.',
   required: true,
   example: '0198f3c2-6b4a-7c31-9d55-2f8a4c1e7b60',
 })
-@ApiBadRequestResponse({ description: 'ข้อมูลที่ส่งมาไม่ถูกต้อง' })
+@ApiBadRequestResponse({ description: 'The request payload is invalid' })
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Post()
-  @ApiOperation({ summary: 'สร้างหมวดหมู่ใหม่' })
-  @ApiCreatedResponse({ description: 'สร้างสำเร็จ', type: CategoryResponseDto })
-  @ApiConflictResponse({ description: 'ชื่อหมวดหมู่ซ้ำกับที่มีอยู่แล้ว' })
+  @ApiOperation({ summary: 'Create a category' })
+  @ApiCreatedResponse({ description: 'Created', type: CategoryResponseDto })
+  @ApiConflictResponse({
+    description: 'This owner already has a category with the same name',
+  })
   create(@OwnerId() ownerId: string, @Body() dto: CreateCategoryDto) {
     return this.categoriesService.create(ownerId, dto);
   }
 
   @Get()
   @ApiOperation({
-    summary: 'ดูหมวดหมู่ทั้งหมดของเจ้าของร้าน (ใช้ร่วมกันทุกร้าน)',
+    summary: "List the owner's categories, shared across all of their shops",
   })
   @ApiOkResponse({ type: CategoryResponseDto, isArray: true })
   findAll(@OwnerId() ownerId: string) {
@@ -60,10 +62,12 @@ export class CategoriesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'แก้ไขชื่อหรือลำดับการแสดงผลของหมวดหมู่' })
-  @ApiOkResponse({ description: 'แก้ไขสำเร็จ', type: CategoryResponseDto })
-  @ApiNotFoundResponse({ description: 'ไม่พบหมวดหมู่ที่ต้องการ' })
-  @ApiConflictResponse({ description: 'ชื่อหมวดหมู่ซ้ำกับที่มีอยู่แล้ว' })
+  @ApiOperation({ summary: 'Rename a category or change its display order' })
+  @ApiOkResponse({ description: 'Updated', type: CategoryResponseDto })
+  @ApiNotFoundResponse({ description: 'Category not found' })
+  @ApiConflictResponse({
+    description: 'This owner already has a category with the same name',
+  })
   update(
     @OwnerId() ownerId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -75,10 +79,10 @@ export class CategoriesController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
-    summary: 'ลบหมวดหมู่ถาวร (สินค้าในหมวดนี้ไม่ถูกลบตาม)',
+    summary: 'Delete a category permanently; its products are kept',
   })
-  @ApiNoContentResponse({ description: 'ลบสำเร็จ' })
-  @ApiNotFoundResponse({ description: 'ไม่พบหมวดหมู่ที่ต้องการ' })
+  @ApiNoContentResponse({ description: 'Deleted' })
+  @ApiNotFoundResponse({ description: 'Category not found' })
   remove(@OwnerId() ownerId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.categoriesService.remove(ownerId, id);
   }
