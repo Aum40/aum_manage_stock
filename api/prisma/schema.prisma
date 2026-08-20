@@ -66,8 +66,9 @@ model StockMovement {
   referenceType  String?
   referenceId    String?
   createdAt      DateTime            @default(now())
+  shop           Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
   shopProduct    ShopProduct         @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
-  // TODO(staff): add actor relation after the owning permission model stabilizes.
+  actor          User?               @relation("StockMovementActor", fields: [actorId], references: [id], onDelete: Restrict)
 
   @@unique([referenceType, referenceId])
   @@index([shopId, createdAt(sort: Desc)])
@@ -94,8 +95,9 @@ model PendingAction {
   cancelledAt     DateTime?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
+  shop            Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
   shopProduct     ShopProduct?        @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
-  // TODO(staff): add actor relation after the owning permission model stabilizes.
+  actor           User?               @relation("PendingActionActor", fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([shopId, status, createdAt(sort: Desc)])
   @@index([expiresAt, status])
@@ -115,7 +117,8 @@ model Sale {
   updatedAt   DateTime   @updatedAt
   items       SaleItem[]
   shop        Shop       @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  // TODO(staff): add relations after the owning model stabilizes.
+  staff       User       @relation("SaleStaff", fields: [staffId], references: [id], onDelete: Restrict)
+  voidedBy    User?      @relation("SaleVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
 
   @@index([shopId, createdAt(sort: Desc)])
   @@index([shopId, status, createdAt(sort: Desc)])
@@ -179,6 +182,10 @@ model User {
   // feature/staff-resource (อั้ม) — back-relation ที่ Prisma บังคับ
   shopStaffs             ShopStaff[]
   permissionsGranted     StaffPermission[]
+  stockMovements         StockMovement[]         @relation("StockMovementActor")
+  pendingActions         PendingAction[]         @relation("PendingActionActor")
+  salesCreated           Sale[]                  @relation("SaleStaff")
+  salesVoided            Sale[]                  @relation("SaleVoidedBy")
 
   @@index([email], name: "idx_user_email")
   @@index([username], name: "idx_user_username")
@@ -310,9 +317,12 @@ model Shop {
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  owner User        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  staff ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
-  sales Sale[]
+  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  staff          ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
+  sales          Sale[]
+  shopProducts   ShopProduct[]
+  stockMovements StockMovement[]
+  pendingActions PendingAction[]
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
@@ -426,12 +436,10 @@ model ShopProduct {
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
   stockMovements StockMovement[]
   pendingActions PendingAction[]
   saleItems      SaleItem[]
-
-  // TODO(shops): เพิ่ม relation ไป model Shop เมื่อ feature/shops-resource เข้า dev
-  //   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@unique([shopId, productId], map: "uq_shop_product")
   @@index([shopId, status], name: "idx_shop_product_shop_status")
