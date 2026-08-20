@@ -11,20 +11,17 @@ cd api
 pnpm install
 cp .env.example .env            # ใส่ DATABASE_URL ของ postgres ตัวเอง
 
-pnpm prisma migrate dev         # สร้างตารางใน DB ตาม prisma/migrations/
+pnpm prisma db push             # sync schema เข้า DB ของตัวเอง
                                 # (pnpm install รัน prisma generate ให้แล้วผ่าน postinstall)
+psql "$DATABASE_URL" -f prisma/sql/001_products_partial_indexes.sql
 
 pnpm start:dev                  # เปิด http://localhost:3000/docs
 pnpm test
 ```
 
-> **อัปเดต**: โฟลเดอร์ `prisma/migrations` สร้างเรียบร้อยแล้ว (ครอบคลุมครบทุกตาราง
-> รวม `products` / `shop_products`) ตามที่ทีมตกลงกันไว้ว่าจะทำครั้งเดียวตอน merge รวม
-> — ตั้งแต่นี้ไป **ห้ามใช้ `prisma db push`** ให้ใช้ `pnpm prisma migrate dev --name <สิ่งที่แก้>`
-> แล้ว commit โฟลเดอร์ที่ได้ ดูกฎเต็มใน `AGENTS.md` หัวข้อ Migration discipline
->
-> ไม่ต้องรัน `prisma/sql/001_products_partial_indexes.sql` ด้วยมือแล้ว — partial index
-> ทั้งสองตัวถูกรวมเข้าไปในไฟล์ migration เรียบร้อย
+> ทีมใช้ `pnpm prisma db push` ระหว่าง dev — ไม่ต้องสร้าง migration เอง
+> ทุกครั้งที่ `git pull origin dev` แล้ว `schema.prisma` เปลี่ยน ให้รัน `db push` ซ้ำ
+> ไม่งั้น DB ของตัวเองจะไม่ตรงกับโค้ด
 
 ## ยิงเทสต์ระหว่างที่ auth ยังไม่เสร็จ
 
