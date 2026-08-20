@@ -2,10 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../database/prisma.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import {
-  AssignStaffDto,
-  StaffPermissionsDto,
-} from './dto/staff.dto';
+import { AssignStaffDto, StaffPermissionsDto } from './dto/staff.dto';
 
 const SAFE_STAFF_SELECT = {
   id: true,
@@ -39,9 +36,7 @@ export class StaffService {
 
   async getQuota(ownerId: string) {
     const subscription =
-      await this.subscriptionsService.getSubscriptionWithPlanOrThrow(
-        ownerId,
-      );
+      await this.subscriptionsService.getSubscriptionWithPlanOrThrow(ownerId);
     const used = await this.prisma.user.count({
       where: { ownerId, role: 'SHOP_STAFF', deletedAt: null },
     });
