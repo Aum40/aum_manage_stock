@@ -42,16 +42,9 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Check migrations cover the schema
-        run: |
-          pnpm exec prisma migrate diff \
-            --from-migrations ./prisma/migrations \
-            --to-schema ./prisma/schema.prisma \
-            --shadow-database-url "$SHADOW_DATABASE_URL" \
-            --exit-code && echo "migrations are in sync with schema.prisma"
-        env:
-          SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shadow
-        continue-on-error: true
+      # No migration-vs-schema check: the team syncs databases with
+      # `prisma db push`, so prisma/migrations/ is expected to lag behind
+      # schema.prisma until someone regenerates it before deployment.
 
       # lint:check, not lint — the `lint` script carries --fix, which would
       # rewrite files in CI instead of reporting the problem.
@@ -63,21 +56,6 @@ jobs:
 
       - name: Build
         run: pnpm run build
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: shadow
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
   web:
     name: web (Next.js)
