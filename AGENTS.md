@@ -1,0 +1,225 @@
+# Aum Manage Stocks — Agent Guide
+
+Retail shop back-office stock management platform (NestJS API + Next.js web, pnpm monorepo: `api/`, `web/`). Ground truth for all business rules is `SRS - Aum Manage Stocks.docx` — when this guide, the DBML, or the endpoint spreadsheet disagree with it, the SRS wins; flag the conflict instead of silently picking one.
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Frontend | Next.js (App Router) + TypeScript, Tailwind CSS, TanStack Query, shadcn/ui |
+| Backend | NestJS + TypeScript, Prisma ORM, PostgreSQL |
+| Realtime | Socket.io |
+| AI | Claude API (primary) + Ollama (local/offline use) |
+| LINE | LINE Login (OAuth) + LINE Messaging API |
+| Auth | JWT (access + refresh token), bcrypt |
+| File/Image storage | Cloudinary |
+| Barcode scan | html5-qrcode or Quagga2 (QR + EAN-13) |
+| Deployment | Vercel (web) + Railway/Render (api + PostgreSQL) |
+
+## Repo map
+
+- `api/` — NestJS backend. `api/prisma/design/schema.dbml` is the reviewed ER diagram (source of truth for the data model, kept in sync with the SRS). `api/prisma/schema.prisma` is the actual Prisma schema — update both together when the model changes.
+- `web/` — Next.js frontend.
+- Each of `api/` and `web/` may carry its own `AGENTS.md`/`CLAUDE.md` for tool/framework-specific notes (e.g. the Next.js one is auto-generated — don't hand-edit it). This root file is for cross-cutting product/business rules.
+
+## Library versions
+
+This is a **team project** — everyone installs from the committed `pnpm-lock.yaml`, which is the real pin. The table below is the intended version of each library; **update it in the same PR whenever you bump a dependency**, so nobody (human or agent) writes code against a different major.
+
+Toolchain: **Node 24.x**, **pnpm 11.8.0** (`packageManager` field in `web/package.json`).
+
+### `api/` — NestJS 11 + Prisma 7
+
+| Library | Version | Purpose |
+|---|---|---|
+| `@nestjs/common` / `core` / `platform-express` | `^11.0.1` | framework |
+| `@nestjs/config` | `^4.0.4` | env config |
+| `@nestjs/jwt` | `^11.0.2` | access + refresh token |
+| `@nestjs/mapped-types` | `^2.1.1` | `PartialType` for update DTOs |
+| `prisma` / `@prisma/client` / `@prisma/adapter-pg` | `^7.9.1` | ORM (v7 requires a driver adapter) |
+| `bcrypt` | `^6.0.0` | password hashing |
+| `class-validator` / `class-transformer` | `^0.15.1` / `^0.5.1` | DTO validation |
+| `zod` | `^4.4.3` | runtime schema validation (LLM output, tool args) |
+| `cloudinary` | `^2.10.0` | image upload |
+| `google-auth-library` | `^11.0.2` | Google OAuth |
+| `stripe` | `^22.5.0` | payments |
+| `@nestjs/websockets` / `@nestjs/platform-socket.io` | `^11.2.1` | realtime gateway |
+| `socket.io` | `^4.8.3` | realtime transport |
+| `@anthropic-ai/sdk` | `^0.117.1` | Claude API (production LLM) |
+| `ollama` | `^0.6.3` | local LLM (dev/offline) |
+| `otplib` | `^13.4.1` | TOTP 2FA |
+| `qrcode` (+ `@types/qrcode` `^1.5.6` dev) | `^1.5.4` | 2FA setup QR |
+| `@line/bot-sdk` | `^11.2.0` | LINE Messaging API |
+| `typescript` | `^5.7.3` | — |
+
+### `web/` — Next.js 16 + React 19
+
+| Library | Version | Purpose |
+|---|---|---|
+| `next` / `eslint-config-next` | `16.3.1` (exact) | App Router |
+| `react` / `react-dom` | `19.2.8` (exact) | — |
+| `next-auth` | `5.0.0-beta.32` (exact) | auth — beta, don't bump casually |
+| `react-hook-form` / `@hookform/resolvers` | `^7.85.0` / `^5.9.0` | forms |
+| `zod` | `^4.4.3` | shared schema language with the API |
+| `@stripe/stripe-js` / `@stripe/react-stripe-js` | `^9.13.0` / `^6.8.1` | payments |
+| `google-auth-library` | `^11.0.2` | Google OAuth |
+| `lucide-react` | `^1.32.0` | icons (shadcn's default set) |
+| `@tanstack/react-query` | `^5.101.4` | data fetching / cache |
+| `socket.io-client` | `^4.8.3` | realtime |
+| `html5-qrcode` | `^2.3.8` | barcode scanning (QR + EAN-13) |
+| `shadcn` (CLI) + `@base-ui/react`, `class-variance-authority`, `clsx`, `tailwind-merge`, `tw-animate-css` | see lockfile | UI components — installed by `shadcn init` |
+| `tailwindcss` / `@tailwindcss/postcss` | `^4` | styling (Tailwind v4 — CSS-first config, no `tailwind.config.js`) |
+| `typescript` | `^5` | — |
+
+## Git workflow — non-negotiable
+
+`main` is the release branch and `dev` is the integration branch. Both are protected by team rule.
+
+1. **Never commit, push, merge, or rebase directly onto `main`. No exceptions.** Not even a one-line fix, not even a hotfix, not even "just this once". `main` only ever changes through an approved pull request.
+2. **Never commit directly to `dev` either.** All work happens on a `feature/<resource>-resource` branch (see the ownership table below) and reaches `dev` through a pull request.
+3. **Every merge into `dev` requires a pull request with at least one approving review from a teammate.** Do not merge your own PR without that approval, and never use admin override or force-merge to bypass it.
+4. `main` receives changes **only** by pull request from `dev`, at release time, with team approval.
+5. **Never force-push** (`--force`, `--force-with-lease`) to `main` or `dev`, and never rewrite history that has already been pushed to a shared branch.
+
+### For agents working in this repo
+
+- Check the current branch (`git branch --show-current`) before making commits. If it is `main` or `dev`, **stop and tell the user** — create or switch to the correct `feature/*` branch first, don't commit where you are.
+- Only commit or push when the user explicitly asks. Opening a PR is an outward-facing action — confirm with the user before running `gh pr create`.
+- Never merge a PR on the user's behalf; approval is a human step by a teammate.
+- Branch naming: `feature/<resource>-resource`. Match the ownership table — don't invent a new branch name for work that already has one.
+
+### Shared files — coordinate before touching
+
+These sit on everyone's critical path, so a careless edit becomes a merge conflict for the whole team. Each has its own rule:
+
+| File | Rule |
+|---|---|
+| `api/prisma/schema.prisma` + `api/prisma/migrations/` | **Own PR, straight to `dev`, merged before anyone builds on it.** Never bundle a schema change inside a feature PR. Announce it to the team — everyone must pull `dev` and re-run `pnpm install` (which regenerates the Prisma client) right after it lands. |
+| `api/prisma/design/schema.dbml` | Update in the **same PR** as `schema.prisma`. The two must never disagree. |
+| `api/src/app.module.ts` | Add only your own module's import line. Don't reorder or reformat the file — that turns a one-line addition into a whole-file conflict. |
+| Shared guards / decorators / interceptors / `PrismaService` | Owned by `feature/auth-resource` (แพรว). Need a change? Ask, don't fork a local copy. |
+| `package.json` + `pnpm-lock.yaml` (both apps) | Dependency changes go in their **own small PR to `dev`**, early. Never bury them in a large feature PR. |
+| `web/src/app/globals.css`, `web/components.json` | Theme is already set (see Design system). Only change with team agreement. |
+
+**Migration discipline**: two people generating migrations from different bases produces two migrations with the same parent, which Prisma cannot reconcile. Always `git pull origin dev` immediately before running `prisma migrate dev`, and if someone else's migration landed first, rebase and regenerate yours rather than editing the timestamp.
+
+**After pulling `dev`, always run `pnpm install` in `api/`** — its `postinstall` runs `prisma generate`, and a stale client is the most common "it builds on my machine" failure here.
+
+## Module ownership & branches
+
+Work is split by resource module, one feature branch each. **Stay inside your own module's files** — if a task needs a change in someone else's module, flag it rather than editing across the boundary, and coordinate before touching shared files (`schema.prisma`, `app.module.ts`, shared guards/decorators).
+
+Branch naming: `feature/<resource>-resource`.
+
+| Owner | Branch | Modules |
+|---|---|---|
+| แพรว | `feature/auth-resource` | `AuthModule`, `UsersModule` |
+| แพรว | `feature/auth-resource (admin)` | `AdminModule` |
+| แพรว | `feature/payments-resource` | `PaymentsModule` |
+| พี่ปาน | `feature/subscriptions-resource` | `SubscriptionsModule` |
+| พี่ปาน | `feature/shops-resource` | `ShopsModule` |
+| อั้ม | `feature/staff-resource` | `StaffModule` |
+| อั้ม | `feature/categories-resource` | `CategoriesModule` |
+| เซิ่น | `feature/products-resource` | `ProductsModule` |
+| เซิ่น | `feature/shop-products-resource` | `ShopProductsModule` |
+| พี่ดิว | `feature/stock-movements-resource` | `StockMovementsModule` |
+| พี่ดิว | `feature/sales-resource` | `SalesModule` |
+| ทีม (Phase 2) | `feature/chatbot-resource` | `ChatbotModule` |
+| ทีม (Phase 2) | `feature/ai-recommendations-resource` | `AiRecommendationsModule` |
+| ทีม (Phase 2) | `feature/notifications-resource` | `NotificationsModule` |
+| **ยังไม่มอบหมาย** | `feature/dashboard-resource` | `DashboardModule` |
+
+`feature/dashboard-resource` has **no owner yet** — assign it before Phase 8. It depends on `sales-resource` being done, and Basic Dashboard is a Free-plan feature, so it is not optional Phase-2 work.
+
+**The per-endpoint detail lives in `aum-manage-stocks.xlsx` (sheet `endpoint`), not here** — 98 rows of method/path/body/note that change as work progresses. Read that sheet before implementing an endpoint; treat it as the API contract and this table as the ownership map. Don't copy the endpoint list into this file — a stale copy is worse than no copy.
+
+## Subscription model — fixed 3-tier, no à la carte quota
+
+Free / Plus / Pro only. **Upgrading a plan is the only way to get more quota — there is no separate purchase of extra shops, products, or staff slots**, in any plan. Don't add features that let a user top up quota outside a plan upgrade.
+
+| Plan | Price/yr | Shops | Active products | Staff quota | Chatbot | Barcode | AI Recommendations |
+|---|---|---|---|---|---|---|---|
+| Free | ฿0 | 1 | 100 | 0 | ✗ | ✗ | ✗ |
+| Plus | ฿2,499 | 3 | 3,000 | 6 | ✓ | ✓ | ✗ |
+| Pro | ฿3,499 | 5 | 5,000 | 10 | ✓ | ✓ | ✓ |
+
+Notes:
+- AI Chat (chatbot) is Plus **and** Pro. AI Recommendations is Pro **only** — these are not the same gate, don't conflate them.
+- `staff_quota` is counted at the **account level**, not per shop: one staff member assigned to multiple shops of the same owner still counts as 1.
+- When a paid plan expires, all of that owner's shops go **read-only** (viewable, not editable) until renewal. Free plan never expires and never goes read-only. Read-only is a computed state (from `status`/`expires_at`), not a stored column — enforce it in one NestJS guard, not scattered checks.
+
+## Data model invariants
+
+- **Central product catalog**: `products` belongs to the owner, not a shop. `shop_products` is the join table carrying per-shop `sell_price`/`stock_qty`/`low_stock_threshold`. The same product sold in multiple shops of one owner still counts as 1 toward the active-product quota.
+- **`stock_movements` is an append-only ledger** — it's the source of truth for stock, never UPDATE/DELETE a row. `shop_products.stock_qty` is just a cache that must be updated in the same transaction as any movement insert.
+- **Soft delete** everywhere for `products`, `shops`, `shop_staffs` — sales/stock history must never be lost.
+- **`sale_items` snapshots** product name/price/cost at sale time — never join back to `shop_products` to render a historical bill; prices change.
+- Barcode uniqueness is scoped to the owner's catalog (`owner_id + barcode`), not global.
+
+## Permission checks — always two layers
+
+Every action a `SHOP_STAFF` user takes on stock/product/chatbot/barcode/dashboard must pass **both**:
+1. `staff_permissions` for that `shop_staff` row (per-shop, owner-granted; defaults to all-false on creation)
+2. The owner's `subscription_plans` feature flags (plan-level gate, e.g. `chatbot_enabled`)
+
+Passing only one is a bug even if the other passes — e.g. an owner can grant `can_use_chatbot` on a Free plan, but the plan-level gate must still block it.
+
+## AI integration — reuse the patterns in `../ollama/`
+
+A sibling project at `../ollama/src` already has working reference patterns for this — don't reinvent them:
+
+- `ollama/src/configs/ollama.config.ts` — client setup (host + bearer token from env)
+- `ollama/src/03_structured_output.ts` — force JSON-only output via system prompt. In this project, validate the parsed JSON with a zod schema (the reference example doesn't, but we should).
+- `ollama/src/05_tool_loop.ts` — tool-calling loop: tools defined with zod param schemas, loop model↔tool up to N turns, `.parse()` every tool call's arguments before executing, catch `ZodError` and push the error back into context instead of crashing.
+
+Apply this to the chatbot stock-adjustment flow (SRS: "เพิ่ม/ลดสต็อกผ่านแชทบอท"):
+
+1. User sends free text ("เพิ่มโค้ก10") from WEB or LINE.
+2. Call the LLM (Claude API in production; Ollama is fine for local dev/testing) with a structured-output prompt, parse into `parsed_items` (shop_product_id / product_name / qty_change per line), validate with zod.
+3. Persist as a `pending_stock_actions` row with `status = PENDING` — **don't hold the parsed result only in memory**; confirmation can arrive as a separate request/process (e.g. a LINE webhook minutes later).
+4. Show the parsed summary back to the user for review/edit.
+5. On confirm: write `stock_movements` + update `shop_products.stock_qty` in one transaction, mark the pending action `CONFIRMED`. On timeout, mark `EXPIRED`.
+
+AI Recommendations (Pro-only): check `subscription_plans.ai_recommendation_enabled` before calling the LLM at all. Cache results in `ai_recommendations`, regenerate on relevant events and push via Socket.io — never call the LLM on dashboard render.
+
+AI Chat channel restriction: a user can use AI Chat on LINE only if their account currently has `line_user_id` linked — checked live against `users`, not based on how they originally signed up, and not cached.
+
+## Design system
+
+Theme is matched to the Figma export (`aum_stock2.zip`, already extracted for reference) rather than shadcn defaults:
+
+```css
+--color-brand-orange: #F5A31C;  /* primary/accent */
+--color-brand-dark:   #17161A;  /* text/dark */
+--color-brand-cream:  #F3F0EA;  /* background */
+--color-brand-border: #CFC9BB;
+--color-brand-muted:  #EFECE5;
+--color-status-green: #5C9A54;
+--color-status-orange:#F5A31C;
+--color-status-red:   #D65745;
+```
+
+Fonts: **Prompt** (headings), **Sarabun** (body), **IBM Plex Mono** (numbers/code) — loaded via `next/font/google` in `web/src/app/layout.tsx` with the `thai` subset, exposed as `--font-prompt` / `--font-sarabun` / `--font-ibm-plex-mono`.
+
+**Already set up** — don't re-run `shadcn init`. `web/components.json` is configured as `base-nova` style, Base UI (`@base-ui/react`) primitives, Lucide icons, neutral base color, CSS variables on. The palette above is already mapped onto shadcn's tokens in `web/src/app/globals.css`:
+
+- `primary` = brand orange, with a **dark** `primary-foreground` (white on `#F5A31C` fails contrast)
+- `secondary` / `muted` / `accent` = the cream tones, `border` / `input` = `#CFC9BB`, `destructive` = `#D65745`
+- `sidebar` uses cream in light mode, and the `chart-*` ramp is brand orange → green → red → border → ink
+- raw brand tokens are also exposed as Tailwind utilities (`bg-brand-orange`, `text-brand-dark`, `text-status-red`, …) for cases where no shadcn token fits
+
+Add components with `pnpm dlx shadcn@latest add <component>`; they inherit this theme automatically. Don't hardcode hex values in components — use the tokens.
+
+## SRS alignment — already fixed, don't reintroduce
+
+The DBML and the endpoint spreadsheet were reconciled against the SRS. These decisions are settled; if you see the old version somewhere, it is stale:
+
+- **No add-on purchases.** `POST /payments/shop-addon` was removed, along with the `EXTRA_SHOP` payment purpose, `extra_shop_quota`, and `extra_shop_price_thb` in the DBML. Quota changes only by upgrading a plan (SRS §66/§110). Don't add an endpoint that sells extra shops, products, or staff slots.
+- **2FA is opt-in for every role** (SRS §39) — never forced on Shop Owners or anyone else.
+- **No downgrade flow.** `POST /subscriptions/upgrade` accepts `PLUS|PRO` only; the SRS defines no path back down to a smaller plan.
+- **Admin can manage shops, not just users** — `GET /admin/shops`, `PATCH /admin/shops/:id/suspend|reactivate`, and `GET /admin/overview` were added to cover SRS §22/§76/§184/§185.
+- **A Dashboard module exists** (`feature/dashboard-resource`) covering SRS §176–§182, which the original endpoint list omitted entirely. Basic Dashboard is available on Free; the combined-shops view and Advanced Reports are Plus/Pro only.
+
+## When unsure
+
+Cross-check `SRS - Aum Manage Stocks.docx` before assuming a business rule — it is the single source of truth for requirements, ahead of this file, the DBML, or the endpoint spreadsheet. If they disagree, ask rather than guessing which one is current.
