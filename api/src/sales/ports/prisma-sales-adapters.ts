@@ -11,8 +11,36 @@ import {
   STOCK_INVENTORY_PORT,
   type StockInventoryPort,
 } from '../../stock/ports/stock-inventory.port';
-import { SalesSubscriptionPort } from './sales-access.port';
+import { SalesStaffPort, SalesSubscriptionPort } from './sales-access.port';
 import { SalesProductPort, type SellableProduct } from './sales-product.port';
+
+@Injectable()
+export class PrismaSalesStaffAdapter implements SalesStaffPort {
+  async assertCanManageSales(
+    tx: Prisma.TransactionClient,
+    input: { shopId: string; staffId: string },
+  ): Promise<void> {
+    const shop = await tx.shop.findFirst({
+      where: { id: input.shopId, deletedAt: null, status: 'ACTIVE' },
+      select: { ownerId: true },
+    });
+    if (!shop) throw new NotFoundException('Active shop not found');
+    if (shop.ownerId === input.staffId) return;
+
+    const assignment = await tx.shopStaff.findFirst({
+      where: {
+        shopId: input.shopId,
+        userId: input.staffId,
+        removedAt: null,
+        user: { status: 'ACTIVE', deletedAt: null },
+        permission: { canScanSale: true },
+      },
+      select: { id: true },
+    });
+    if (!assignment)
+      throw new ForbiddenException('Sales access is not permitted');
+  }
+}
 
 @Injectable()
 export class PrismaSalesProductAdapter implements SalesProductPort {

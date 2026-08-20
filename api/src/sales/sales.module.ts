@@ -8,7 +8,6 @@ import {
   SALES_STAFF_PORT,
   SALES_SUBSCRIPTION_PORT,
 } from './ports/sales-access.port';
-import { UnavailableSalesStaffAdapter } from './ports/unavailable-adapters';
 import {
   MockSalesProductAdapter,
   MockSalesStaffAdapter,
@@ -16,6 +15,7 @@ import {
 } from './ports/mock-adapters';
 import {
   PrismaSalesProductAdapter,
+  PrismaSalesStaffAdapter,
   PrismaSalesSubscriptionAdapter,
 } from './ports/prisma-sales-adapters';
 
@@ -28,7 +28,7 @@ import {
     MockSalesStaffAdapter,
     MockSalesSubscriptionAdapter,
     PrismaSalesProductAdapter,
-    UnavailableSalesStaffAdapter,
+    PrismaSalesStaffAdapter,
     PrismaSalesSubscriptionAdapter,
     {
       provide: SALES_PRODUCT_PORT,
@@ -45,16 +45,12 @@ import {
     },
     {
       provide: SALES_STAFF_PORT,
-      inject: [
-        ConfigService,
-        MockSalesStaffAdapter,
-        UnavailableSalesStaffAdapter,
-      ],
+      inject: [ConfigService, MockSalesStaffAdapter, PrismaSalesStaffAdapter],
       useFactory: (
         config: ConfigService,
         mock: MockSalesStaffAdapter,
-        unavailable: UnavailableSalesStaffAdapter,
-      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : unavailable),
+        actual: PrismaSalesStaffAdapter,
+      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : actual),
     },
     {
       provide: SALES_SUBSCRIPTION_PORT,

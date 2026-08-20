@@ -95,30 +95,33 @@ These sit on everyone's critical path, so a careless edit becomes a merge confli
 
 | File | Rule |
 |---|---|
-| `api/prisma/schema.prisma` + `api/prisma/migrations/` | **Own PR, straight to `dev`, merged before anyone builds on it.** Never bundle a schema change inside a feature PR. Announce it to the team — everyone must pull `dev` and re-run `pnpm install` (which regenerates the Prisma client) right after it lands. |
+| `api/prisma/schema.prisma` | **Own PR, straight to `dev`, merged before anyone builds on it.** Never bundle a schema change inside a feature PR. Announce it — everyone must then pull `dev`, run `pnpm install` (regenerates the Prisma client), and `pnpm prisma db push`. |
 | `api/prisma/design/schema.dbml` | Update in the **same PR** as `schema.prisma`. The two must never disagree. |
 | `api/src/app.module.ts` | Add only your own module's import line. Don't reorder or reformat the file — that turns a one-line addition into a whole-file conflict. |
 | Shared guards / decorators / interceptors / `PrismaService` | Owned by `feature/auth-resource` (แพรว). Need a change? Ask, don't fork a local copy. |
 | `package.json` + `pnpm-lock.yaml` (both apps) | Dependency changes go in their **own small PR to `dev`**, early. Never bury them in a large feature PR. |
 | `web/src/app/globals.css`, `web/components.json` | Theme is already set (see Design system). Only change with team agreement. |
 
-**Migration discipline** — this already went wrong once, so read it:
+**This project runs every command through pnpm.** Use `pnpm prisma …`, `pnpm exec …`, `pnpm <script>` — never `npx` or `npm run`. `npx` can resolve a different Prisma version than the one in `pnpm-lock.yaml`, which is how a client and a schema quietly drift apart.
 
-- **Never use `prisma db push` on this project.** It changes your local database without leaving a migration behind, so the schema drifts away from `prisma/migrations/` and a real deployment creates the wrong tables. Use `prisma migrate dev --name <what-changed>` and **commit the generated folder**.
-- Always `git pull origin dev` immediately before running `prisma migrate dev`. Two people generating migrations from different bases produces two migrations with the same parent, which Prisma cannot reconcile.
-- If someone else's migration landed first, pull, delete your unmerged migration folder, and regenerate it on top — never edit a timestamp to reorder.
-- Never edit a migration that is already merged into `dev`. Fix it forward with a new one.
-- CI checks that `prisma/migrations/` still fully describes `schema.prisma`. If that check fails, you changed the schema without generating a migration.
+**Schema workflow — the team uses `db push`, not `migrate dev`:**
+
+- Sync your own database with **`pnpm prisma db push`**. Do not run `pnpm prisma migrate dev`, and do not add folders to `prisma/migrations/` during feature work.
+- **Every time you pull `dev` and `schema.prisma` changed, run `pnpm prisma db push` again.** Nothing reminds you — a database that silently lags behind the schema is the failure mode of this workflow.
+- Changing `schema.prisma` is still a **coordinated change**: own PR, announce it, everyone pulls and re-pushes.
+- `prisma/sql/*.sql` holds constraints Prisma cannot express (e.g. the partial unique index on `products(owner_id, barcode)`). `db push` does **not** apply them — run them by hand after pushing.
+
+> **Known debt — must be resolved before deploying.** `db push` leaves no migration behind, so `prisma/migrations/` will fall behind `schema.prisma` as the schema grows. It currently covers 10 tables and is correct as of that point. Before any real deployment someone must regenerate migrations from the final schema and verify them on an empty database — `prisma migrate deploy` builds only what is in that folder, so an out-of-date folder means missing tables in production. Track this as a real task; it is not optional.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every PR into `dev`/`main`: install with `--frozen-lockfile`, migration-vs-schema drift check, lint, test, and build — for `api/` and `web/` separately.
+`.github/workflows/ci.yml` runs on every PR into `dev`/`main`: install with `--frozen-lockfile`, lint, test, and build — for `api/` and `web/` separately. It never touches a database.
 
 - `--frozen-lockfile` fails when `package.json` and `pnpm-lock.yaml` disagree, i.e. someone added a dependency without committing the lockfile. Commit both.
 - **Make CI a required status check** in Settings → Branches, otherwise a red build can still be merged.
 - If CI is red, fix the branch — never merge around it.
 
-**After pulling `dev`, always run `pnpm install` in `api/`** — its `postinstall` runs `prisma generate`, and a stale client is the most common "it builds on my machine" failure here.
+**After pulling `dev`, always run `pnpm install` in `api/`** — its `postinstall` runs `prisma generate`, and a stale client is the most common "it builds on my machine" failure here. If `pnpm install` reports "Already up to date" it skips `postinstall` too, so when the schema changed but your build still complains about missing models, run `pnpm prisma generate` directly.
 
 ## Module ownership & branches
 
