@@ -102,10 +102,12 @@ These sit on everyone's critical path, so a careless edit becomes a merge confli
 | `package.json` + `pnpm-lock.yaml` (both apps) | Dependency changes go in their **own small PR to `dev`**, early. Never bury them in a large feature PR. |
 | `web/src/app/globals.css`, `web/components.json` | Theme is already set (see Design system). Only change with team agreement. |
 
+**This project runs every command through pnpm.** Use `pnpm prisma …`, `pnpm exec …`, `pnpm <script>` — never `npx` or `npm run`. `npx` can resolve a different Prisma version than the one in `pnpm-lock.yaml`, which is how a client and a schema quietly drift apart.
+
 **Migration discipline** — this already went wrong once, so read it:
 
-- **Never use `prisma db push` on this project.** It changes your local database without leaving a migration behind, so the schema drifts away from `prisma/migrations/` and a real deployment creates the wrong tables. Use `prisma migrate dev --name <what-changed>` and **commit the generated folder**.
-- Always `git pull origin dev` immediately before running `prisma migrate dev`. Two people generating migrations from different bases produces two migrations with the same parent, which Prisma cannot reconcile.
+- **Never use `prisma db push` on this project.** It changes your local database without leaving a migration behind, so the schema drifts away from `prisma/migrations/` and a real deployment creates the wrong tables. Use `pnpm prisma migrate dev --name <what-changed>` and **commit the generated folder**.
+- Always `git pull origin dev` immediately before running `pnpm prisma migrate dev`. Two people generating migrations from different bases produces two migrations with the same parent, which Prisma cannot reconcile.
 - If someone else's migration landed first, pull, delete your unmerged migration folder, and regenerate it on top — never edit a timestamp to reorder.
 - Never edit a migration that is already merged into `dev`. Fix it forward with a new one.
 - CI checks that `prisma/migrations/` still fully describes `schema.prisma`. If that check fails, you changed the schema without generating a migration.
@@ -118,7 +120,7 @@ These sit on everyone's critical path, so a careless edit becomes a merge confli
 - **Make CI a required status check** in Settings → Branches, otherwise a red build can still be merged.
 - If CI is red, fix the branch — never merge around it.
 
-**After pulling `dev`, always run `pnpm install` in `api/`** — its `postinstall` runs `prisma generate`, and a stale client is the most common "it builds on my machine" failure here.
+**After pulling `dev`, always run `pnpm install` in `api/`** — its `postinstall` runs `prisma generate`, and a stale client is the most common "it builds on my machine" failure here. If `pnpm install` reports "Already up to date" it skips `postinstall` too, so when the schema changed but your build still complains about missing models, run `pnpm prisma generate` directly.
 
 ## Module ownership & branches
 
