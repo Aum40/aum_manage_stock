@@ -7,6 +7,7 @@ import { AdminModule } from './admin/admin.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CategoriesModule } from './categories/categories.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { ShopsModule } from './shops/shops.module';
 import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { ShopProductsModule } from './shop-products/shop-products.module';
@@ -25,6 +26,7 @@ import { validate } from './config/env.validation';
     PaymentsModule,
     CategoriesModule,
     SubscriptionsModule,
+    ShopsModule,
     // [เซิ่น]
     CommonModule,
     ProductsModule,
