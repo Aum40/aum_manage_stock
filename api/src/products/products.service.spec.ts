@@ -14,6 +14,7 @@ type PrismaMock = {
     update: jest.Mock;
     findMany: jest.Mock;
   };
+  shopProduct: { updateMany: jest.Mock };
   categories: { findFirst: jest.Mock };
   $transaction: jest.Mock;
 };
@@ -29,6 +30,7 @@ function createPrismaMock(): PrismaMock {
       update: jest.fn(),
       findMany: jest.fn(),
     },
+    shopProduct: { updateMany: jest.fn() },
     categories: { findFirst: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -139,14 +141,20 @@ describe('ProductsService', () => {
   });
 
   describe('remove', () => {
-    it('soft delete โดยบันทึก deletedAt', async () => {
+    it('soft delete และปิดการขายในทุกร้านใน transaction เดียว', async () => {
       prisma.product.findFirst.mockResolvedValue({ id: 'p1', ownerId: OWNER });
+      prisma.$transaction.mockResolvedValue([]);
 
       const result = await service.remove(OWNER, 'p1');
 
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(prisma.product.update).toHaveBeenCalledWith({
         where: { id: 'p1' },
         data: { deletedAt: anyDate() },
+      });
+      expect(prisma.shopProduct.updateMany).toHaveBeenCalledWith({
+        where: { productId: 'p1', status: 'ACTIVE' },
+        data: { status: 'INACTIVE' },
       });
       expect(result.id).toBe('p1');
     });

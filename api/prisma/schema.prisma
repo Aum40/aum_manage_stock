@@ -205,7 +205,7 @@ model Shop {
 //   WHERE ownerId = userId AND deletedAt IS NULL), สร้างร้านได้เมื่อ
 //   status = ACTIVE AND used < allowed)
 // =====================================================================
-// [เซิ่น] feature/products-resource
+// [เซิ่น] feature/products-resource + feature/shop-products-resource
 // =====================================================================
 
 /// Product Catalog กลาง ระดับเจ้าของร้าน (owner) — ใช้ร่วมกันได้ทุกร้าน
@@ -222,10 +222,43 @@ model Product {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  category categories? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  category     categories?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  shopProducts ShopProduct[]
 
   @@index([ownerId, deletedAt], name: "idx_product_owner_deleted")
   @@index([ownerId, name], name: "idx_product_owner_name")
   @@index([categoryId], name: "idx_product_category")
   @@map("products")
+}
+
+enum ShopProductStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("shop_product_status")
+}
+
+/// สินค้าที่แต่ละร้านเลือกมาขาย — ราคาขาย/ต้นทุน/สต็อก แยกตามร้าน
+/// SRS: "ข้อมูลระดับร้านต้องประกอบด้วยราคาขาย ต้นทุน จำนวน stock low-stock threshold และสถานะ"
+model ShopProduct {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  shopId            String            @map("shop_id") @db.Uuid
+  productId         String            @map("product_id") @db.Uuid
+  sellPrice         Decimal           @map("sell_price") @db.Decimal(12, 2)
+  costPrice         Decimal           @map("cost_price") @db.Decimal(12, 2)
+  stockQty          Int               @default(0) @map("stock_qty")
+  lowStockThreshold Int               @default(0) @map("low_stock_threshold")
+  status            ShopProductStatus @default(ACTIVE)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  // TODO(shops): เพิ่ม relation ไป model Shop เมื่อ feature/shops-resource เข้า dev
+  //   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, productId], map: "uq_shop_product")
+  @@index([shopId, status], name: "idx_shop_product_shop_status")
+  @@index([productId], name: "idx_shop_product_product")
+  @@map("shop_products")
 }

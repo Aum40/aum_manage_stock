@@ -126,15 +126,19 @@ export class ProductsService {
 
   /**
    * SRS: ลบสินค้าเป็น soft delete เสมอ เพื่อรักษาประวัติการขาย/สต็อกย้อนหลัง
-   *
-   * TODO(shop-products): เมื่อ feature/shop-products-resource เข้ามาแล้ว
-   * ต้องปิดการขายสินค้านี้ในทุกร้านพร้อมกันในทรานแซกชันเดียว
+   * และเมื่อถอดออกจากคลังกลางแล้ว ต้องหยุดขายในทุกร้านพร้อมกัน
    */
   async remove(ownerId: string, id: string) {
     await this.findOne(ownerId, id);
     const deletedAt = new Date();
 
-    await this.prisma.product.update({ where: { id }, data: { deletedAt } });
+    await this.prisma.$transaction([
+      this.prisma.product.update({ where: { id }, data: { deletedAt } }),
+      this.prisma.shopProduct.updateMany({
+        where: { productId: id, status: 'ACTIVE' },
+        data: { status: 'INACTIVE' },
+      }),
+    ]);
 
     return { id, deletedAt };
   }
