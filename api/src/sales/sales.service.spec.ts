@@ -1,4 +1,4 @@
-import { Prisma } from '../generated/prisma-client/client';
+import { Prisma } from '../database/generated/prisma/client';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { SalesService } from './sales.service';
 

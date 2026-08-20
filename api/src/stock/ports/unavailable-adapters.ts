@@ -1,5 +1,5 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { Prisma } from '../../generated/prisma-client/client';
+import { Prisma } from '../../database/generated/prisma/client';
 import { StockAuthorizationPort } from './stock-authorization.port';
 import { StockInventoryPort } from './stock-inventory.port';
 

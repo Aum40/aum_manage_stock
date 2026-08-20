@@ -1,4 +1,4 @@
-import { Prisma } from '../../generated/prisma-client/client';
+import { Prisma } from '../../database/generated/prisma/client';
 
 export const SALES_STAFF_PORT = Symbol('SALES_STAFF_PORT');
 export const SALES_SUBSCRIPTION_PORT = Symbol('SALES_SUBSCRIPTION_PORT');
