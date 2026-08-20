@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '../generated/prisma-client/client';
+import { Prisma } from '../database/generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   MovementQueryDto,

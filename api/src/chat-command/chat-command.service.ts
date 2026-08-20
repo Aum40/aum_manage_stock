@@ -11,7 +11,7 @@ import {
   PendingAction,
   PendingActionSource,
   Prisma,
-} from '../generated/prisma-client/client';
+} from '../database/generated/prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
 import { StockService } from '../stock/stock.service';

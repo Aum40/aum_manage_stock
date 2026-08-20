@@ -6,7 +6,11 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs', 'src/generated/**'],
+    ignores: [
+      'eslint.config.mjs',
+      'src/generated/**',
+      'src/database/generated/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -29,6 +33,10 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
+      // Controller signatures are structural: `register(@Body() dto: RegisterDto)`
+      // declares the contract even while the handler is still a stub, so an
+      // unused *argument* is not dead code here. Unused *variables* still error.
+      '@typescript-eslint/no-unused-vars': ['error', { args: 'none' }],
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },

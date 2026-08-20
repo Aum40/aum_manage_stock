@@ -16,3 +16,8 @@ node_modules/
 # Env files (fallback; api/ and web/ already ignore their own .env files)
 .env
 .env.local
+
+
+.agents/
+.claude/
+.windsurf/

@@ -3,7 +3,7 @@ import {
   PendingAction,
   Prisma,
   StockMovementSource,
-} from '../generated/prisma-client/client';
+} from '../database/generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import { STOCK_AUTHORIZATION_PORT } from './ports/stock-authorization.port';

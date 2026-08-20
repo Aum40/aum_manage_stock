@@ -1,4 +1,4 @@
-import { Prisma } from '../../generated/prisma-client/client';
+import { Prisma } from '../../database/generated/prisma/client';
 
 export const STOCK_INVENTORY_PORT = Symbol('STOCK_INVENTORY_PORT');
 
