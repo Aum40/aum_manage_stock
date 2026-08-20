@@ -11,6 +11,7 @@ import { ShopsModule } from './shops/shops.module';
 import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { ShopProductsModule } from './shop-products/shop-products.module';
+import { StaffModule } from './staff/staff.module';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -31,6 +32,7 @@ import { validate } from './config/env.validation';
     CommonModule,
     ProductsModule,
     ShopProductsModule,
+    StaffModule,
   ],
 })
 export class AppModule {}
