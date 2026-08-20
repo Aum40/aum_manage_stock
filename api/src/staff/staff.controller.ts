@@ -30,7 +30,10 @@ export class StaffController {
   }
 
   @Get(':id')
-  getDetail(@OwnerId() ownerId: string, @Param('id', ParseUUIDPipe) id: string) {
+  getDetail(
+    @OwnerId() ownerId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.staffService.getDetail(ownerId, id);
   }
 
