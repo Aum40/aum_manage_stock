@@ -20,7 +20,8 @@ Retail shop back-office stock management platform (NestJS API + Next.js web, pnp
 
 - `api/` — NestJS backend. `api/prisma/design/schema.dbml` is the reviewed ER diagram (source of truth for the data model, kept in sync with the SRS). `api/prisma/schema.prisma` is the actual Prisma schema — update both together when the model changes.
 - `web/` — Next.js frontend.
-- Each of `api/` and `web/` may carry its own `AGENTS.md`/`CLAUDE.md` for tool/framework-specific notes (e.g. the Next.js one is auto-generated — don't hand-edit it). This root file is for cross-cutting product/business rules.
+- **This file is the single source of team rules.** `api/` and `web/` each carry a thin `AGENTS.md` + `CLAUDE.md` that do nothing but `@`-import this one, so opening `api/` or `web/` on its own still loads the full guide. Add rules here, never to the stubs.
+- `web/AGENTS.md` also holds a Next.js block between `BEGIN:nextjs-agent-rules` and `END:nextjs-agent-rules`. **`next dev` rewrites that block** — never edit inside it; team content goes below the end marker.
 
 ## Library versions
 
