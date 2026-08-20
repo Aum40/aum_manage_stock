@@ -8,16 +8,16 @@ import {
   SALES_STAFF_PORT,
   SALES_SUBSCRIPTION_PORT,
 } from './ports/sales-access.port';
-import {
-  UnavailableSalesProductAdapter,
-  UnavailableSalesStaffAdapter,
-  UnavailableSalesSubscriptionAdapter,
-} from './ports/unavailable-adapters';
+import { UnavailableSalesStaffAdapter } from './ports/unavailable-adapters';
 import {
   MockSalesProductAdapter,
   MockSalesStaffAdapter,
   MockSalesSubscriptionAdapter,
 } from './ports/mock-adapters';
+import {
+  PrismaSalesProductAdapter,
+  PrismaSalesSubscriptionAdapter,
+} from './ports/prisma-sales-adapters';
 
 @Module({
   imports: [StockModule],
@@ -27,21 +27,21 @@ import {
     MockSalesProductAdapter,
     MockSalesStaffAdapter,
     MockSalesSubscriptionAdapter,
-    UnavailableSalesProductAdapter,
+    PrismaSalesProductAdapter,
     UnavailableSalesStaffAdapter,
-    UnavailableSalesSubscriptionAdapter,
+    PrismaSalesSubscriptionAdapter,
     {
       provide: SALES_PRODUCT_PORT,
       inject: [
         ConfigService,
         MockSalesProductAdapter,
-        UnavailableSalesProductAdapter,
+        PrismaSalesProductAdapter,
       ],
       useFactory: (
         config: ConfigService,
         mock: MockSalesProductAdapter,
-        unavailable: UnavailableSalesProductAdapter,
-      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : unavailable),
+        actual: PrismaSalesProductAdapter,
+      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : actual),
     },
     {
       provide: SALES_STAFF_PORT,
@@ -61,13 +61,13 @@ import {
       inject: [
         ConfigService,
         MockSalesSubscriptionAdapter,
-        UnavailableSalesSubscriptionAdapter,
+        PrismaSalesSubscriptionAdapter,
       ],
       useFactory: (
         config: ConfigService,
         mock: MockSalesSubscriptionAdapter,
-        unavailable: UnavailableSalesSubscriptionAdapter,
-      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : unavailable),
+        actual: PrismaSalesSubscriptionAdapter,
+      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : actual),
     },
   ],
 })

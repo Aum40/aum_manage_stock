@@ -4,10 +4,8 @@ import { StockController } from './stock.controller';
 import { StockService } from './stock.service';
 import { STOCK_AUTHORIZATION_PORT } from './ports/stock-authorization.port';
 import { STOCK_INVENTORY_PORT } from './ports/stock-inventory.port';
-import {
-  UnavailableStockAuthorizationAdapter,
-  UnavailableStockInventoryAdapter,
-} from './ports/unavailable-adapters';
+import { UnavailableStockAuthorizationAdapter } from './ports/unavailable-adapters';
+import { PrismaStockInventoryAdapter } from './ports/prisma-stock-inventory.adapter';
 
 @Module({
   controllers: [StockController],
@@ -16,7 +14,7 @@ import {
     StockMovementsService,
     {
       provide: STOCK_INVENTORY_PORT,
-      useClass: UnavailableStockInventoryAdapter,
+      useClass: PrismaStockInventoryAdapter,
     },
     {
       provide: STOCK_AUTHORIZATION_PORT,

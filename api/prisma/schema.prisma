@@ -66,7 +66,8 @@ model StockMovement {
   referenceType  String?
   referenceId    String?
   createdAt      DateTime            @default(now())
-  // TODO(shop-products/staff): add relations after the owning models stabilize.
+  shopProduct    ShopProduct         @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
+  // TODO(staff): add actor relation after the owning permission model stabilizes.
 
   @@unique([referenceType, referenceId])
   @@index([shopId, createdAt(sort: Desc)])
@@ -93,7 +94,8 @@ model PendingAction {
   cancelledAt     DateTime?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
-  // TODO(shop-products/staff): add relations after the owning models stabilize.
+  shopProduct     ShopProduct?        @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
+  // TODO(staff): add actor relation after the owning permission model stabilizes.
 
   @@index([shopId, status, createdAt(sort: Desc)])
   @@index([expiresAt, status])
@@ -112,6 +114,7 @@ model Sale {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   items       SaleItem[]
+  shop        Shop       @relation(fields: [shopId], references: [id], onDelete: Restrict)
   // TODO(staff): add relations after the owning model stabilizes.
 
   @@index([shopId, createdAt(sort: Desc)])
@@ -119,16 +122,16 @@ model Sale {
 }
 
 model SaleItem {
-  id            String   @id @default(uuid()) @db.Uuid
-  saleId        String   @db.Uuid
-  shopProductId String   @db.Uuid
+  id            String      @id @default(uuid()) @db.Uuid
+  saleId        String      @db.Uuid
+  shopProductId String      @db.Uuid
   productName   String
-  unitPrice     Decimal  @db.Decimal(18, 2)
+  unitPrice     Decimal     @db.Decimal(18, 2)
   quantity      Int
-  lineTotal     Decimal  @db.Decimal(18, 2)
-  createdAt     DateTime @default(now())
-  sale          Sale     @relation(fields: [saleId], references: [id], onDelete: Restrict)
-  // TODO(shop-products): add relation after the owning model stabilizes.
+  lineTotal     Decimal     @db.Decimal(18, 2)
+  createdAt     DateTime    @default(now())
+  sale          Sale        @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  shopProduct   ShopProduct @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
 
   @@index([saleId])
   @@index([shopProductId])
@@ -304,7 +307,8 @@ model Shop {
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  owner User   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  sales Sale[]
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
@@ -372,7 +376,10 @@ model ShopProduct {
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  stockMovements StockMovement[]
+  pendingActions PendingAction[]
+  saleItems      SaleItem[]
 
   // TODO(shops): เพิ่ม relation ไป model Shop เมื่อ feature/shops-resource เข้า dev
   //   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
