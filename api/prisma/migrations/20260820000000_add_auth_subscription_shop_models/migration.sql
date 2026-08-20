@@ -10,6 +10,9 @@ CREATE TYPE "SubscriptionStatus" AS ENUM ('ACTIVE', 'EXPIRED', 'CANCELLED');
 -- CreateEnum
 CREATE TYPE "ShopStatus" AS ENUM ('ACTIVE', 'SUSPENDED');
 
+-- CreateEnum
+CREATE TYPE "shop_product_status" AS ENUM ('ACTIVE', 'INACTIVE');
+
 -- CreateTable
 CREATE TABLE "users" (
     "id" UUID NOT NULL,
@@ -118,6 +121,38 @@ CREATE TABLE "shops" (
     CONSTRAINT "shops_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "products" (
+    "id" UUID NOT NULL,
+    "owner_id" UUID NOT NULL,
+    "category_id" UUID,
+    "name" VARCHAR(200) NOT NULL,
+    "barcode" VARCHAR(50),
+    "unit" VARCHAR(20) NOT NULL,
+    "image_url" VARCHAR(500),
+    "deleted_at" TIMESTAMPTZ(6),
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "products_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "shop_products" (
+    "id" UUID NOT NULL,
+    "shop_id" UUID NOT NULL,
+    "product_id" UUID NOT NULL,
+    "sell_price" DECIMAL(12,2) NOT NULL,
+    "cost_price" DECIMAL(12,2) NOT NULL,
+    "stock_qty" INTEGER NOT NULL DEFAULT 0,
+    "low_stock_threshold" INTEGER NOT NULL DEFAULT 0,
+    "status" "shop_product_status" NOT NULL DEFAULT 'ACTIVE',
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "shop_products_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 
@@ -169,6 +204,24 @@ CREATE INDEX "idx_subscription_expires" ON "subscriptions"("expires_at");
 -- CreateIndex
 CREATE INDEX "idx_shop_owner" ON "shops"("owner_id", "deleted_at");
 
+-- CreateIndex
+CREATE INDEX "idx_product_owner_deleted" ON "products"("owner_id", "deleted_at");
+
+-- CreateIndex
+CREATE INDEX "idx_product_owner_name" ON "products"("owner_id", "name");
+
+-- CreateIndex
+CREATE INDEX "idx_product_category" ON "products"("category_id");
+
+-- CreateIndex
+CREATE INDEX "idx_shop_product_shop_status" ON "shop_products"("shop_id", "status");
+
+-- CreateIndex
+CREATE INDEX "idx_shop_product_product" ON "shop_products"("product_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "uq_shop_product" ON "shop_products"("shop_id", "product_id");
+
 -- AddForeignKey
 ALTER TABLE "users" ADD CONSTRAINT "users_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
@@ -189,3 +242,27 @@ ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_plan_id_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "shops" ADD CONSTRAINT "shops_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "products" ADD CONSTRAINT "products_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "categories"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "shop_products" ADD CONSTRAINT "shop_products_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+
+-- ---------------------------------------------------------------------
+-- Partial indexes Prisma cannot express in schema.prisma.
+-- Folded in from prisma/sql/001_products_partial_indexes.sql (เซิ่น),
+-- which asked for exactly this once a real migration was created.
+-- ---------------------------------------------------------------------
+
+-- SRS: a barcode must be unique within one owner's central catalog.
+-- PARTIAL, so a soft-deleted product does not block reusing its barcode.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_products_owner_barcode
+  ON products (owner_id, barcode)
+  WHERE deleted_at IS NULL AND barcode IS NOT NULL;
+
+-- Speeds up the active-product quota count (max_active_products).
+CREATE INDEX IF NOT EXISTS ix_products_owner_active
+  ON products (owner_id)
+  WHERE deleted_at IS NULL;
