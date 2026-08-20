@@ -26,7 +26,7 @@ Retail shop back-office stock management platform (NestJS API + Next.js web, pnp
 
 This is a **team project** — everyone installs from the committed `pnpm-lock.yaml`, which is the real pin. The table below is the intended version of each library; **update it in the same PR whenever you bump a dependency**, so nobody (human or agent) writes code against a different major.
 
-Toolchain: **Node 24.x**, **pnpm 11.8.0** (`packageManager` field in `web/package.json`).
+Toolchain: **Node 24.x**, **pnpm 11.8.0** — pinned in `.nvmrc`, in the `engines` field of both `package.json` files, and enforced by `engine-strict=true` in `.npmrc`. An install on the wrong Node version **fails rather than warns**; run `nvm use` (it reads `.nvmrc`) instead of overriding it.
 
 ### `api/` — NestJS 11 + Prisma 7
 
@@ -101,7 +101,21 @@ These sit on everyone's critical path, so a careless edit becomes a merge confli
 | `package.json` + `pnpm-lock.yaml` (both apps) | Dependency changes go in their **own small PR to `dev`**, early. Never bury them in a large feature PR. |
 | `web/src/app/globals.css`, `web/components.json` | Theme is already set (see Design system). Only change with team agreement. |
 
-**Migration discipline**: two people generating migrations from different bases produces two migrations with the same parent, which Prisma cannot reconcile. Always `git pull origin dev` immediately before running `prisma migrate dev`, and if someone else's migration landed first, rebase and regenerate yours rather than editing the timestamp.
+**Migration discipline** — this already went wrong once, so read it:
+
+- **Never use `prisma db push` on this project.** It changes your local database without leaving a migration behind, so the schema drifts away from `prisma/migrations/` and a real deployment creates the wrong tables. Use `prisma migrate dev --name <what-changed>` and **commit the generated folder**.
+- Always `git pull origin dev` immediately before running `prisma migrate dev`. Two people generating migrations from different bases produces two migrations with the same parent, which Prisma cannot reconcile.
+- If someone else's migration landed first, pull, delete your unmerged migration folder, and regenerate it on top — never edit a timestamp to reorder.
+- Never edit a migration that is already merged into `dev`. Fix it forward with a new one.
+- CI checks that `prisma/migrations/` still fully describes `schema.prisma`. If that check fails, you changed the schema without generating a migration.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every PR into `dev`/`main`: install with `--frozen-lockfile`, migration-vs-schema drift check, lint, test, and build — for `api/` and `web/` separately.
+
+- `--frozen-lockfile` fails when `package.json` and `pnpm-lock.yaml` disagree, i.e. someone added a dependency without committing the lockfile. Commit both.
+- **Make CI a required status check** in Settings → Branches, otherwise a red build can still be merged.
+- If CI is red, fix the branch — never merge around it.
 
 **After pulling `dev`, always run `pnpm install` in `api/`** — its `postinstall` runs `prisma generate`, and a stale client is the most common "it builds on my machine" failure here.
 
@@ -147,6 +161,26 @@ Notes:
 - AI Chat (chatbot) is Plus **and** Pro. AI Recommendations is Pro **only** — these are not the same gate, don't conflate them.
 - `staff_quota` is counted at the **account level**, not per shop: one staff member assigned to multiple shops of the same owner still counts as 1.
 - When a paid plan expires, all of that owner's shops go **read-only** (viewable, not editable) until renewal. Free plan never expires and never goes read-only. Read-only is a computed state (from `status`/`expires_at`), not a stored column — enforce it in one NestJS guard, not scattered checks.
+
+## Naming conventions — apply to new code, fix old code only when you touch it
+
+Different people started different modules, so the codebase is not yet consistent. From here on, one rule per layer:
+
+| Layer | Convention | Example |
+|---|---|---|
+| Prisma model | **PascalCase, singular** | `model Product`, `model ShopProduct` |
+| Database table | snake_case, plural — via `@@map` | `@@map("products")`, `@@map("shop_products")` |
+| Database column | snake_case — via `@map` | `ownerId String @map("owner_id")` |
+| Prisma field | camelCase | `sellPrice`, `lowStockThreshold` |
+| NestJS module dir | kebab-case, plural | `src/shop-products/` |
+| NestJS class | PascalCase + role suffix | `ShopProductsService`, `ShopProductsController` |
+| DTO file / class | kebab-case `.dto.ts` / PascalCase + `Dto` | `create-shop-product.dto.ts` → `CreateShopProductDto` |
+| API path | kebab-case, plural nouns | `/shops/:shopId/shop-products` |
+| Enum type / member | PascalCase / SCREAMING_SNAKE_CASE | `enum ShopStatus { ACTIVE, SUSPENDED }` |
+
+**Known inconsistency**: `model categories` in `schema.prisma` breaks this (lowercase plural — it should be `model Category` with `@@map("categories")`). Renaming it is a `@@map`-only change that does not alter the database, but it does change the generated client (`prisma.categories` → `prisma.category`), so it must be a coordinated PR by the module owner (อั้ม), not a drive-by edit.
+
+Validation is also split — `nestjs-zod` in `categories`, `class-validator` elsewhere. Pick one before more modules land; the team has not decided yet, so **ask rather than assuming** when writing a new DTO.
 
 ## Data model invariants
 
