@@ -4,21 +4,18 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 First, run the development server:
 
+This project uses **pnpm** — not npm, yarn, or bun. Node 24 is required (see `.nvmrc`).
+
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to load **Prompt** (headings), **Sarabun** (body), and **IBM Plex Mono** (numbers) with the Thai subset — see `src/app/layout.tsx`. The shadcn/ui theme is already mapped to the Figma palette in `src/app/globals.css`; use the design tokens rather than hardcoding colours. Details in the root `AGENTS.md`.
 
 ## Learn More
 

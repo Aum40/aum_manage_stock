@@ -11,16 +11,17 @@ cd api
 pnpm install
 cp .env.example .env            # ใส่ DATABASE_URL ของ postgres ตัวเอง
 
-npx prisma generate             # สร้าง client เข้า src/generated/prisma (gitignored)
-npx prisma db push              # sync schema เข้า DB — ยังไม่ต้องสร้าง migration
+pnpm prisma db push             # sync schema เข้า DB ของตัวเอง
+                                # (pnpm install รัน prisma generate ให้แล้วผ่าน postinstall)
 psql "$DATABASE_URL" -f prisma/sql/001_products_partial_indexes.sql
 
 pnpm start:dev                  # เปิด http://localhost:3000/docs
 pnpm test
 ```
 
-> ใช้ `db push` ระหว่าง dev โดยตั้งใจ — ทีมตกลงว่าโฟลเดอร์ `prisma/migrations`
-> จะสร้างครั้งเดียวตอน merge รวมทุก branch เพื่อเลี่ยง migration timestamp ชนกัน
+> ทีมใช้ `pnpm prisma db push` ระหว่าง dev — ไม่ต้องสร้าง migration เอง
+> ทุกครั้งที่ `git pull origin dev` แล้ว `schema.prisma` เปลี่ยน ให้รัน `db push` ซ้ำ
+> ไม่งั้น DB ของตัวเองจะไม่ตรงกับโค้ด
 
 ## ยิงเทสต์ระหว่างที่ auth ยังไม่เสร็จ
 

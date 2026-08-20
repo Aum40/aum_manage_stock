@@ -133,6 +133,9 @@ model User {
   // feature/subscriptions-resource + feature/shops-resource (พี่ปาน)
   subscription           Subscription?
   shops                  Shop[]
+  // feature/staff-resource (อั้ม) — back-relation ที่ Prisma บังคับ
+  shopStaffs             ShopStaff[]
+  permissionsGranted     StaffPermission[]
 
   @@index([email], name: "idx_user_email")
   @@index([username], name: "idx_user_username")
@@ -264,10 +267,56 @@ model Shop {
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  owner User        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  staff ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
+}
+
+// =====================================================================
+// feature/staff-resource (อั้ม)
+// Reviewed against SRS 2026-08-20, ดู api/prisma/design/schema.dbml
+// =====================================================================
+
+/// พนักงานที่ถูกมอบหมายเข้าร้าน — เจ้าของร้านไม่มีแถวในตารางนี้ สิทธิ์เต็มมาจาก
+/// shops.ownerId โดยตรง พนักงาน 1 คนมอบหมายได้หลายร้าน (หลายแถว) แต่นับเป็น
+/// 1 คนใน staff quota เสมอ (SRS: "จัดสรรพนักงานจาก staff quota กลาง...ได้อย่างอิสระ")
+model ShopStaff {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  shopId     String    @map("shop_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  assignedAt DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  removedAt  DateTime? @map("removed_at") @db.Timestamptz(6) // soft remove — เก็บประวัติผู้ทำรายการไว้
+
+  shop       Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  permission StaffPermission?
+
+  @@unique([shopId, userId], map: "uq_shop_staff")
+  @@index([userId, removedAt], name: "idx_shop_staff_user")
+  @@map("shop_staffs")
+}
+
+/// สิทธิ์การใช้งานของพนักงาน 1:1 กับ ShopStaff — สิทธิ์กำหนดแยกรายร้าน
+/// ค่าเริ่มต้นทุกสิทธิ์ = false เสมอ (SRS: "บัญชีพนักงานที่สร้างใหม่ต้องไม่มีสิทธิ์ใดๆ")
+/// ต้องเช็คคู่กับ subscription_plans ของเจ้าของร้านเสมอ 2 ชั้นก่อนอนุญาต action ใดๆ
+model StaffPermission {
+  id                   String   @id @default(uuid(7)) @db.Uuid
+  shopStaffId          String   @unique @map("shop_staff_id") @db.Uuid
+  canManageProduct     Boolean  @default(false) @map("can_manage_product")
+  canAdjustStockManual Boolean  @default(false) @map("can_adjust_stock_manual")
+  canUseChatbot        Boolean  @default(false) @map("can_use_chatbot")
+  canScanSale          Boolean  @default(false) @map("can_scan_sale")
+  canViewDashboard     Boolean  @default(false) @map("can_view_dashboard")
+  canViewAiInsight     Boolean  @default(false) @map("can_view_ai_insight")
+  grantedBy            String?  @map("granted_by") @db.Uuid // user id ของเจ้าของร้านที่แก้ไขล่าสุด
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  shopStaff     ShopStaff @relation(fields: [shopStaffId], references: [id], onDelete: Cascade)
+  grantedByUser User?     @relation(fields: [grantedBy], references: [id], onDelete: SetNull)
+
+  @@map("staff_permissions")
 }
 
 // ต้องเพิ่มเองใน migration ภายหลัง (Prisma schema เขียนไม่ได้โดยตรง):
