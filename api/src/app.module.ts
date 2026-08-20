@@ -7,6 +7,9 @@ import { AdminModule } from './admin/admin.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CategoriesModule } from './categories/categories.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { CommonModule } from './common/common.module';
+import { ProductsModule } from './products/products.module';
+import { ShopProductsModule } from './shop-products/shop-products.module';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -22,6 +25,10 @@ import { validate } from './config/env.validation';
     PaymentsModule,
     CategoriesModule,
     SubscriptionsModule,
+    // [เซิ่น]
+    CommonModule,
+    ProductsModule,
+    ShopProductsModule,
   ],
 })
 export class AppModule {}
