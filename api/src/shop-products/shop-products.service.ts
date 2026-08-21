@@ -36,12 +36,11 @@ export class ShopProductsService {
     private readonly shopAccess: ShopAccessProvider,
   ) {}
 
-  /**
-   * เลือกสินค้าจากคลังกลางมาขายที่ร้านนี้ + ตั้งราคาขาย/ต้นทุนของร้านนี้
-   * ถ้าเคยขายแล้วแต่ถูกปิดไว้ (INACTIVE) ให้เปิดขายใหม่พร้อมอัปเดตราคา
-   */
-  async add(ownerId: string, shopId: string, dto: AddShopProductDto) {
-    await this.assertAccess(ownerId, shopId);
+  async add(userId: string, shopId: string, dto: AddShopProductDto) {
+    const { ownerId } = await this.shopAccess.assertCanManageShopProducts(
+      userId,
+      shopId,
+    );
     await this.assertProductBelongsToOwner(ownerId, dto.productId);
 
     const existing = await this.prisma.shopProduct.findUnique({
@@ -75,7 +74,7 @@ export class ShopProductsService {
         productId: dto.productId,
         sellPrice: dto.sellPrice,
         costPrice: dto.costPrice,
-        stockQty: 0, // เริ่มที่ 0 เสมอ — เติมสต็อกผ่าน stock-movements เท่านั้น
+        stockQty: 0,
         lowStockThreshold: dto.lowStockThreshold,
       },
       include: withProduct,
@@ -83,11 +82,11 @@ export class ShopProductsService {
   }
 
   async findAll(
-    ownerId: string,
+    userId: string,
     shopId: string,
     query: ListShopProductQueryDto,
   ) {
-    await this.assertAccess(ownerId, shopId);
+    await this.shopAccess.assertCanViewShopProducts(userId, shopId);
 
     const where = {
       shopId,
@@ -130,9 +129,8 @@ export class ShopProductsService {
     };
   }
 
-  /** สินค้าที่สต็อกคงเหลือ <= จุดแจ้งเตือนของร้านนี้ */
-  async findLowStock(ownerId: string, shopId: string) {
-    await this.assertAccess(ownerId, shopId);
+  async findLowStock(userId: string, shopId: string) {
+    await this.shopAccess.assertCanViewShopProducts(userId, shopId);
 
     return this.prisma.shopProduct.findMany({
       where: {
@@ -146,24 +144,19 @@ export class ShopProductsService {
     });
   }
 
-  async findOne(ownerId: string, shopId: string, shopProductId: string) {
-    await this.assertAccess(ownerId, shopId);
-
-    const shopProduct = await this.prisma.shopProduct.findFirst({
-      where: { id: shopProductId, shopId },
-      include: withProduct,
-    });
-    if (!shopProduct) throw new NotFoundException('ไม่พบสินค้านี้ในร้านนี้');
-    return shopProduct;
+  async findOne(userId: string, shopId: string, shopProductId: string) {
+    await this.shopAccess.assertCanViewShopProducts(userId, shopId);
+    return this.getShopProductOrThrow(shopId, shopProductId);
   }
 
   async update(
-    ownerId: string,
+    userId: string,
     shopId: string,
     shopProductId: string,
     dto: UpdateShopProductDto,
   ) {
-    await this.findOne(ownerId, shopId, shopProductId);
+    await this.shopAccess.assertCanManageShopProducts(userId, shopId);
+    await this.getShopProductOrThrow(shopId, shopProductId);
 
     return this.prisma.shopProduct.update({
       where: { id: shopProductId },
@@ -178,13 +171,9 @@ export class ShopProductsService {
     });
   }
 
-  /**
-   * "เลิกขายที่ร้านนี้" — ไม่ลบแถวจริง เพราะ stock_movements/sale_items
-   * ของดิวอ้าง shop_product_id อยู่ ลบทิ้งแล้วประวัติขาด
-   * และไม่กระทบร้านอื่นเพราะเป็นแถวคนละร้าน
-   */
-  async remove(ownerId: string, shopId: string, shopProductId: string) {
-    const shopProduct = await this.findOne(ownerId, shopId, shopProductId);
+  async remove(userId: string, shopId: string, shopProductId: string) {
+    await this.shopAccess.assertCanManageShopProducts(userId, shopId);
+    const shopProduct = await this.getShopProductOrThrow(shopId, shopProductId);
 
     if (shopProduct.status === 'INACTIVE')
       return { id: shopProductId, status: 'INACTIVE' as const };
@@ -197,8 +186,13 @@ export class ShopProductsService {
     return updated;
   }
 
-  private assertAccess(ownerId: string, shopId: string): Promise<void> {
-    return this.shopAccess.assertCanManageShopProducts(ownerId, shopId);
+  private async getShopProductOrThrow(shopId: string, shopProductId: string) {
+    const shopProduct = await this.prisma.shopProduct.findFirst({
+      where: { id: shopProductId, shopId },
+      include: withProduct,
+    });
+    if (!shopProduct) throw new NotFoundException('ไม่พบสินค้านี้ในร้านนี้');
+    return shopProduct;
   }
 
   private async assertProductBelongsToOwner(

@@ -9,11 +9,6 @@ const money = z.coerce
     'ราคารองรับทศนิยมไม่เกิน 2 ตำแหน่ง',
   );
 
-/**
- * Body ตาม endpoint sheet: productId, sellPrice, costPrice, lowStockThreshold
- * ไม่มี stockQty โดยตั้งใจ — สินค้าที่เพิ่งเพิ่มเข้าร้านเริ่มที่ 0 เสมอ
- * การเปลี่ยนสต็อกต้องผ่าน stock-movements (ดิว) เท่านั้น จะได้มี movement log ครบ
- */
 export const AddShopProductSchema = z.object({
   productId: z.uuid('productId ต้องเป็น UUID'),
   sellPrice: money,
@@ -22,10 +17,6 @@ export const AddShopProductSchema = z.object({
 });
 export type AddShopProductDto = z.infer<typeof AddShopProductSchema>;
 
-/**
- * Body ตาม endpoint sheet: sellPrice, costPrice, lowStockThreshold
- * ไม่มี stockQty และไม่มี status — การเลิกขาย/กลับมาขายใช้ DELETE และ POST แทน
- */
 export const UpdateShopProductSchema = z
   .object({
     sellPrice: money.optional(),
