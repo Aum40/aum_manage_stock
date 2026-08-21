@@ -27,64 +27,60 @@ import { ShopProductsService } from './shop-products.service';
 export class ShopProductsController {
   constructor(private readonly shopProductsService: ShopProductsService) {}
 
-  /** เลือกสินค้าจากคลังกลางมาขายที่ร้านนี้ + ตั้งราคาขาย/ต้นทุนของร้านนี้ */
   @Post()
   add(
-    @OwnerId() ownerId: string,
+    @OwnerId() userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Body(new ZodValidationPipe(AddShopProductSchema)) dto: AddShopProductDto,
   ) {
-    return this.shopProductsService.add(ownerId, shopId, dto);
+    return this.shopProductsService.add(userId, shopId, dto);
   }
 
   @Get()
   findAll(
-    @OwnerId() ownerId: string,
+    @OwnerId() userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Query(new ZodValidationPipe(ListShopProductQuerySchema))
     query: ListShopProductQueryDto,
   ) {
-    return this.shopProductsService.findAll(ownerId, shopId, query);
+    return this.shopProductsService.findAll(userId, shopId, query);
   }
 
-  /** สินค้าที่ stock_qty <= low_stock_threshold — ต้องประกาศก่อน :shopProductId */
   @Get('low-stock')
   findLowStock(
-    @OwnerId() ownerId: string,
+    @OwnerId() userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
   ) {
-    return this.shopProductsService.findLowStock(ownerId, shopId);
+    return this.shopProductsService.findLowStock(userId, shopId);
   }
 
   @Get(':shopProductId')
   findOne(
-    @OwnerId() ownerId: string,
+    @OwnerId() userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Param('shopProductId', ParseUUIDPipe) shopProductId: string,
   ) {
-    return this.shopProductsService.findOne(ownerId, shopId, shopProductId);
+    return this.shopProductsService.findOne(userId, shopId, shopProductId);
   }
 
-  /** แก้ราคาขาย/ต้นทุน/threshold เฉพาะร้านนี้ — ห้ามแก้ stock ทางนี้ */
   @Patch(':shopProductId')
   update(
-    @OwnerId() ownerId: string,
+    @OwnerId() userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Param('shopProductId', ParseUUIDPipe) shopProductId: string,
     @Body(new ZodValidationPipe(UpdateShopProductSchema))
     dto: UpdateShopProductDto,
   ) {
-    return this.shopProductsService.update(ownerId, shopId, shopProductId, dto);
+    return this.shopProductsService.update(userId, shopId, shopProductId, dto);
   }
 
-  /** เลิกขายที่ร้านนี้ — ไม่กระทบร้านอื่นและไม่ลบประวัติ */
   @Delete(':shopProductId')
   @HttpCode(HttpStatus.OK)
   remove(
-    @OwnerId() ownerId: string,
+    @OwnerId() userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Param('shopProductId', ParseUUIDPipe) shopProductId: string,
   ) {
-    return this.shopProductsService.remove(ownerId, shopId, shopProductId);
+    return this.shopProductsService.remove(userId, shopId, shopProductId);
   }
 }

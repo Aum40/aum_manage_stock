@@ -1,35 +1,99 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../../database/prisma.service';
+import {
+  AccountContextService,
+  type AccountContext,
+} from '../access/account-context.service';
 
-/**
- * PORT — ตรวจว่าเจ้าของร้านคนนี้มีสิทธิ์ยุ่งกับร้านนี้ไหม
- * เจ้าของจริงคือ feature/shops-resource (พี่ปาน)
- *
- * TODO(staff): เมื่อ feature/staff-resource เข้ามาแล้ว ต้องรับ userId เพิ่ม
- * เพื่อแยกกรณีพนักงาน แล้วเช็ค staff_permissions.canManageProduct ด้วย
- */
 export const SHOP_ACCESS_PROVIDER = Symbol('SHOP_ACCESS_PROVIDER');
 
 export interface ShopAccessProvider {
-  /** โยน ForbiddenException/NotFoundException ถ้าไม่มีสิทธิ์ */
-  assertCanManageShopProducts(ownerId: string, shopId: string): Promise<void>;
+  assertCanViewShopProducts(
+    userId: string,
+    shopId: string,
+  ): Promise<AccountContext>;
+
+  assertCanManageShopProducts(
+    userId: string,
+    shopId: string,
+  ): Promise<AccountContext>;
 }
 
-/**
- * ⚠️ ADAPTER ชั่วคราว — อนุญาตทุกกรณี ใช้ระหว่าง dev เท่านั้น
- * เมื่อ shops เข้า dev แล้ว เปลี่ยนเป็น adapter ที่เช็ค shops.owner_id === ownerId
- */
 @Injectable()
-export class AllowAllShopAccessAdapter implements ShopAccessProvider {
-  private readonly logger = new Logger(AllowAllShopAccessAdapter.name);
-  private warned = false;
+export class PrismaShopAccessAdapter implements ShopAccessProvider {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accountContext: AccountContextService,
+  ) {}
 
-  assertCanManageShopProducts(): Promise<void> {
-    if (!this.warned) {
-      this.logger.warn(
-        'ใช้ AllowAllShopAccessAdapter (dev เท่านั้น) — ยังไม่ได้เช็คสิทธิ์ร้านจริง',
-      );
-      this.warned = true;
+  async assertCanViewShopProducts(
+    userId: string,
+    shopId: string,
+  ): Promise<AccountContext> {
+    const ctx = await this.accountContext.resolve(userId);
+    await this.assertShopBelongsToOwner(ctx.ownerId, shopId);
+
+    if (ctx.isStaff) await this.assertAssignedToShop(ctx.userId, shopId);
+
+    return ctx;
+  }
+
+  async assertCanManageShopProducts(
+    userId: string,
+    shopId: string,
+  ): Promise<AccountContext> {
+    const ctx = await this.accountContext.resolve(userId);
+    await this.assertShopBelongsToOwner(ctx.ownerId, shopId);
+
+    if (ctx.isStaff) {
+      const assignment = await this.assertAssignedToShop(ctx.userId, shopId);
+
+      if (!assignment.permission?.canManageProduct) {
+        throw new ForbiddenException({
+          message: 'คุณไม่มีสิทธิ์จัดการสินค้าของร้านนี้',
+          code: 'PRODUCT_PERMISSION_DENIED',
+        });
+      }
     }
-    return Promise.resolve();
+
+    await this.accountContext.assertNotReadOnly(ctx.ownerId);
+
+    return ctx;
+  }
+
+  private async assertShopBelongsToOwner(
+    ownerId: string,
+    shopId: string,
+  ): Promise<void> {
+    const shop = await this.prisma.shop.findFirst({
+      where: { id: shopId, ownerId, deletedAt: null },
+      select: { id: true, status: true },
+    });
+
+    if (!shop) throw new NotFoundException('ไม่พบร้านค้านี้');
+
+    if (shop.status !== 'ACTIVE') {
+      throw new ForbiddenException({
+        message: 'ร้านค้านี้ถูกระงับการใช้งาน',
+        code: 'SHOP_SUSPENDED',
+      });
+    }
+  }
+
+  private async assertAssignedToShop(userId: string, shopId: string) {
+    const assignment = await this.prisma.shopStaff.findFirst({
+      where: { userId, shopId, removedAt: null },
+      select: { id: true, permission: { select: { canManageProduct: true } } },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('ไม่พบร้านค้านี้');
+    }
+
+    return assignment;
   }
 }

@@ -2,11 +2,16 @@
 -- [เซิ่น] Partial unique index ที่ Prisma schema เขียนเองไม่ได้
 -- Prisma ยังไม่รองรับ `@@unique(..., where: ...)` จึงต้องรัน SQL นี้เพิ่มเอง
 --
--- ระหว่าง dev (ใช้ `prisma db push`):  รันไฟล์นี้ด้วยมือครั้งเดียวหลัง push
+-- สถานะ: 2 statement นี้ถูกรวมเข้า migration แล้วโดยแพรว (commit 351ccb4)
+--     prisma/migrations/20260820000000_add_auth_subscription_shop_models/migration.sql
+--     -> ใครรัน `prisma migrate deploy` จะได้ index ครบอยู่แล้ว ไม่ต้องทำอะไรเพิ่ม
+--
+-- แต่ทีมใช้ `prisma db push` ระหว่าง dev ซึ่ง **ข้าม** โฟลเดอร์ migrations ทั้งหมด
+-- ใครที่ push แล้วยังต้องรันไฟล์นี้เองหนึ่งครั้ง (idempotent รันซ้ำได้ไม่พัง):
 --     psql "$DATABASE_URL" -f prisma/sql/001_products_partial_indexes.sql
 --
--- ตอนสร้าง migration จริง (ตอน merge รวม):
---     เอา 2 statement นี้ไปต่อท้ายไฟล์ prisma/migrations/<...>_init/migration.sql
+-- ถ้าแก้ไฟล์นี้ ต้องแก้ใน migration ให้ตรงกันด้วย — migrations เป็นพื้นที่ของแพรว
+-- ให้แจ้งแทนการแก้เอง (AGENTS.md: ห้ามเพิ่ม/แก้ prisma/migrations ระหว่าง feature work)
 -- =====================================================================
 
 -- SRS: บาร์โค้ดห้ามซ้ำภายในคลังสินค้ากลางของเจ้าของร้านคนเดียวกัน
