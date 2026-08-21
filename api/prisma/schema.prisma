@@ -17,13 +17,6 @@ datasource db {
 enum StockMovementType {
   MANUAL_ADJUSTMENT
   CHAT_ADJUSTMENT
-  SALE
-  SALE_VOID
-}
-
-enum SaleStatus {
-  COMPLETED
-  VOIDED
 }
 
 enum StockMovementSource {
@@ -103,43 +96,6 @@ model PendingAction {
   @@index([expiresAt, status])
 }
 
-model Sale {
-  id          String     @id @default(uuid()) @db.Uuid
-  shopId      String     @db.Uuid
-  staffId     String     @db.Uuid
-  status      SaleStatus @default(COMPLETED)
-  totalAmount Decimal    @db.Decimal(18, 2)
-  note        String?
-  voidedById  String?    @db.Uuid
-  voidReason  String?
-  voidedAt    DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  items       SaleItem[]
-  shop        Shop       @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  staff       User       @relation("SaleStaff", fields: [staffId], references: [id], onDelete: Restrict)
-  voidedBy    User?      @relation("SaleVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
-
-  @@index([shopId, createdAt(sort: Desc)])
-  @@index([shopId, status, createdAt(sort: Desc)])
-}
-
-model SaleItem {
-  id            String      @id @default(uuid()) @db.Uuid
-  saleId        String      @db.Uuid
-  shopProductId String      @db.Uuid
-  productName   String
-  unitPrice     Decimal     @db.Decimal(18, 2)
-  quantity      Int
-  lineTotal     Decimal     @db.Decimal(18, 2)
-  createdAt     DateTime    @default(now())
-  sale          Sale        @relation(fields: [saleId], references: [id], onDelete: Restrict)
-  shopProduct   ShopProduct @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
-
-  @@index([saleId])
-  @@index([shopProductId])
-}
-
 enum UserRole {
   SHOP_OWNER
   SHOP_STAFF
@@ -184,8 +140,6 @@ model User {
   permissionsGranted     StaffPermission[]
   stockMovements         StockMovement[]         @relation("StockMovementActor")
   pendingActions         PendingAction[]         @relation("PendingActionActor")
-  salesCreated           Sale[]                  @relation("SaleStaff")
-  salesVoided            Sale[]                  @relation("SaleVoidedBy")
 
   @@index([email], name: "idx_user_email")
   @@index([username], name: "idx_user_username")
@@ -319,7 +273,6 @@ model Shop {
 
   owner          User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   staff          ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
-  sales          Sale[]
   shopProducts   ShopProduct[]
   stockMovements StockMovement[]
   pendingActions PendingAction[]
@@ -439,7 +392,6 @@ model ShopProduct {
   shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
   stockMovements StockMovement[]
   pendingActions PendingAction[]
-  saleItems      SaleItem[]
 
   @@unique([shopId, productId], map: "uq_shop_product")
   @@index([shopId, status], name: "idx_shop_product_shop_status")

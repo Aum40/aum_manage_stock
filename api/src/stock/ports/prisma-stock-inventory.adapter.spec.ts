@@ -2,7 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaStockInventoryAdapter } from './prisma-stock-inventory.adapter';
 
 describe('PrismaStockInventoryAdapter', () => {
-  it('decrements stock atomically and returns before/after quantities', async () => {
+  it('updates stock atomically and returns before/after quantities', async () => {
     const tx = {
       shopProduct: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -28,35 +28,26 @@ describe('PrismaStockInventoryAdapter', () => {
     });
   });
 
-  it('rejects insufficient stock without updating a row', async () => {
-    const tx = {
+  it('distinguishes insufficient stock from a missing shop product', async () => {
+    const adapter = new PrismaStockInventoryAdapter({} as never);
+    const insufficient = {
       shopProduct: {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         findFirst: jest.fn().mockResolvedValue({ id: 'product' }),
       },
     };
-    const adapter = new PrismaStockInventoryAdapter({} as never);
     await expect(
-      adapter.adjustStock(tx as never, {
+      adapter.adjustStock(insufficient as never, {
         shopId: 'shop',
         shopProductId: 'product',
         quantityDelta: -3,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('rejects a product outside the shop', async () => {
-    const tx = {
-      shopProduct: {
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-        findFirst: jest.fn().mockResolvedValue(null),
-      },
-    };
-    const adapter = new PrismaStockInventoryAdapter({} as never);
+    insufficient.shopProduct.findFirst.mockResolvedValue(null);
     await expect(
-      adapter.adjustStock(tx as never, {
+      adapter.adjustStock(insufficient as never, {
         shopId: 'shop',
-        shopProductId: 'other-product',
+        shopProductId: 'product',
         quantityDelta: 1,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
