@@ -10,7 +10,6 @@ async function bootstrap() {
       whitelist: true,
     }),
   );
-
   app.enableShutdownHooks();
   await app.listen(process.env.PORT ?? 8000);
 }

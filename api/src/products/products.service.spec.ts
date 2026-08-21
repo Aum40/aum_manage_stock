@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import type { PrismaService } from '../database/prisma.service';
+import type { AccountContextService } from '../common/access/account-context.service';
 
 type PrismaMock = {
   product: {
@@ -20,6 +21,7 @@ type PrismaMock = {
 };
 
 const OWNER = '0199a0e0-0000-7000-8000-000000000001';
+const STAFF = '0199a0e0-0000-7000-8000-0000000000ff';
 
 function createPrismaMock(): PrismaMock {
   return {
@@ -36,22 +38,36 @@ function createPrismaMock(): PrismaMock {
   };
 }
 
-/** ครอบ expect.objectContaining ให้คืน unknown แทน any (กัน no-unsafe-assignment) */
 const containing = (shape: Record<string, unknown>): unknown =>
   expect.objectContaining(shape);
 
-/** เช่นเดียวกัน — expect.any() คืน any */
 const anyDate = (): unknown => expect.any(Date);
 
 describe('ProductsService', () => {
   let prisma: PrismaMock;
   let quota: { getMaxActiveProducts: jest.Mock };
+  let accountContext: {
+    resolve: jest.Mock;
+    assertCanManageCatalog: jest.Mock;
+    assertNotReadOnly: jest.Mock;
+  };
   let service: ProductsService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
     quota = { getMaxActiveProducts: jest.fn().mockResolvedValue(100) };
-    service = new ProductsService(prisma as unknown as PrismaService, quota);
+    accountContext = {
+      resolve: jest
+        .fn()
+        .mockResolvedValue({ userId: OWNER, ownerId: OWNER, isStaff: false }),
+      assertCanManageCatalog: jest.fn().mockResolvedValue(undefined),
+      assertNotReadOnly: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new ProductsService(
+      prisma as unknown as PrismaService,
+      accountContext as unknown as AccountContextService,
+      quota,
+    );
   });
 
   describe('create', () => {
@@ -75,13 +91,24 @@ describe('ProductsService', () => {
       });
     });
 
-    it('ห้ามเพิ่มเมื่อสินค้า active เต็มโควตาแพ็กเกจ (Free Plan = 100)', async () => {
+    it('ห้ามเพิ่มเมื่อสินค้า active เต็มโควตาแพ็กเกจ', async () => {
       prisma.product.count.mockResolvedValue(100);
 
       await expect(
         service.create(OWNER, { name: 'สินค้าใหม่', unit: 'ชิ้น' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.product.create).not.toHaveBeenCalled();
+    });
+
+    it('โควตาอ่านจากแพ็กเกจจริง — Pro (5,000) ยังเพิ่มได้ทั้งที่มีอยู่ 3,000', async () => {
+      quota.getMaxActiveProducts.mockResolvedValue(5_000);
+      prisma.product.count.mockResolvedValue(3_000);
+      prisma.product.findFirst.mockResolvedValue(null);
+      prisma.product.create.mockResolvedValue({ id: 'p9' });
+
+      await service.create(OWNER, { name: 'สินค้า', unit: 'ชิ้น' });
+
+      expect(prisma.product.create).toHaveBeenCalled();
     });
 
     it('ไม่จำกัดจำนวนเมื่อ quota provider คืน null', async () => {
@@ -93,6 +120,34 @@ describe('ProductsService', () => {
 
       expect(prisma.product.count).not.toHaveBeenCalled();
       expect(prisma.product.create).toHaveBeenCalled();
+    });
+
+    it('แพ็กเกจหมดอายุ (read-only) -> 403 และไม่แตะ DB', async () => {
+      accountContext.assertCanManageCatalog.mockRejectedValue(
+        new ForbiddenException({ code: 'SUBSCRIPTION_READ_ONLY' }),
+      );
+
+      await expect(
+        service.create(OWNER, { name: 'สินค้า', unit: 'ชิ้น' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.product.create).not.toHaveBeenCalled();
+      expect(prisma.product.count).not.toHaveBeenCalled();
+    });
+
+    it('พนักงานที่ไม่มีสิทธิ์ canManageProduct -> 403', async () => {
+      accountContext.resolve.mockResolvedValue({
+        userId: STAFF,
+        ownerId: OWNER,
+        isStaff: true,
+      });
+      accountContext.assertCanManageCatalog.mockRejectedValue(
+        new ForbiddenException({ code: 'PRODUCT_PERMISSION_DENIED' }),
+      );
+
+      await expect(
+        service.create(STAFF, { name: 'สินค้า', unit: 'ชิ้น' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.product.create).not.toHaveBeenCalled();
     });
 
     it('บาร์โค้ดซ้ำในคลังของ owner เดียวกัน -> 409', async () => {
@@ -118,6 +173,23 @@ describe('ProductsService', () => {
       await service.create(OWNER, { name: 'ของชั่งกิโล', unit: 'กก.' });
 
       expect(prisma.product.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findAll', () => {
+    it('พนักงานเห็นคลังของ owner ที่ตัวเองสังกัด ไม่ใช่คลังของตัวเอง', async () => {
+      accountContext.resolve.mockResolvedValue({
+        userId: STAFF,
+        ownerId: OWNER,
+        isStaff: true,
+      });
+      prisma.$transaction.mockResolvedValue([[], 0]);
+
+      await service.findAll(STAFF, { page: 1, limit: 20 });
+
+      expect(prisma.product.findMany).toHaveBeenCalledWith(
+        containing({ where: containing({ ownerId: OWNER, deletedAt: null }) }),
+      );
     });
   });
 
