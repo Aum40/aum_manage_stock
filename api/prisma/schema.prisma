@@ -56,6 +56,9 @@ model User {
   // feature/staff-resource (อั้ม) — back-relation ที่ Prisma บังคับ
   shopStaffs             ShopStaff[]
   permissionsGranted     StaffPermission[]
+  // feature/chatbot-resource (อั้ม) — back-relation ที่ Prisma บังคับ
+  pendingStockActions    PendingStockAction[]
+  chatMessages           ChatMessage[]
 
   @@index([email], name: "idx_user_email")
   @@index([username], name: "idx_user_username")
@@ -151,6 +154,12 @@ model SubscriptionPlan {
   isFree             Boolean @default(false) @map("is_free")
   isActive           Boolean @default(true) @map("is_active")
 
+  // [อั้ม] feature-gate ตาม schema.dbml:243-245 — เดิมขาดใน schema.prisma
+  // seed ต้องตั้ง true ให้ PLUS/PRO ไม่งั้น default false จะบล็อกทุกคน
+  chatbotEnabled          Boolean @default(false) @map("chatbot_enabled") // Plus/Pro (SRS §71, §160)
+  barcodeEnabled          Boolean @default(false) @map("barcode_enabled") // Plus/Pro (SRS §72, §167)
+  aiRecommendationEnabled Boolean @default(false) @map("ai_recommendation_enabled") // Pro เท่านั้น (SRS §179, §181)
+
   subscriptions Subscription[]
 
   @@map("subscription_plans")
@@ -189,6 +198,10 @@ model Shop {
 
   owner User        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   staff ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
+
+  // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
+  pendingStockActions PendingStockAction[]
+  chatMessages        ChatMessage[]
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
@@ -310,4 +323,78 @@ model ShopProduct {
   @@index([shopId, status], name: "idx_shop_product_shop_status")
   @@index([productId], name: "idx_shop_product_product")
   @@map("shop_products")
+}
+
+// =====================================================================
+// [อั้ม] feature/chatbot-resource
+// ตรงตาม prisma/design/schema.dbml:551-598 (review กับ SRS แล้ว 2026-08-20)
+// =====================================================================
+
+enum ChatChannel {
+  WEB
+  LINE
+
+  @@map("chat_channel")
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+
+  @@map("chat_role")
+}
+
+enum PendingActionStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+  FAILED
+
+  @@map("pending_action_status")
+}
+
+/// คำสั่งปรับสต็อกจากแชทที่ตีความแล้วแต่ยังรอผู้ใช้ยืนยัน
+/// ต้อง persist ลง DB ไม่ใช่เก็บใน memory เพราะการยืนยันอาจมาคนละ request
+/// คนละ process (เช่น LINE webhook อีก 5 นาทีถัดมา) — SRS §162-165
+model PendingStockAction {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  shopId      String              @map("shop_id") @db.Uuid
+  userId      String              @map("user_id") @db.Uuid
+  channel     ChatChannel
+  rawText     String              @map("raw_text")
+  parsedItems Json                @map("parsed_items")
+  status      PendingActionStatus @default(PENDING)
+  errorReason String?             @map("error_reason")
+  expiresAt   DateTime            @map("expires_at") @db.Timestamptz(6)
+  confirmedAt DateTime?           @map("confirmed_at") @db.Timestamptz(6)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  shop         Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  chatMessages ChatMessage[]
+
+  @@index([shopId, status], name: "idx_pending_shop_status")
+  @@index([userId, status], name: "idx_pending_user_status")
+  @@index([expiresAt], name: "idx_pending_expires")
+  @@map("pending_stock_actions")
+}
+
+/// ประวัติแชทของผู้ใช้ต่อร้าน ทั้งฝั่งเว็บและ LINE
+model ChatMessage {
+  id              String      @id @default(uuid(7)) @db.Uuid
+  shopId          String      @map("shop_id") @db.Uuid
+  userId          String      @map("user_id") @db.Uuid
+  channel         ChatChannel
+  role            ChatRole
+  content         String
+  pendingActionId String?     @map("pending_action_id") @db.Uuid
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  shop          Shop                @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  pendingAction PendingStockAction? @relation(fields: [pendingActionId], references: [id], onDelete: SetNull)
+
+  @@index([shopId, userId, createdAt], name: "idx_chat_scope_date")
+  @@map("chat_messages")
 }
