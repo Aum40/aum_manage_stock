@@ -14,6 +14,88 @@ datasource db {
   provider = "postgresql"
 }
 
+enum StockMovementType {
+  MANUAL_ADJUSTMENT
+  CHAT_ADJUSTMENT
+}
+
+enum StockMovementSource {
+  WEB
+  LINE
+}
+
+enum PendingActionSource {
+  WEB
+  LINE
+}
+
+enum PendingActionIntent {
+  ADJUST_STOCK
+}
+
+enum StockOperation {
+  INCREASE
+  DECREASE
+}
+
+enum PendingActionStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+model StockMovement {
+  id             String              @id @default(uuid()) @db.Uuid
+  shopId         String              @db.Uuid
+  shopProductId  String              @db.Uuid
+  actorId        String?             @db.Uuid
+  movementType   StockMovementType
+  quantityDelta  Int
+  quantityBefore Int
+  quantityAfter  Int
+  source         StockMovementSource
+  note           String?
+  referenceType  String?
+  referenceId    String?
+  createdAt      DateTime            @default(now())
+  shop           Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  shopProduct    ShopProduct         @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
+  actor          User?               @relation("StockMovementActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([referenceType, referenceId])
+  @@index([shopId, createdAt(sort: Desc)])
+  @@index([shopId, shopProductId, createdAt(sort: Desc)])
+  @@index([shopId, actorId, createdAt(sort: Desc)])
+  @@index([shopId, movementType, createdAt(sort: Desc)])
+}
+
+model PendingAction {
+  id              String              @id @default(uuid()) @db.Uuid
+  shopId          String              @db.Uuid
+  actorId         String?             @db.Uuid
+  source          PendingActionSource
+  originalMessage String
+  intent          PendingActionIntent
+  shopProductId   String?             @db.Uuid
+  productQuery    String
+  operation       StockOperation
+  quantity        Int
+  status          PendingActionStatus @default(PENDING)
+  payload         Json?
+  expiresAt       DateTime
+  confirmedAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  shop            Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  shopProduct     ShopProduct?        @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
+  actor           User?               @relation("PendingActionActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([shopId, status, createdAt(sort: Desc)])
+  @@index([expiresAt, status])
+}
+
 enum UserRole {
   SHOP_OWNER
   SHOP_STAFF
@@ -56,9 +138,8 @@ model User {
   // feature/staff-resource (อั้ม) — back-relation ที่ Prisma บังคับ
   shopStaffs             ShopStaff[]
   permissionsGranted     StaffPermission[]
-  // feature/chatbot-resource (อั้ม) — back-relation ที่ Prisma บังคับ
-  pendingStockActions    PendingStockAction[]
-  chatMessages           ChatMessage[]
+  stockMovements         StockMovement[]         @relation("StockMovementActor")
+  pendingActions         PendingAction[]         @relation("PendingActionActor")
 
   @@index([email], name: "idx_user_email")
   @@index([username], name: "idx_user_username")
@@ -196,12 +277,11 @@ model Shop {
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  owner User        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  staff ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
-
-  // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
-  pendingStockActions PendingStockAction[]
-  chatMessages        ChatMessage[]
+  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  staff          ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
+  shopProducts   ShopProduct[]
+  stockMovements StockMovement[]
+  pendingActions PendingAction[]
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
@@ -314,10 +394,10 @@ model ShopProduct {
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
-
-  // TODO(shops): เพิ่ม relation ไป model Shop เมื่อ feature/shops-resource เข้า dev
-  //   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  stockMovements StockMovement[]
+  pendingActions PendingAction[]
 
   @@unique([shopId, productId], map: "uq_shop_product")
   @@index([shopId, status], name: "idx_shop_product_shop_status")
