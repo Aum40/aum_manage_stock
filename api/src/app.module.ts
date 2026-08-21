@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ChatCommandModule } from './chat-command/chat-command.module';
 import { DatabaseModule } from './database/database.module';
+import { LineModule } from './line/line.module';
+import { StockModule } from './stock/stock.module';
+import { SalesModule } from './sales/sales.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AdminModule } from './admin/admin.module';
@@ -32,6 +36,10 @@ import { validate } from './config/env.validation';
     CommonModule,
     ProductsModule,
     ShopProductsModule,
+    StockModule,
+    ChatCommandModule,
+    LineModule,
+    SalesModule,
     StaffModule,
   ],
 })

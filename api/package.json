@@ -11,7 +11,8 @@
     "pnpm": ">=11"
   },
   "scripts": {
-    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "postinstall": "pnpm run prisma:generate",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
@@ -47,6 +48,7 @@
     "nestjs-zod": "5.5.0",
     "ollama": "^0.6.3",
     "otplib": "^13.4.1",
+    "pg": "^8.23.0",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -64,6 +66,7 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.0.0",
     "dotenv": "^17.4.2",
@@ -90,12 +93,13 @@
       "ts"
     ],
     "rootDir": "src",
-    "moduleNameMapper": {
-      "^@/(.*)$": "<rootDir>/$1"
-    },
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^@/(.*)$": "<rootDir>/$1",
+      "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
