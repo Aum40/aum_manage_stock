@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { OwnerId } from '../common/decorators/owner-id.decorator';
-import { ChatbotService } from './chatbot.service';
+import { ChatService } from './chat.service';
 import {
   ListChatMessagesQuerySchema,
   SendChatMessageSchema,
@@ -18,8 +18,8 @@ import {
 } from './dto/chat.dto';
 
 @Controller('shops/:shopId/chat/messages')
-export class ChatbotController {
-  constructor(private readonly chatbotService: ChatbotService) {}
+export class ChatController {
+  constructor(private readonly chatService: ChatService) {}
 
   @Get()
   listMessages(
@@ -28,7 +28,7 @@ export class ChatbotController {
     @Query(new ZodValidationPipe(ListChatMessagesQuerySchema))
     query: ListChatMessagesQueryDto,
   ) {
-    return this.chatbotService.listMessages(userId, shopId, query);
+    return this.chatService.listMessages(userId, shopId, query);
   }
 
   @Post()
@@ -38,6 +38,6 @@ export class ChatbotController {
     @Body(new ZodValidationPipe(SendChatMessageSchema))
     dto: SendChatMessageDto,
   ) {
-    return this.chatbotService.sendMessage(userId, shopId, dto.content);
+    return this.chatService.sendMessage(userId, shopId, dto.content);
   }
 }

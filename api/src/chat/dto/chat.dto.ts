@@ -17,17 +17,3 @@ export const ListChatMessagesQuerySchema = z.object({
 export type ListChatMessagesQueryDto = z.infer<
   typeof ListChatMessagesQuerySchema
 >;
-
-export const ParsedItemSchema = z.object({
-  shopProductId: z.string(),
-  productName: z.string(),
-  qtyChange: z.number().int(),
-});
-
-export type ParsedItem = z.infer<typeof ParsedItemSchema>;
-
-export const LlmParseResultSchema = z.object({
-  items: z.array(ParsedItemSchema),
-});
-
-export type LlmParseResult = z.infer<typeof LlmParseResultSchema>;

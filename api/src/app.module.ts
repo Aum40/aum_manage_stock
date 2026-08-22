@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ChatCommandModule } from './chat-command/chat-command.module';
+import { ChatModule } from './chat/chat.module';
 import { DatabaseModule } from './database/database.module';
 import { LineModule } from './line/line.module';
 import { StockModule } from './stock/stock.module';
@@ -15,7 +16,6 @@ import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { ShopProductsModule } from './shop-products/shop-products.module';
 import { StaffModule } from './staff/staff.module';
-import { ChatbotModule } from './chatbot/chatbot.module';
 import { validate } from './config/env.validation';
 
 @Module({
@@ -38,9 +38,9 @@ import { validate } from './config/env.validation';
     ShopProductsModule,
     StockModule,
     ChatCommandModule,
+    ChatModule,
     LineModule,
     StaffModule,
-    ChatbotModule,
   ],
 })
 export class AppModule {}
