@@ -12,20 +12,31 @@
 -- idempotent — รันซ้ำได้ไม่พัง และอัปเดตค่าให้ตรงกับ SRS เสมอ
 --
 -- duration_months NULL = ไม่มีวันหมดอายุ (Free Plan เท่านั้น)
+--
+-- ประตูฟีเจอร์ระดับแพ็กเกจ (SRS §116/§171/§179/§193):
+--   chatbot_enabled            = AI Chat        -> Plus + Pro
+--   barcode_enabled            = ตัดสต็อกบาร์โค้ด -> Plus + Pro
+--   ai_recommendation_enabled  = AI Recommendations -> Pro เท่านั้น
+-- (SRS §80 เขียนกว้างว่า "คำแนะนำจาก AI: Plus และ Pro" แต่ §191/§193 ระบุ
+--  ชัดว่า AI Recommendations เป็นของ Pro อย่างเดียว จึงยึดตาม §193)
 INSERT INTO subscription_plans
   (id, code, name_th, price_thb, duration_months,
    included_shop_quota, included_staff_quota, max_active_products,
+   chatbot_enabled, barcode_enabled, ai_recommendation_enabled,
    is_free, is_active)
 VALUES
-  (gen_random_uuid(), 'FREE', 'ฟรี',      0.00, NULL, 1, 0,  100, true,  true),
-  (gen_random_uuid(), 'PLUS', 'พลัส',  2499.00,   12, 3, 6, 3000, false, true),
-  (gen_random_uuid(), 'PRO',  'โปร',   3499.00,   12, 5, 10, 5000, false, true)
+  (gen_random_uuid(), 'FREE', 'ฟรี',      0.00, NULL, 1, 0,  100, false, false, false, true,  true),
+  (gen_random_uuid(), 'PLUS', 'พลัส',  2499.00,   12, 3, 6, 3000, true,  true,  false, false, true),
+  (gen_random_uuid(), 'PRO',  'โปร',   3499.00,   12, 5, 10, 5000, true,  true,  true,  false, true)
 ON CONFLICT (code) DO UPDATE SET
-  name_th              = EXCLUDED.name_th,
-  price_thb            = EXCLUDED.price_thb,
-  duration_months      = EXCLUDED.duration_months,
-  included_shop_quota  = EXCLUDED.included_shop_quota,
-  included_staff_quota = EXCLUDED.included_staff_quota,
-  max_active_products  = EXCLUDED.max_active_products,
-  is_free              = EXCLUDED.is_free,
-  is_active            = EXCLUDED.is_active;
+  name_th                   = EXCLUDED.name_th,
+  price_thb                 = EXCLUDED.price_thb,
+  duration_months           = EXCLUDED.duration_months,
+  included_shop_quota       = EXCLUDED.included_shop_quota,
+  included_staff_quota      = EXCLUDED.included_staff_quota,
+  max_active_products       = EXCLUDED.max_active_products,
+  chatbot_enabled           = EXCLUDED.chatbot_enabled,
+  barcode_enabled           = EXCLUDED.barcode_enabled,
+  ai_recommendation_enabled = EXCLUDED.ai_recommendation_enabled,
+  is_free                   = EXCLUDED.is_free,
+  is_active                 = EXCLUDED.is_active;
