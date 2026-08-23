@@ -333,11 +333,19 @@ model SubscriptionPlan {
   nameTh             String  @map("name_th") @db.VarChar(100)
   priceThb           Decimal @map("price_thb") @db.Decimal(12, 2)
   durationMonths     Int?    @map("duration_months") // NULL = Free Plan ไม่มีวันหมดอายุ
-  includedShopQuota  Int     @default(1) @map("included_shop_quota")
+  includedShopQuota  Int     @default(1) @map("included_shop_quota") // Free = 1, Plus = 3, Pro = 5
   includedStaffQuota Int     @default(0) @map("included_staff_quota") // Free = 0, Plus = 6, Pro = 10
-  maxActiveProducts  Int?    @map("max_active_products") // NULL = ไม่จำกัด (Paid), 100 = Free Plan
-  isFree             Boolean @default(false) @map("is_free")
-  isActive           Boolean @default(true) @map("is_active")
+  maxActiveProducts  Int?    @map("max_active_products") // Free = 100, Plus = 3000, Pro = 5000 (SRS §69-71)
+
+  /// SRS §116/§171/§179/§193 — ประตูระดับแพ็กเกจ ต้องผ่านคู่กับ staff_permissions
+  /// เสมอ (ดู "Permission checks" ใน AGENTS.md) เจ้าของร้านเปิดสิทธิ์ให้พนักงาน
+  /// ได้ แต่ถ้าแพ็กเกจไม่ปลดล็อกก็ต้องถูกบล็อกอยู่ดี
+  chatbotEnabled          Boolean @default(false) @map("chatbot_enabled") // Plus/Pro (AI Chat)
+  barcodeEnabled          Boolean @default(false) @map("barcode_enabled") // Plus/Pro (ตัดสต็อกด้วยบาร์โค้ด)
+  aiRecommendationEnabled Boolean @default(false) @map("ai_recommendation_enabled") // Pro เท่านั้น
+
+  isFree   Boolean @default(false) @map("is_free")
+  isActive Boolean @default(true) @map("is_active")
 
   subscriptions Subscription[]
 
