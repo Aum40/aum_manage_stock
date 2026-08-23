@@ -208,6 +208,37 @@ Table password_reset_tokens {
   Note: 'ใช้ได้เฉพาะบัญชีที่มี email ผูกไว้ (SRS §124) — พนักงานรีเซ็ตเองไม่ได้ เจ้าของร้านเปลี่ยนให้เท่านั้น (SRS §125-126)'
 }
 
+Enum admin_audit_action {
+  USER_SUSPEND
+  USER_REACTIVATE
+  USER_ROLE_CHANGE
+  SHOP_SUSPEND
+  SHOP_REACTIVATE
+}
+
+Enum admin_audit_target_type {
+  USER
+  SHOP
+}
+
+Table admin_audit_logs {
+  id uuid [pk]
+  actor_id uuid [not null, note: 'Admin/Super Admin ที่ทำรายการ — restrict ไม่ให้ประวัติหายเมื่อลบบัญชี']
+  action admin_audit_action [not null]
+  target_type admin_audit_target_type [not null]
+  target_id uuid [not null, note: 'ไม่มี FK เพราะชี้ได้ทั้ง users และ shops แล้วแต่ target_type']
+  reason text [null, note: 'เหตุผลที่ระงับ (SRS §185 ให้ระงับได้แต่ไม่ได้ระบุที่เก็บเหตุผล)']
+  metadata jsonb [null, note: 'ข้อมูลเพิ่มเติมแล้วแต่ action เช่น เปลี่ยน role เก็บ { from, to }']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (actor_id, created_at) [name: 'idx_admin_audit_actor']
+    (target_type, target_id, created_at) [name: 'idx_admin_audit_target']
+  }
+
+  Note: 'APPEND-ONLY — ห้าม UPDATE/DELETE แถวเดิม (เหมือน stock_movements และ payments)'
+}
+
 Table email_verification_tokens {
   id uuid [pk]
   user_id uuid [not null]
@@ -664,6 +695,7 @@ Table notifications {
 Ref: refresh_tokens.user_id > users.id [delete: cascade]
 Ref: password_reset_tokens.user_id > users.id [delete: cascade]
 Ref: email_verification_tokens.user_id > users.id [delete: cascade]
+Ref: admin_audit_logs.actor_id > users.id [delete: restrict]
 Ref: two_factor_recovery_codes.user_id > users.id [delete: cascade]
 
 // Billing

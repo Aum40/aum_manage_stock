@@ -178,6 +178,7 @@ model User {
   passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
   twoFactorRecoveryCodes  TwoFactorRecoveryCode[]
+  adminAuditLogs          AdminAuditLog[]          @relation("AdminAuditActor")
   // feature/subscriptions-resource + feature/shops-resource (พี่ปาน)
   subscription            Subscription?
   shops                   Shop[]
@@ -245,6 +246,42 @@ model EmailVerificationToken {
 
   @@index([userId], name: "idx_email_verification_user")
   @@map("email_verification_tokens")
+}
+
+enum AdminAuditAction {
+  USER_SUSPEND
+  USER_REACTIVATE
+  USER_ROLE_CHANGE
+  SHOP_SUSPEND
+  SHOP_REACTIVATE
+}
+
+enum AdminAuditTargetType {
+  USER
+  SHOP
+}
+
+/// APPEND-ONLY — บันทึกทุก action ที่ Admin/Super Admin ทำกับบัญชีและร้านค้า
+/// ห้าม UPDATE/DELETE แถวเดิม (เหมือน stock_movements และ payments)
+///
+/// target_id ไม่มี FK เพราะชี้ได้ทั้ง users และ shops แล้วแต่ target_type
+/// actor ใช้ onDelete: Restrict เพื่อไม่ให้ประวัติหายเมื่อบัญชีแอดมินถูกลบ
+model AdminAuditLog {
+  id         String               @id @default(uuid()) @db.Uuid
+  actorId    String               @map("actor_id") @db.Uuid
+  action     AdminAuditAction
+  targetType AdminAuditTargetType @map("target_type")
+  targetId   String               @map("target_id") @db.Uuid
+  reason     String?
+  /// ข้อมูลเพิ่มเติมแล้วแต่ action เช่น เปลี่ยน role เก็บ { from, to }
+  metadata   Json?
+  createdAt  DateTime             @default(now()) @map("created_at") @db.Timestamptz(2)
+
+  actor User @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId, createdAt], name: "idx_admin_audit_actor")
+  @@index([targetType, targetId, createdAt], name: "idx_admin_audit_target")
+  @@map("admin_audit_logs")
 }
 
 model TwoFactorRecoveryCode {
