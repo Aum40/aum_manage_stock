@@ -130,6 +130,7 @@ Table users {
   first_name varchar(100) [not null]
   last_name varchar(100) [not null]
   email varchar(255) [unique, null, note: 'แก้ไขไม่ได้หลังบันทึกแล้ว (SRS §122)']
+  email_verified_at timestamptz [null, note: 'NULL = ยังไม่ยืนยันอีเมล → login ด้วยรหัสผ่านไม่ได้ / สมัครด้วย Google ถือว่ายืนยันแล้วทันที']
   username varchar(50) [unique, null, note: 'unique แบบ case-insensitive: UNIQUE(lower(username))']
   password_hash varchar(255) [null, note: 'bcrypt — NULL ได้ถ้าสมัครด้วย LINE/Google ล้วน']
   line_user_id varchar(100) [unique, null]
@@ -205,6 +206,22 @@ Table password_reset_tokens {
   }
 
   Note: 'ใช้ได้เฉพาะบัญชีที่มี email ผูกไว้ (SRS §124) — พนักงานรีเซ็ตเองไม่ได้ เจ้าของร้านเปลี่ยนให้เท่านั้น (SRS §125-126)'
+}
+
+Table email_verification_tokens {
+  id uuid [pk]
+  user_id uuid [not null]
+  token_hash varchar(255) [not null]
+  expires_at timestamptz [not null]
+  used_at timestamptz [null, note: 'ใช้ได้ครั้งเดียว']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (token_hash) [unique, name: 'uq_email_verification_hash']
+    (user_id) [name: 'idx_email_verification_user']
+  }
+
+  Note: 'ยืนยันอีเมลตอนสมัครด้วยอีเมล — ไม่ได้อยู่ใน SRS เป็นข้อกำหนดเพิ่มจากทีม กันการสมัครด้วยอีเมลปลอม'
 }
 
 Table two_factor_recovery_codes {
@@ -646,6 +663,7 @@ Table notifications {
 // Auth
 Ref: refresh_tokens.user_id > users.id [delete: cascade]
 Ref: password_reset_tokens.user_id > users.id [delete: cascade]
+Ref: email_verification_tokens.user_id > users.id [delete: cascade]
 Ref: two_factor_recovery_codes.user_id > users.id [delete: cascade]
 
 // Billing
