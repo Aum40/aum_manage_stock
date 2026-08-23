@@ -25,6 +25,9 @@ import * as crypto from 'node:crypto';
 const USERNAME_BASE_MAX_LENGTH = 45;
 const USERNAME_ATTEMPT_LIMIT = 5;
 
+/** ต้อง seed ก่อนด้วย prisma/sql/003_seed_subscription_plans.sql */
+const FREE_PLAN_CODE = 'FREE';
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -51,7 +54,25 @@ export class UsersService {
 
       try {
         return await this.prisma.user.create({
-          data: { ...input, username, password: hash },
+          data: {
+            ...input,
+            username,
+            password: hash,
+            // เจ้าของร้านใหม่ต้องได้ Free Plan ทันที ไม่งั้นทุก endpoint ที่
+            // เช็ค quota จะ 404 เพราะหา subscription ไม่เจอ
+            ...(input.role === UserRole.SHOP_OWNER
+              ? {
+                  subscription: {
+                    create: {
+                      plan: { connect: { code: FREE_PLAN_CODE } },
+                      startedAt: new Date(),
+                      // Free Plan ไม่มีวันหมดอายุ (SRS §57)
+                      expiresAt: null,
+                    },
+                  },
+                }
+              : {}),
+          },
         });
       } catch (error) {
         const duplicated = this.duplicatedFields(error);

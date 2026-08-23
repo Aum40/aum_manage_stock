@@ -34,8 +34,10 @@ const envSchema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().min(1),
   CLOUDINARY_API_KEY: z.string().min(1),
   CLOUDINARY_API_SECRET: z.string().min(1),
-  STRIPE_SECRET_KEY: z.string().min(1),
-  STRIPE_WEBHOOK_SECRET: z.string().min(1),
+  // จำเป็นเฉพาะคนที่ทำ/ทดสอบ PaymentsModule — คนอื่นไม่ต้องไปหา key มาใส่
+  // ถึงจะ boot ขึ้น PaymentsService จะ throw ตอนถูกเรียกถ้าไม่ได้ตั้งค่าไว้
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 export function validate(config: Record<string, any>) {
