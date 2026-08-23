@@ -85,12 +85,7 @@ export class AuthService {
       throw new ForbiddenException('Email not verified');
     }
 
-    if (user.twoFactorEnabled) {
-      const challengeToken = await this.twoFactorChallengeService.sign(user.id);
-      return { requires2fa: true, challengeToken };
-    }
-
-    return this.issueTokensForUser(user);
+    return this.completeLogin(user);
   }
 
   /**
@@ -118,7 +113,7 @@ export class AuthService {
       });
     }
 
-    return this.issueTokensForUser(user);
+    return this.completeLogin(user);
   }
 
   async loginWithGoogle(code: string) {
@@ -136,7 +131,7 @@ export class AuthService {
       });
     }
 
-    return this.issueTokensForUser(user);
+    return this.completeLogin(user);
   }
 
   async refresh(rawRefreshToken: string) {
@@ -374,6 +369,29 @@ export class AuthService {
     return result.valid;
   }
 
+  /**
+   * ปลายทางร่วมของ "ทุก" ช่องทาง login — email/username, LINE และ Google
+   *
+   * SRS §111 บังคับว่าบัญชีที่เปิด 2FA ต้องกรอกรหัส 6 หลักเพิ่มหลัง login สำเร็จ
+   * ไม่ว่าจะเข้ามาทางไหน ห้ามมีช่องทางไหนข้ามด่านนี้เด็ดขาด ไม่งั้น 2FA แทบไม่มี
+   * ความหมาย เพราะคนที่ยึดบัญชี LINE/Google ได้ก็แค่เลือกทางที่ไม่มีด่าน
+   *
+   * ทุกช่องทางจึงต้องเรียกเมธอดนี้ ห้ามเรียก issueTokensForUser() ตรงๆ
+   * (ยกเว้นหลังผ่าน 2FA แล้ว ซึ่งผ่านด่านมาเรียบร้อยจึงเรียกได้)
+   */
+  private async completeLogin(user: User) {
+    if (user.status !== 'ACTIVE') {
+      throw new ForbiddenException('Your account has been suspended');
+    }
+
+    if (user.twoFactorEnabled) {
+      const challengeToken = await this.twoFactorChallengeService.sign(user.id);
+      return { requires2fa: true, challengeToken };
+    }
+
+    return this.issueTokensForUser(user);
+  }
+
   private async issueTokensForUser(user: User) {
     if (user.status !== 'ACTIVE') {
       throw new ForbiddenException('Your account has been suspended');
@@ -385,6 +403,11 @@ export class AuthService {
       ownerId: user.ownerId,
     });
     const refreshToken = await this.refreshTokenService.issue(user.id);
+
+    // จุดเดียวที่ทุกช่องทาง login วิ่งผ่านแน่นอน (รวมทั้งหลังผ่าน 2FA/recovery
+    // code) จึงเป็นที่ที่ถูกต้องสำหรับบันทึกเวลาเข้าใช้งานล่าสุด — แอดมินใช้ดู
+    // ว่าบัญชีไหนไม่ได้ใช้งานนานแล้วก่อนตัดสินใจระงับ
+    await this.userService.markLoggedIn(user.id);
 
     return {
       accessToken,

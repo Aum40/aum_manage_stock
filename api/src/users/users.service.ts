@@ -1,3 +1,4 @@
+import { AccountContextService } from '@/common/access/account-context.service';
 import { EnvVariable } from '@/config/env.validation';
 import { PrismaService } from '@/database/prisma.service';
 import { User } from '@/database/generated/prisma/client';
@@ -36,6 +37,7 @@ export class UsersService {
     private readonly lineAuthService: LineAuthService,
     private readonly googleAuthService: GoogleAuthService,
     private readonly configService: ConfigService<EnvVariable, true>,
+    private readonly accountContext: AccountContextService,
   ) {}
 
   /**
@@ -170,6 +172,14 @@ export class UsersService {
         emailVerifiedAt: input.email ? new Date() : null,
         role: 'SHOP_OWNER',
       },
+    });
+  }
+
+  /** เรียกจาก AuthService ทุกครั้งที่ออก token สำเร็จ (ทุกช่องทาง login) */
+  async markLoggedIn(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { lastLoginAt: new Date() },
     });
   }
 
@@ -540,6 +550,13 @@ export class UsersService {
    * feature/subscriptions-resource เปิด API ให้ใช้ข้ามโมดูลได้
    */
   private async assertStaffQuotaAvailable(ownerId: string) {
+    // SRS §123 — แพ็กเกจหมดอายุแล้วต้องเป็น read-only สร้างอะไรใหม่ไม่ได้
+    //
+    // เช็ค status !== 'ACTIVE' อย่างเดียวไม่พอ เพราะไม่มี cron ที่คอยพลิก
+    // status เป็น EXPIRED ให้ แถวที่ expires_at เลยมาแล้วจึงยังเป็น ACTIVE อยู่
+    // read-only เป็นสถานะที่คำนวณจาก status/expires_at เสมอ (ดู AGENTS.md)
+    await this.accountContext.assertNotReadOnly(ownerId);
+
     const subscription = await this.prisma.subscription.findUnique({
       where: { userId: ownerId },
       include: { plan: true },
