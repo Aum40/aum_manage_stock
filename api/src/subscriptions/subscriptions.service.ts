@@ -5,8 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { Prisma } from '../database/generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { UpgradeSubscriptionDto } from './dto/subscription.dto';
 import {
   addMonths,
   calculateShopQuota,
@@ -69,17 +69,33 @@ export class SubscriptionsService {
     };
   }
 
-  async upgrade(userId: string, dto: UpgradeSubscriptionDto) {
-    const subscription = await this.getSubscriptionWithPlanOrThrow(userId);
-
-    const targetPlan = await this.prisma.subscriptionPlan.findUnique({
-      where: { code: dto.planCode },
+  /**
+   * เปลี่ยนแพ็กเกจจริง — เรียกได้เฉพาะหลังยืนยันการชำระเงินแล้วเท่านั้น
+   * (PaymentsService.handleWebhook) ไม่มี HTTP endpoint ตรงมาถึงเมธอดนี้
+   * ไม่งั้นจะอัปเกรดได้ฟรีโดยไม่ต้องจ่าย
+   *
+   * รับ tx เข้ามาเพื่อให้ commit พร้อมกับการปิดยอดชำระในทรานแซกชันเดียว
+   * ตามที่ ER note ของ subscriptions กำหนดไว้
+   */
+  async applyUpgrade(
+    userId: string,
+    planCode: string,
+    tx: Prisma.TransactionClient,
+  ) {
+    const subscription = await tx.subscription.findUnique({
+      where: { userId },
+      include: { plan: true },
     });
+    if (!subscription) {
+      throw new NotFoundException('Subscription not found for this user');
+    }
 
+    const targetPlan = await tx.subscriptionPlan.findUnique({
+      where: { code: planCode },
+    });
     if (!targetPlan || !targetPlan.isActive) {
       throw new NotFoundException('Plan not found');
     }
-
     if (targetPlan.isFree || targetPlan.durationMonths === null) {
       throw new BadRequestException('Cannot upgrade to this plan');
     }
@@ -89,19 +105,14 @@ export class SubscriptionsService {
     // (รองรับทั้ง FREE->PLUS, FREE->PRO, และ PLUS->PRO)
     if (targetPlan.includedShopQuota <= subscription.plan.includedShopQuota) {
       throw new ConflictException(
-        'This plan does not have a higher quota than your current plan. Use /subscriptions/renew to renew the same plan instead.',
+        'This plan does not have a higher quota than your current plan.',
       );
     }
 
     const startedAt = new Date();
     const expiresAt = addMonths(startedAt, targetPlan.durationMonths);
 
-    // TODO(payments-resource): ตาม ER note ของ subscriptions ต้องสร้าง
-    // payment record คู่กันในทรานแซกชันเดียวกับการอัปเดตนี้ (ทั้งกรณี
-    // FREE->PAID และ PLUS->PRO) แต่ตาราง payments ยังไม่มีในระบบ (รอ
-    // feature/payments-resource ของแพรว) — เมื่อ merge กันแล้วให้ห่อสองงาน
-    // นี้ด้วย prisma.$transaction
-    return this.prisma.subscription.update({
+    return tx.subscription.update({
       where: { userId },
       data: {
         planId: targetPlan.id,
@@ -114,8 +125,15 @@ export class SubscriptionsService {
     });
   }
 
-  async renew(userId: string) {
-    const subscription = await this.getSubscriptionWithPlanOrThrow(userId);
+  /** ต่ออายุแพ็กเกจเดิม — เรียกหลังยืนยันการชำระเงินแล้วเช่นเดียวกับ applyUpgrade */
+  async applyRenewal(userId: string, tx: Prisma.TransactionClient) {
+    const subscription = await tx.subscription.findUnique({
+      where: { userId },
+      include: { plan: true },
+    });
+    if (!subscription) {
+      throw new NotFoundException('Subscription not found for this user');
+    }
 
     if (subscription.plan.isFree || subscription.plan.durationMonths === null) {
       throw new BadRequestException(
@@ -123,6 +141,7 @@ export class SubscriptionsService {
       );
     }
 
+    // ต่ออายุก่อนหมด = ต่อจากวันหมดเดิม / ต่อหลังหมดแล้ว = เริ่มนับจากวันนี้
     const now = new Date();
     const base =
       subscription.expiresAt && subscription.expiresAt.getTime() > now.getTime()
@@ -130,9 +149,7 @@ export class SubscriptionsService {
         : now;
     const expiresAt = addMonths(base, subscription.plan.durationMonths);
 
-    // TODO(payments-resource): เช่นเดียวกับ upgrade() ต้องสร้าง payment record
-    // (purpose = RENEWAL) คู่กันในทรานแซกชันเดียวกัน รอ feature/payments-resource
-    return this.prisma.subscription.update({
+    return tx.subscription.update({
       where: { userId },
       data: {
         status: 'ACTIVE',
