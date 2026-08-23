@@ -1,9 +1,19 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { EnvVariable } from './config/env.validation';
 
 async function bootstrap() {
+  // rawBody จำเป็นสำหรับตรวจลายเซ็น Stripe webhook (feature/payments-resource)
   const app = await NestFactory.create(AppModule, { rawBody: true });
+
+  const configService = app.get(ConfigService<EnvVariable, true>);
+  app.enableCors({
+    origin: configService.get('FRONTEND_URL', { infer: true }),
+    credentials: true,
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,

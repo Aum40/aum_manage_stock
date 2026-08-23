@@ -131,7 +131,8 @@ await step('GET    /products/:id', 200, () =>
 await step(
   'PATCH  /products/:id',
   200,
-  () => call('PATCH', `/products/${productId}`, { name: 'โค้ก 325ml (แก้แล้ว)' }),
+  () =>
+    call('PATCH', `/products/${productId}`, { name: 'โค้ก 325ml (แก้แล้ว)' }),
   (b) => (b?.name === 'โค้ก 325ml (แก้แล้ว)' ? true : 'ชื่อไม่ถูกอัปเดต'),
 );
 
@@ -237,15 +238,12 @@ await step(
       : true,
 );
 
-await step(
-  'POST   /products (บาร์โค้ดเดิม หลังลบแล้ว ต้องเพิ่มได้)',
-  201,
-  () =>
-    call('POST', '/products', {
-      name: 'โค้กตัวใหม่ บาร์โค้ดเดิม',
-      unit: 'กระป๋อง',
-      barcode: BARCODE,
-    }),
+await step('POST   /products (บาร์โค้ดเดิม หลังลบแล้ว ต้องเพิ่มได้)', 201, () =>
+  call('POST', '/products', {
+    name: 'โค้กตัวใหม่ บาร์โค้ดเดิม',
+    unit: 'กระป๋อง',
+    barcode: BARCODE,
+  }),
 );
 
 console.log('\n── เช็คสิทธิ์: ร้านของคนอื่นต้องเข้าไม่ได้ ──');

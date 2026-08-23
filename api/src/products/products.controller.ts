@@ -12,7 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ZodValidationPipe } from 'nestjs-zod';
-import { OwnerId } from '../common/decorators/owner-id.decorator';
+import { OwnerId } from '../common/decorator/owner-id.decorator';
 import {
   CreateProductSchema,
   ListProductQuerySchema,

@@ -36,8 +36,14 @@ export default tseslint.config(
       // Controller signatures are structural: `register(@Body() dto: RegisterDto)`
       // declares the contract even while the handler is still a stub, so an
       // unused *argument* is not dead code here. Unused *variables* still error.
-      '@typescript-eslint/no-unused-vars': ['error', { args: 'none' }],
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+      // args: 'none' คือของเดิมของทีม เก็บไว้ไม่ให้โค้ดคนอื่นพัง
+      // ignoreRestSiblings เพิ่มเข้ามาเพื่อให้ตัด field ทิ้งด้วย rest spread ได้
+      // เช่น const { password, ...rest } = user ใน UsersService.sanitize()
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { args: 'none', ignoreRestSiblings: true },
+      ],
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
   },
 );
