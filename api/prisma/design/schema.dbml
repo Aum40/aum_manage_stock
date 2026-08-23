@@ -281,13 +281,13 @@ Table two_factor_recovery_codes {
 
 Table subscription_plans {
   id uuid [pk]
-  code varchar(50) [unique, not null, note: 'FREE / PLUS_YEARLY / PRO_YEARLY']
+  code varchar(50) [unique, not null, note: 'FREE / PLUS / PRO']
   name_th varchar(100) [not null]
   price_thb decimal(12,2) [not null, note: 'ราคาต่อปี — ไม่มีแพ็กเกจรายเดือน (SRS §56, §109)']
   duration_months int [null, note: '12 สำหรับ Paid Plan, NULL = Free Plan ไม่มีวันหมดอายุ']
-  shop_quota int [not null, note: 'Free=1, Plus=3, Pro=5 (SRS §57-59)']
+  included_shop_quota int [not null, default: 1, note: 'Free=1, Plus=3, Pro=5 (SRS §57-59)']
   max_active_products int [null, note: 'Free=100, Plus=3000, Pro=5000 (SRS §57-59, §152)']
-  staff_quota int [not null, default: 0, note: 'Free=0 (ไม่รองรับพนักงาน), Plus=6, Pro=10 (SRS §132)']
+  included_staff_quota int [not null, default: 0, note: 'Free=0 (ไม่รองรับพนักงาน), Plus=6, Pro=10 (SRS §132)']
   chatbot_enabled boolean [not null, default: false, note: 'Plus/Pro เท่านั้น (SRS §71, §160)']
   barcode_enabled boolean [not null, default: false, note: 'Plus/Pro เท่านั้น (SRS §72, §167)']
   ai_recommendation_enabled boolean [not null, default: false, note: 'Pro เท่านั้น — ไม่ใช่ Plus (SRS §179, §181)']
@@ -295,16 +295,17 @@ Table subscription_plans {
   is_active boolean [not null, default: true]
 
   Note: '''
-  Seed ต้องมีครบ 3 แถวตาม SRS §57-59:
-  - FREE:        price=0,    shop_quota=1, max_active_products=100,
-                 staff_quota=0, chatbot=false, barcode=false, ai=false,
-                 duration_months=NULL, is_free=true
-  - PLUS_YEARLY: price=2499, shop_quota=3, max_active_products=3000,
-                 staff_quota=6, chatbot=true,  barcode=true,  ai=false,
-                 duration_months=12
-  - PRO_YEARLY:  price=3499, shop_quota=5, max_active_products=5000,
-                 staff_quota=10, chatbot=true, barcode=true,  ai=true,
-                 duration_months=12
+  Seed ต้องมีครบ 3 แถวตาม SRS §57-59 (ดู prisma/sql/003_seed_subscription_plans.sql
+  และ SubscriptionPlanSeeder ซึ่งเป็นตัวเติมจริงตอนแอป boot):
+  - FREE: price=0,    included_shop_quota=1, max_active_products=100,
+          included_staff_quota=0,  chatbot=false, barcode=false, ai=false,
+          duration_months=NULL, is_free=true
+  - PLUS: price=2499, included_shop_quota=3, max_active_products=3000,
+          included_staff_quota=6,  chatbot=true,  barcode=true,  ai=false,
+          duration_months=12
+  - PRO:  price=3499, included_shop_quota=5, max_active_products=5000,
+          included_staff_quota=10, chatbot=true,  barcode=true,  ai=true,
+          duration_months=12
   ทุก user ใหม่ต้องได้ subscriptions ชี้ไป plan FREE ทันทีตอนสมัคร (SRS §107)
 
   ไม่มีการซื้อสิทธิ์ (ร้าน/สินค้า/พนักงาน) เพิ่มแยกต่างหากจากแพ็กเกจ
