@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { LineUserMessageError } from '../line-user-message.error';
 import { LineIdentityPort } from './line-identity.port';
@@ -7,6 +7,8 @@ type ResolvedShop = { id: string; name: string };
 
 @Injectable()
 export class PrismaLineIdentityAdapter implements LineIdentityPort {
+  private readonly logger = new Logger(PrismaLineIdentityAdapter.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async resolve(input: {
@@ -20,6 +22,11 @@ export class PrismaLineIdentityAdapter implements LineIdentityPort {
     });
 
     if (!user) {
+      // log id ไว้เพื่อให้ผูกบัญชีได้ — ไม่มีทางอื่นที่จะรู้ว่า lineUserId ของคนที่ทักมาคืออะไร
+      this.logger.warn(
+        `ไม่พบบัญชีที่ผูกกับ lineUserId=${input.lineUserId} (ผูกด้วย: pnpm exec ts-node --transpile-only scripts/link-line-user.ts <email|username> ${input.lineUserId})`,
+      );
+
       throw new LineUserMessageError(
         'บัญชี LINE นี้ยังไม่ได้ผูกกับระบบ กรุณาเข้าเว็บแล้วผูกบัญชี LINE ที่หน้าโปรไฟล์ก่อน',
       );
