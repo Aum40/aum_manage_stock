@@ -7,4 +7,8 @@ export interface StockAuthorizationPort {
     tx: Prisma.TransactionClient,
     input: { shopId: string; actorId: string },
   ): Promise<void>;
+  assertCanUseChatbot(
+    tx: Prisma.TransactionClient,
+    input: { shopId: string; actorId: string },
+  ): Promise<void>;
 }

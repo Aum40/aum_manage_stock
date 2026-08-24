@@ -35,4 +35,10 @@ export class UnavailableStockAuthorizationAdapter implements StockAuthorizationP
       'Staff authorization integration is not available yet',
     );
   }
+
+  assertCanUseChatbot(): Promise<void> {
+    throw new ServiceUnavailableException(
+      'Staff authorization integration is not available yet',
+    );
+  }
 }

@@ -54,4 +54,52 @@ describe('PrismaStockAuthorizationAdapter', () => {
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it('requires both chatbot plan and staff permission', async () => {
+    const tx = {
+      shop: {
+        findFirst: jest.fn().mockResolvedValue({
+          ownerId: 'owner',
+          owner: {
+            subscription: {
+              status: 'ACTIVE',
+              expiresAt: null,
+              plan: { chatbotEnabled: true },
+            },
+          },
+        }),
+      },
+      shopStaff: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'assignment' }),
+      },
+    };
+    const adapter = new PrismaStockAuthorizationAdapter();
+    await expect(
+      adapter.assertCanUseChatbot(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).resolves.toBeUndefined();
+    const [staffCall] = tx.shopStaff.findFirst.mock.calls as unknown as [
+      [{ where: { permission: { canUseChatbot: boolean } } }],
+    ];
+    expect(staffCall[0].where.permission.canUseChatbot).toBe(true);
+
+    tx.shop.findFirst.mockResolvedValue({
+      ownerId: 'owner',
+      owner: {
+        subscription: {
+          status: 'ACTIVE',
+          expiresAt: null,
+          plan: { chatbotEnabled: false },
+        },
+      },
+    });
+    await expect(
+      adapter.assertCanUseChatbot(tx as never, {
+        shopId: 'shop',
+        actorId: 'owner',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

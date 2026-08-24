@@ -33,6 +33,7 @@ export class SalesService {
   scan(shopId: string, staffId: string, barcode: string) {
     return this.prisma.$transaction(async (tx) => {
       await this.assertAccess(tx, shopId, staffId);
+      await this.subscriptions.assertBarcodeEnabled(tx, shopId);
       return this.products.scan(shopId, barcode);
     });
   }
@@ -41,6 +42,7 @@ export class SalesService {
     return this.prisma.$transaction(
       async (tx) => {
         await this.assertAccess(tx, shopId, staffId);
+        await this.subscriptions.assertBarcodeEnabled(tx, shopId);
         const requested = new Map<string, number>();
         for (const item of input.items)
           requested.set(
@@ -141,6 +143,7 @@ export class SalesService {
     return this.prisma.$transaction(
       async (tx) => {
         await this.assertAccess(tx, shopId, staffId);
+        await this.subscriptions.assertSalesEnabled(tx, shopId);
         const sale = await tx.sale.findFirst({
           where: { id: saleId, shopId },
           include: { items: true },
@@ -190,6 +193,5 @@ export class SalesService {
     staffId: string,
   ) {
     await this.staff.assertCanManageSales(tx, { shopId, staffId });
-    await this.subscriptions.assertSalesEnabled(tx, shopId);
   }
 }

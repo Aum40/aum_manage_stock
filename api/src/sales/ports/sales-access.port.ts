@@ -13,4 +13,8 @@ export interface SalesSubscriptionPort {
     tx: Prisma.TransactionClient,
     shopId: string,
   ): Promise<void>;
+  assertBarcodeEnabled(
+    tx: Prisma.TransactionClient,
+    shopId: string,
+  ): Promise<void>;
 }
