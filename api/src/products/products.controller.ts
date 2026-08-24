@@ -12,7 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ZodValidationPipe } from 'nestjs-zod';
-import { OwnerId } from '../common/decorator/owner-id.decorator';
+import { CurrentUser } from '../common/decorator/current-user.decorator';
 import {
   CreateProductSchema,
   ListProductQuerySchema,
@@ -31,7 +31,7 @@ export class ProductsController {
 
   @Post()
   create(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Body(new ZodValidationPipe(CreateProductSchema)) dto: CreateProductDto,
   ) {
     return this.productsService.create(userId, dto);
@@ -39,7 +39,7 @@ export class ProductsController {
 
   @Get()
   findAll(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Query(new ZodValidationPipe(ListProductQuerySchema))
     query: ListProductQueryDto,
   ) {
@@ -48,7 +48,7 @@ export class ProductsController {
 
   @Get('search')
   findByBarcode(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Query(new ZodValidationPipe(SearchByBarcodeSchema))
     query: SearchByBarcodeDto,
   ) {
@@ -56,13 +56,16 @@ export class ProductsController {
   }
 
   @Get(':id')
-  findOne(@OwnerId() userId: string, @Param('id', ParseUUIDPipe) id: string) {
+  findOne(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.productsService.findOne(userId, id);
   }
 
   @Patch(':id')
   update(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(UpdateProductSchema)) dto: UpdateProductDto,
   ) {
@@ -71,7 +74,10 @@ export class ProductsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  remove(@OwnerId() userId: string, @Param('id', ParseUUIDPipe) id: string) {
+  remove(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.productsService.remove(userId, id);
   }
 }
