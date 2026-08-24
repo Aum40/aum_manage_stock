@@ -186,6 +186,8 @@ model User {
   payments                Payment[]
   // feature/staff-resource (อั้ม) — back-relation ที่ Prisma บังคับ
   shopStaffs              ShopStaff[]
+  // [เซิ่น] feature/notifications-resource — back-relation ที่ Prisma บังคับ
+  notifications           Notification[]
   permissionsGranted      StaffPermission[]
   stockMovements          StockMovement[]          @relation("StockMovementActor")
   pendingActions          PendingAction[]          @relation("PendingActionActor")
@@ -434,6 +436,7 @@ model Shop {
   shopProducts   ShopProduct[]
   stockMovements StockMovement[]
   pendingActions PendingAction[]
+  notifications  Notification[] // [เซิ่น] feature/notifications-resource
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
@@ -556,4 +559,39 @@ model ShopProduct {
   @@index([shopId, status], name: "idx_shop_product_shop_status")
   @@index([productId], name: "idx_shop_product_product")
   @@map("shop_products")
+}
+
+// =====================================================================
+// [เซิ่น] feature/notifications-resource
+// อ้างอิง prisma/design/schema.dbml -> Enum notification_type (บรรทัด 114)
+// และ Table notifications (บรรทัด 624)
+// =====================================================================
+
+enum NotificationType {
+  LOW_STOCK
+  SUBSCRIPTION_EXPIRING
+  SUBSCRIPTION_EXPIRED
+  ACCOUNT_SUSPENDED
+  PRODUCT_LIMIT_REACHED
+  SHOP_LIMIT_REACHED
+
+  @@map("notification_type")
+}
+
+model Notification {
+  id        String           @id @default(uuid(7)) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  shopId    String?          @map("shop_id") @db.Uuid
+  type      NotificationType
+  title     String           @db.VarChar(200)
+  message   String
+  payload   Json?
+  readAt    DateTime?        @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shop Shop? @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt], name: "idx_notification_unread")
+  @@map("notifications")
 }
