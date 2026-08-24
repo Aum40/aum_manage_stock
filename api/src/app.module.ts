@@ -14,6 +14,7 @@ import { ShopsModule } from './shops/shops.module';
 import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { ShopProductsModule } from './shop-products/shop-products.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { StaffModule } from './staff/staff.module';
 import { validate } from './config/env.validation';
 import { HashModule } from './infrastructure/hash/hash.module';
@@ -43,6 +44,7 @@ import { OAuthModule } from './infrastructure/oauth/oauth.module';
     CommonModule,
     ProductsModule,
     ShopProductsModule,
+    NotificationsModule,
     StockModule,
     ChatCommandModule,
     LineModule,

@@ -6,6 +6,7 @@ import {
 import { ProductsService } from './products.service';
 import type { PrismaService } from '../database/prisma.service';
 import { AccountContextService } from '../common/access/account-context.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 
 type PrismaMock = {
   product: {
@@ -51,6 +52,7 @@ describe('ProductsService', () => {
     assertCanManageCatalog: jest.Mock;
     assertNotReadOnly: jest.Mock;
   };
+  let notifications: { emit: jest.Mock };
   let service: ProductsService;
 
   beforeEach(() => {
@@ -63,9 +65,11 @@ describe('ProductsService', () => {
       assertCanManageCatalog: jest.fn().mockResolvedValue(undefined),
       assertNotReadOnly: jest.fn().mockResolvedValue(undefined),
     };
+    notifications = { emit: jest.fn().mockResolvedValue(undefined) };
     service = new ProductsService(
       prisma as unknown as PrismaService,
       accountContext as unknown as AccountContextService,
+      notifications as unknown as NotificationsService,
       quota,
     );
   });
@@ -98,6 +102,32 @@ describe('ProductsService', () => {
         service.create(OWNER, { name: 'สินค้าใหม่', unit: 'ชิ้น' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.product.create).not.toHaveBeenCalled();
+    });
+
+    it('โควตาเต็มแล้วต้องยิงแจ้งเตือน PRODUCT_LIMIT_REACHED ให้เจ้าของร้าน', async () => {
+      prisma.product.count.mockResolvedValue(100);
+
+      await expect(
+        service.create(OWNER, { name: 'สินค้าใหม่', unit: 'ชิ้น' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(notifications.emit).toHaveBeenCalledWith(
+        containing({
+          userId: OWNER,
+          type: 'PRODUCT_LIMIT_REACHED',
+          dedupeWhileUnread: true,
+        }),
+      );
+    });
+
+    it('โควตายังไม่เต็มต้องไม่ยิงแจ้งเตือน', async () => {
+      prisma.product.count.mockResolvedValue(3);
+      prisma.product.findFirst.mockResolvedValue(null);
+      prisma.product.create.mockResolvedValue({ id: 'p1' });
+
+      await service.create(OWNER, { name: 'สินค้า', unit: 'ชิ้น' });
+
+      expect(notifications.emit).not.toHaveBeenCalled();
     });
 
     it('โควตาอ่านจากแพ็กเกจจริง — Pro (5,000) ยังเพิ่มได้ทั้งที่มีอยู่ 3,000', async () => {
@@ -266,6 +296,7 @@ describe('ProductsService', () => {
       staffService = new ProductsService(
         realPrisma as unknown as PrismaService,
         realContext,
+        notifications as unknown as NotificationsService,
         quota,
       );
     });
