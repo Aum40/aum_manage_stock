@@ -55,16 +55,40 @@ export class SubscriptionsService {
       expiresAt: subscription.expiresAt,
     });
 
+    const usedProductCount = await this.prisma.product.count({
+      where: { ownerId: userId, deletedAt: null },
+    });
+
+    // นับพนักงานแบบ distinct ตาม userId ไม่ใช่นับแถว shop_staffs ตรงๆ
+    // เพราะพนักงานคนเดียวมอบหมายหลายร้านของเจ้าของเดียวกันนับแค่ 1
+    // (staff_quota นับที่ระดับบัญชี ไม่ใช่ต่อร้าน)
+    const staffRows = await this.prisma.shopStaff.groupBy({
+      by: ['userId'],
+      where: { removedAt: null, shop: { ownerId: userId, deletedAt: null } },
+    });
+    const usedStaffCount = staffRows.length;
+
+    const maxActiveProducts = subscription.plan.maxActiveProducts;
+    const includedStaffQuota = subscription.plan.includedStaffQuota;
+
     return {
       subscription,
       readOnly,
       quotas: {
         shop: quota,
-        // TODO(products-resource): เพิ่ม used count จริงเมื่อมีตาราง product
-        // ตอนนี้คืนแค่ limit ของแพ็กเกจ (maxActiveProducts: null = ไม่จำกัด)
-        product: { allowed: subscription.plan.maxActiveProducts },
-        // TODO(staff-resource): เพิ่ม used count จริงเมื่อมีตาราง shop_staffs
-        staff: { allowed: subscription.plan.includedStaffQuota },
+        product: {
+          allowed: maxActiveProducts,
+          used: usedProductCount,
+          remaining:
+            maxActiveProducts === null
+              ? null
+              : maxActiveProducts - usedProductCount,
+        },
+        staff: {
+          allowed: includedStaffQuota,
+          used: usedStaffCount,
+          remaining: includedStaffQuota - usedStaffCount,
+        },
       },
     };
   }
