@@ -50,6 +50,7 @@ describe('SalesService', () => {
     };
     const subscriptions = {
       assertSalesEnabled: jest.fn().mockResolvedValue(undefined),
+      assertBarcodeEnabled: jest.fn().mockResolvedValue(undefined),
     };
     const service = new SalesService(
       prisma as never,
@@ -133,7 +134,7 @@ describe('SalesService', () => {
       shopId: 'shop',
       staffId: 'staff',
     });
-    expect(subscriptions.assertSalesEnabled).toHaveBeenCalledWith(tx, 'shop');
+    expect(subscriptions.assertBarcodeEnabled).toHaveBeenCalledWith(tx, 'shop');
     expect(products.scan).toHaveBeenCalledWith('shop', '885123');
   });
 
@@ -167,7 +168,7 @@ describe('SalesService', () => {
 
   it('fails before product access when the subscription check fails', async () => {
     const { service, subscriptions, products } = setup();
-    subscriptions.assertSalesEnabled.mockRejectedValue(
+    subscriptions.assertBarcodeEnabled.mockRejectedValue(
       new Error('unavailable'),
     );
     await expect(

@@ -15,6 +15,7 @@ describe('StockService', () => {
     const authorizeMock = jest.fn().mockResolvedValue(undefined);
     const authorization = {
       assertCanAdjustStock: authorizeMock,
+      assertCanUseChatbot: jest.fn(),
     } as StockAuthorizationPort;
     const adjustMock = jest
       .fn()
@@ -76,6 +77,7 @@ describe('StockService', () => {
     const authorizeMock = jest.fn().mockRejectedValue(denied);
     const authorization = {
       assertCanAdjustStock: authorizeMock,
+      assertCanUseChatbot: jest.fn(),
     } as StockAuthorizationPort;
     const adjustMock = jest.fn();
     const inventory = {
@@ -104,5 +106,50 @@ describe('StockService', () => {
     ).rejects.toBe(denied);
     expect(adjustMock).not.toHaveBeenCalled();
     expect(createMovementMock).not.toHaveBeenCalled();
+  });
+
+  it('uses chatbot authorization instead of manual permission for pending actions', async () => {
+    const tx = {};
+    const prisma = {
+      $transaction: jest.fn((callback: (value: unknown) => unknown) =>
+        callback(tx),
+      ),
+    } as unknown as PrismaService;
+    const assertCanAdjustStock = jest.fn();
+    const assertCanUseChatbot = jest.fn().mockResolvedValue(undefined);
+    const authorization = {
+      assertCanAdjustStock,
+      assertCanUseChatbot,
+    } as StockAuthorizationPort;
+    const inventory = {
+      adjustStock: jest
+        .fn()
+        .mockResolvedValue({ quantityBefore: 10, quantityAfter: 11 }),
+    } as unknown as StockInventoryPort;
+    const movements = {
+      create: jest.fn().mockResolvedValue({ id: 'movement-id' }),
+    } as unknown as StockMovementsService;
+    const service = new StockService(
+      prisma,
+      movements,
+      inventory,
+      authorization,
+    );
+
+    await service.adjustInTransaction(tx as never, {
+      shopId: 'shop-id',
+      shopProductId: 'product-id',
+      actorId: 'actor-id',
+      operation: 'INCREASE',
+      quantity: 1,
+      source: 'WEB',
+      pendingAction: { id: 'pending-id' } as never,
+    });
+
+    expect(assertCanUseChatbot).toHaveBeenCalledWith(tx, {
+      shopId: 'shop-id',
+      actorId: 'actor-id',
+    });
+    expect(assertCanAdjustStock).not.toHaveBeenCalled();
   });
 });

@@ -1,13 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Param,
-  Post,
-  Query,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { CurrentUser } from '../common/decorator/current-user.decorator';
 import { ZodValidationPipe } from '../common/validation/zod-validation.pipe';
 import { uuidSchema } from '../common/validation/schemas';
 import {
@@ -33,13 +25,9 @@ export class StockController {
   @Post('adjust')
   adjust(
     @Param('shopId', new ZodValidationPipe(uuidSchema)) shopId: string,
-    @Headers('x-staff-id') actorId: string | undefined,
+    @CurrentUser('sub') actorId: string,
     @Body(new ZodValidationPipe(adjustStockSchema)) body: AdjustStockDto,
   ) {
-    // TODO(auth): replace the temporary header adapter with authenticated staff.
-    if (!actorId || !uuidSchema.safeParse(actorId).success) {
-      throw new UnauthorizedException('Authenticated staff is required');
-    }
     return this.stock.adjust({
       shopId,
       actorId,

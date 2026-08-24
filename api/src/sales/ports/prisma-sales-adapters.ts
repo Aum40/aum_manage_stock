@@ -124,4 +124,32 @@ export class PrismaSalesSubscriptionAdapter implements SalesSubscriptionPort {
       throw new ForbiddenException('Subscription does not allow sales changes');
     }
   }
+
+  async assertBarcodeEnabled(tx: Prisma.TransactionClient, shopId: string) {
+    const shop = await tx.shop.findFirst({
+      where: { id: shopId, deletedAt: null, status: 'ACTIVE' },
+      select: {
+        owner: {
+          select: {
+            subscription: {
+              select: {
+                status: true,
+                expiresAt: true,
+                plan: { select: { barcodeEnabled: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!shop) throw new NotFoundException('Active shop not found');
+    const subscription = shop.owner.subscription;
+    if (
+      !subscription ||
+      isSubscriptionReadOnly(subscription) ||
+      !subscription.plan.barcodeEnabled
+    ) {
+      throw new ForbiddenException('Subscription does not include barcode');
+    }
+  }
 }

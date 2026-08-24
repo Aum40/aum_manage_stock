@@ -17,6 +17,8 @@ import { PrismaService } from '../database/prisma.service';
 import { StockService } from '../stock/stock.service';
 import { STOCK_INVENTORY_PORT } from '../stock/ports/stock-inventory.port';
 import type { StockInventoryPort } from '../stock/ports/stock-inventory.port';
+import { STOCK_AUTHORIZATION_PORT } from '../stock/ports/stock-authorization.port';
+import type { StockAuthorizationPort } from '../stock/ports/stock-authorization.port';
 import { UpdatePendingActionDto } from './dto/chat-command.dto';
 import { STOCK_COMMAND_PARSER } from './parsers/stock-command-parser';
 import type { StockCommandParser } from './parsers/stock-command-parser';
@@ -31,6 +33,8 @@ export class ChatCommandService {
     private readonly parser: StockCommandParser,
     @Inject(STOCK_INVENTORY_PORT)
     private readonly inventory: StockInventoryPort,
+    @Inject(STOCK_AUTHORIZATION_PORT)
+    private readonly authorization: StockAuthorizationPort,
   ) {}
 
   async create(input: {
@@ -39,6 +43,10 @@ export class ChatCommandService {
     source: PendingActionSource;
     message: string;
   }) {
+    if (!input.actorId) {
+      throw new ForbiddenException('Authenticated chatbot user is required');
+    }
+    await this.assertChatbotAccess(input.shopId, input.actorId);
     const parsed = await this.parser.parse(input.message);
     const product = await this.inventory.resolveProduct(
       input.shopId,
@@ -68,6 +76,7 @@ export class ChatCommandService {
     actorId: string,
     patch: UpdatePendingActionDto,
   ) {
+    await this.assertChatbotAccess(shopId, actorId);
     await this.expireElapsed(shopId, pendingId);
     const pending = await this.requirePending(shopId, pendingId);
     this.assertActionable(pending);
@@ -89,6 +98,7 @@ export class ChatCommandService {
   }
 
   async cancel(shopId: string, pendingId: string, actorId: string) {
+    await this.assertChatbotAccess(shopId, actorId);
     await this.expireElapsed(shopId, pendingId);
     const pending = await this.requirePending(shopId, pendingId);
     this.assertActionable(pending);
@@ -104,44 +114,55 @@ export class ChatCommandService {
   }
 
   confirm(shopId: string, pendingId: string, actorId: string) {
-    return this.expireElapsed(shopId, pendingId).then(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const pending = await tx.pendingAction.findFirst({
-            where: { id: pendingId, shopId },
-          });
-          if (!pending) throw new NotFoundException('Pending action not found');
-          this.assertActionable(pending);
-          if (pending.actorId && pending.actorId !== actorId) {
-            throw new ForbiddenException(
-              'Pending action belongs to another actor',
-            );
-          }
-          if (!pending.shopProductId) {
-            throw new BadRequestException(
-              'Pending action has no resolved product',
-            );
-          }
-          const adjusted = await this.stock.adjustInTransaction(tx, {
-            shopId,
-            shopProductId: pending.shopProductId,
-            actorId,
-            operation: pending.operation,
-            quantity: pending.quantity,
-            source: pending.source,
-            pendingAction: pending,
-          });
-          const updated = await tx.pendingAction.updateMany({
-            where: { id: pendingId, shopId, status: 'PENDING' },
-            data: { status: 'CONFIRMED', confirmedAt: new Date(), actorId },
-          });
-          if (updated.count !== 1) {
-            throw new ConflictException('Pending action changed concurrently');
-          }
-          return { ...adjusted, pendingActionId: pendingId };
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      ),
+    return this.assertChatbotAccess(shopId, actorId)
+      .then(() => this.expireElapsed(shopId, pendingId))
+      .then(() =>
+        this.prisma.$transaction(
+          async (tx) => {
+            const pending = await tx.pendingAction.findFirst({
+              where: { id: pendingId, shopId },
+            });
+            if (!pending)
+              throw new NotFoundException('Pending action not found');
+            this.assertActionable(pending);
+            if (pending.actorId && pending.actorId !== actorId) {
+              throw new ForbiddenException(
+                'Pending action belongs to another actor',
+              );
+            }
+            if (!pending.shopProductId) {
+              throw new BadRequestException(
+                'Pending action has no resolved product',
+              );
+            }
+            const adjusted = await this.stock.adjustInTransaction(tx, {
+              shopId,
+              shopProductId: pending.shopProductId,
+              actorId,
+              operation: pending.operation,
+              quantity: pending.quantity,
+              source: pending.source,
+              pendingAction: pending,
+            });
+            const updated = await tx.pendingAction.updateMany({
+              where: { id: pendingId, shopId, status: 'PENDING' },
+              data: { status: 'CONFIRMED', confirmedAt: new Date(), actorId },
+            });
+            if (updated.count !== 1) {
+              throw new ConflictException(
+                'Pending action changed concurrently',
+              );
+            }
+            return { ...adjusted, pendingActionId: pendingId };
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        ),
+      );
+  }
+
+  private assertChatbotAccess(shopId: string, actorId: string) {
+    return this.prisma.$transaction((tx) =>
+      this.authorization.assertCanUseChatbot(tx, { shopId, actorId }),
     );
   }
 

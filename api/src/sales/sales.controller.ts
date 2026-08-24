@@ -1,13 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Param,
-  Post,
-  Query,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { CurrentUser } from '../common/decorator/current-user.decorator';
 import { ZodValidationPipe } from '../common/validation/zod-validation.pipe';
 import { uuidSchema } from '../common/validation/schemas';
 import {
@@ -28,49 +20,38 @@ export class SalesController {
 
   @Post('scan') scan(
     @Param('shopId', new ZodValidationPipe(uuidSchema)) shopId: string,
-    @Headers('x-staff-id') staffId: string | undefined,
+    @CurrentUser('sub') staffId: string,
     @Body(new ZodValidationPipe(scanSaleSchema)) body: ScanSaleDto,
   ) {
-    return this.sales.scan(shopId, this.requireStaff(staffId), body.barcode);
+    return this.sales.scan(shopId, staffId, body.barcode);
   }
   @Post() create(
     @Param('shopId', new ZodValidationPipe(uuidSchema)) shopId: string,
-    @Headers('x-staff-id') staffId: string | undefined,
+    @CurrentUser('sub') staffId: string,
     @Body(new ZodValidationPipe(createSaleSchema)) body: CreateSaleDto,
   ) {
-    return this.sales.create(shopId, this.requireStaff(staffId), body);
+    return this.sales.create(shopId, staffId, body);
   }
   @Get() list(
     @Param('shopId', new ZodValidationPipe(uuidSchema)) shopId: string,
-    @Headers('x-staff-id') staffId: string | undefined,
+    @CurrentUser('sub') staffId: string,
     @Query(new ZodValidationPipe(saleQuerySchema)) query: SaleQueryDto,
   ) {
-    return this.sales.list(shopId, this.requireStaff(staffId), query);
+    return this.sales.list(shopId, staffId, query);
   }
   @Get(':saleId') get(
     @Param('shopId', new ZodValidationPipe(uuidSchema)) shopId: string,
     @Param('saleId', new ZodValidationPipe(uuidSchema)) saleId: string,
-    @Headers('x-staff-id') staffId: string | undefined,
+    @CurrentUser('sub') staffId: string,
   ) {
-    return this.sales.get(shopId, this.requireStaff(staffId), saleId);
+    return this.sales.get(shopId, staffId, saleId);
   }
   @Post(':saleId/void') void(
     @Param('shopId', new ZodValidationPipe(uuidSchema)) shopId: string,
     @Param('saleId', new ZodValidationPipe(uuidSchema)) saleId: string,
-    @Headers('x-staff-id') staffId: string | undefined,
+    @CurrentUser('sub') staffId: string,
     @Body(new ZodValidationPipe(voidSaleSchema)) body: VoidSaleDto,
   ) {
-    return this.sales.void(
-      shopId,
-      this.requireStaff(staffId),
-      saleId,
-      body.reason,
-    );
-  }
-
-  private requireStaff(staffId: string | undefined) {
-    if (!staffId || !uuidSchema.safeParse(staffId).success)
-      throw new UnauthorizedException('Authenticated staff is required');
-    return staffId;
+    return this.sales.void(shopId, staffId, saleId, body.reason);
   }
 }
