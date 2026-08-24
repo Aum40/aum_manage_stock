@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ChatCommandModule } from './chat-command/chat-command.module';
 import { ChatModule } from './chat/chat.module';
 import { DatabaseModule } from './database/database.module';
@@ -33,6 +34,7 @@ import { OAuthModule } from './infrastructure/oauth/oauth.module';
       isGlobal: true,
       validate,
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     AuthModule,
     UsersModule,

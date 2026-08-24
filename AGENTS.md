@@ -46,6 +46,7 @@ Toolchain: **Node 24.x**, **pnpm 11.8.0** — pinned in `.nvmrc`, in the `engine
 | `stripe` | `^22.5.0` | payments |
 | `@nestjs/websockets` / `@nestjs/platform-socket.io` | `^11.2.1` | realtime gateway |
 | `socket.io` | `^4.8.3` | realtime transport |
+| `@nestjs/schedule` | `^6.1.3` | cron jobs (subscription expiry) |
 | `@anthropic-ai/sdk` | `^0.117.1` | Claude API (production LLM) |
 | `ollama` | `^0.6.3` | local LLM (dev/offline) |
 | `otplib` | `^13.4.1` | TOTP 2FA |
