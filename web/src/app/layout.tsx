@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Prompt, Sarabun, IBM_Plex_Mono } from "next/font/google";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { LocaleProvider } from "@/components/i18n/LocaleContext";
+import { MobileNavProvider } from "@/components/layout/MobileNavContext";
 import "./globals.css";
 
 const prompt = Prompt({
@@ -31,7 +34,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="th"
       className={`${prompt.variable} ${sarabun.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <LocaleProvider>
+          <MobileNavProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+          </MobileNavProvider>
+        </LocaleProvider>
+      </body>
     </html>
   );
 }
