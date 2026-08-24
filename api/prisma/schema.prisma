@@ -432,14 +432,15 @@ model Shop {
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
-  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  staff          ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
-  sales          Sale[]
-  shopProducts   ShopProduct[]
-  stockMovements StockMovement[]
-  pendingActions PendingAction[]
-  notifications  Notification[] // [เซิ่น] feature/notifications-resource
-  chatMessages   ChatMessage[] // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
+  owner             User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  staff             ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
+  sales             Sale[]
+  shopProducts      ShopProduct[]
+  stockMovements    StockMovement[]
+  pendingActions    PendingAction[]
+  notifications     Notification[] // [เซิ่น] feature/notifications-resource
+  chatMessages      ChatMessage[] // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
+  aiRecommendations AiRecommendation[] // [อั้ม] feature/ai-recommendations-resource
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
@@ -552,11 +553,12 @@ model ShopProduct {
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
-  shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  stockMovements StockMovement[]
-  pendingActions PendingAction[]
-  saleItems      SaleItem[]
+  product           Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  shop              Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  stockMovements    StockMovement[]
+  pendingActions    PendingAction[]
+  saleItems         SaleItem[]
+  aiRecommendations AiRecommendation[] // [อั้ม] feature/ai-recommendations-resource
 
   @@unique([shopId, productId], map: "uq_shop_product")
   @@index([shopId, status], name: "idx_shop_product_shop_status")
@@ -635,4 +637,38 @@ model ChatMessage {
 
   @@index([shopId, userId, createdAt], name: "idx_chat_scope_date")
   @@map("chat_messages")
+}
+
+// =====================================================================
+// [อั้ม] feature/ai-recommendations-resource
+// ตรงตาม prisma/design/schema.dbml (Table ai_recommendations)
+// ใช้ได้เฉพาะ Pro Plan — เช็ค subscription_plans.ai_recommendation_enabled
+// cache ผลไว้ ไม่เรียก LLM ตอน render แดชบอร์ด (SRS §179-§181)
+// =====================================================================
+
+enum AiRecommendationType {
+  RESTOCK
+  CLEARANCE
+  PROMOTION
+
+  @@map("ai_recommendation_type")
+}
+
+model AiRecommendation {
+  id            String               @id @default(uuid(7)) @db.Uuid
+  shopId        String               @map("shop_id") @db.Uuid
+  shopProductId String?              @map("shop_product_id") @db.Uuid
+  type          AiRecommendationType
+  title         String               @db.VarChar(200)
+  content       String
+  metrics       Json?
+  generatedAt   DateTime             @default(now()) @map("generated_at") @db.Timestamptz(6)
+  validUntil    DateTime?            @map("valid_until") @db.Timestamptz(6)
+  isDismissed   Boolean              @default(false) @map("is_dismissed")
+
+  shop        Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shopProduct ShopProduct? @relation(fields: [shopProductId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, generatedAt], name: "idx_ai_reco_shop_date")
+  @@map("ai_recommendations")
 }
