@@ -302,4 +302,85 @@ describe('AuthService', () => {
     );
     expect(users.enableTwoFactor).not.toHaveBeenCalled();
   });
+  // SRS §112 — ปิด 2FA ยืนยันด้วยรหัส 6 หลักหรือ recovery code
+  // password ไม่ใช่เงื่อนไขตาม SRS และบัญชี LINE/Google ล้วนๆ ก็ไม่มีให้กรอก
+  describe('disable2fa', () => {
+    const withTwoFactor = (overrides: Partial<User> = {}) =>
+      makeUser({
+        twoFactorEnabled: true,
+        twoFactorSecretEnc: 'enc',
+        ...overrides,
+      });
+
+    it('บัญชี LINE/Google ล้วนๆ (ไม่มี password) ปิด 2FA ได้ด้วย OTP', async () => {
+      users.findById.mockResolvedValue(
+        withTwoFactor({ password: null, email: null, lineUserId: 'U1' }),
+      );
+      otplib.verify.mockResolvedValue({ valid: true });
+
+      await service.disable2fa(USER_ID, { otpCode: '123456' });
+
+      expect(users.disableTwoFactor).toHaveBeenCalledWith(USER_ID);
+      expect(recovery.revokeAllForUser).toHaveBeenCalledWith(USER_ID);
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+    });
+
+    it('บัญชี LINE/Google ล้วนๆ ปิดด้วย recovery code ได้เช่นกัน', async () => {
+      users.findById.mockResolvedValue(withTwoFactor({ password: null }));
+      recovery.findValid.mockResolvedValue({ id: 'rc1' });
+
+      await service.disable2fa(USER_ID, { recoveryCode: 'abcd-efgh' });
+
+      expect(users.disableTwoFactor).toHaveBeenCalledWith(USER_ID);
+    });
+
+    it('บัญชีที่มี password ยังต้องกรอกให้ถูกเหมือนเดิม', async () => {
+      users.findById.mockResolvedValue(withTwoFactor());
+      bcrypt.compare.mockResolvedValue(false);
+
+      await expect(
+        service.disable2fa(USER_ID, { password: 'ผิด', otpCode: '123456' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(users.disableTwoFactor).not.toHaveBeenCalled();
+    });
+
+    it('บัญชีที่มี password แต่ไม่ส่ง password มา ต้องถูกปฏิเสธ', async () => {
+      users.findById.mockResolvedValue(withTwoFactor());
+
+      await expect(
+        service.disable2fa(USER_ID, { otpCode: '123456' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(users.disableTwoFactor).not.toHaveBeenCalled();
+    });
+
+    it('ไม่ปิดให้เมื่อ OTP ผิด แม้ password จะถูก', async () => {
+      users.findById.mockResolvedValue(withTwoFactor());
+      otplib.verify.mockResolvedValue({ valid: false });
+
+      await expect(
+        service.disable2fa(USER_ID, { password: 'ถูก', otpCode: '000000' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(users.disableTwoFactor).not.toHaveBeenCalled();
+    });
+
+    it('ไม่ปิดให้เมื่อ recovery code ใช้ไม่ได้', async () => {
+      users.findById.mockResolvedValue(withTwoFactor({ password: null }));
+      recovery.findValid.mockResolvedValue(null);
+
+      await expect(
+        service.disable2fa(USER_ID, { recoveryCode: 'ไม่มีจริง' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(users.disableTwoFactor).not.toHaveBeenCalled();
+    });
+
+    // กันไว้เผื่อมีคนแก้ DTO ทีหลังจนไม่บังคับให้ส่งอะไรมาเลย
+    it('ไม่ปิดให้เมื่อไม่ได้ส่งทั้ง OTP และ recovery code', async () => {
+      users.findById.mockResolvedValue(withTwoFactor({ password: null }));
+
+      await expect(service.disable2fa(USER_ID, {})).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(users.disableTwoFactor).not.toHaveBeenCalled();
+    });
+  });
 });
