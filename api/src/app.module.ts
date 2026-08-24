@@ -15,8 +15,17 @@ import { ShopsModule } from './shops/shops.module';
 import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { ShopProductsModule } from './shop-products/shop-products.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { StaffModule } from './staff/staff.module';
 import { validate } from './config/env.validation';
+import { HashModule } from './infrastructure/hash/hash.module';
+import { JwtModule } from './infrastructure/jwt/jwt.module';
+import { APP_GUARD } from '@nestjs/core';
+import { AuthGuard } from '@/auth/guards/auth.guard';
+import { RolesGuard } from '@/auth/guards/roles.guard';
+import { MailModule } from './infrastructure/mail/mail.module';
+import { EncryptionModule } from './infrastructure/encryption/encryption.module';
+import { OAuthModule } from './infrastructure/oauth/oauth.module';
 
 @Module({
   imports: [
@@ -36,11 +45,21 @@ import { validate } from './config/env.validation';
     CommonModule,
     ProductsModule,
     ShopProductsModule,
+    NotificationsModule,
     StockModule,
     ChatCommandModule,
     ChatModule,
     LineModule,
     StaffModule,
+    HashModule,
+    JwtModule,
+    MailModule,
+    EncryptionModule,
+    OAuthModule,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}

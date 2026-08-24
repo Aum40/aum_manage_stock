@@ -1,0 +1,42 @@
+-- Seed แพ็กเกจ 3 ระดับตาม SRS §57-59 (ดูตารางใน AGENTS.md)
+-- ตามที่ note ท้าย schema.prisma ระบุไว้ว่าต้อง seed เองภายหลัง
+--
+-- ปกติไม่ต้องรันไฟล์นี้เอง — SubscriptionPlanSeeder เติมแพ็กเกจที่ขาดให้
+-- อัตโนมัติทุกครั้งที่แอปเริ่มทำงานอยู่แล้ว
+--
+-- ไฟล์นี้มีไว้สำหรับกรณี "บังคับให้ค่าตรงกับ SRS" เท่านั้น เพราะ seeder ตั้งใจ
+-- ไม่ทับค่าที่มีอยู่ (เผื่อมีคนแก้ราคาใน DB ไว้โดยตั้งใจ) ถ้าเห็น log เตือนว่า
+-- ราคาไม่ตรงกับ SRS แล้วอยากรีเซ็ตกลับ ให้รัน:
+--   pnpm prisma db execute --file prisma/sql/003_seed_subscription_plans.sql
+--
+-- idempotent — รันซ้ำได้ไม่พัง และอัปเดตค่าให้ตรงกับ SRS เสมอ
+--
+-- duration_months NULL = ไม่มีวันหมดอายุ (Free Plan เท่านั้น)
+--
+-- ประตูฟีเจอร์ระดับแพ็กเกจ (SRS §116/§171/§179/§193):
+--   chatbot_enabled            = AI Chat        -> Plus + Pro
+--   barcode_enabled            = ตัดสต็อกบาร์โค้ด -> Plus + Pro
+--   ai_recommendation_enabled  = AI Recommendations -> Pro เท่านั้น
+-- (SRS §80 เขียนกว้างว่า "คำแนะนำจาก AI: Plus และ Pro" แต่ §191/§193 ระบุ
+--  ชัดว่า AI Recommendations เป็นของ Pro อย่างเดียว จึงยึดตาม §193)
+INSERT INTO subscription_plans
+  (id, code, name_th, price_thb, duration_months,
+   included_shop_quota, included_staff_quota, max_active_products,
+   chatbot_enabled, barcode_enabled, ai_recommendation_enabled,
+   is_free, is_active)
+VALUES
+  (gen_random_uuid(), 'FREE', 'ฟรี',      0.00, NULL, 1, 0,  100, false, false, false, true,  true),
+  (gen_random_uuid(), 'PLUS', 'พลัส',  2499.00,   12, 3, 6, 3000, true,  true,  false, false, true),
+  (gen_random_uuid(), 'PRO',  'โปร',   3499.00,   12, 5, 10, 5000, true,  true,  true,  false, true)
+ON CONFLICT (code) DO UPDATE SET
+  name_th                   = EXCLUDED.name_th,
+  price_thb                 = EXCLUDED.price_thb,
+  duration_months           = EXCLUDED.duration_months,
+  included_shop_quota       = EXCLUDED.included_shop_quota,
+  included_staff_quota      = EXCLUDED.included_staff_quota,
+  max_active_products       = EXCLUDED.max_active_products,
+  chatbot_enabled           = EXCLUDED.chatbot_enabled,
+  barcode_enabled           = EXCLUDED.barcode_enabled,
+  ai_recommendation_enabled = EXCLUDED.ai_recommendation_enabled,
+  is_free                   = EXCLUDED.is_free,
+  is_active                 = EXCLUDED.is_active;

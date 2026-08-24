@@ -5,7 +5,8 @@ import {
 } from '@nestjs/common';
 import { ProductsService } from './products.service';
 import type { PrismaService } from '../database/prisma.service';
-import type { AccountContextService } from '../common/access/account-context.service';
+import { AccountContextService } from '../common/access/account-context.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 
 type PrismaMock = {
   product: {
@@ -51,6 +52,7 @@ describe('ProductsService', () => {
     assertCanManageCatalog: jest.Mock;
     assertNotReadOnly: jest.Mock;
   };
+  let notifications: { emit: jest.Mock };
   let service: ProductsService;
 
   beforeEach(() => {
@@ -63,9 +65,11 @@ describe('ProductsService', () => {
       assertCanManageCatalog: jest.fn().mockResolvedValue(undefined),
       assertNotReadOnly: jest.fn().mockResolvedValue(undefined),
     };
+    notifications = { emit: jest.fn().mockResolvedValue(undefined) };
     service = new ProductsService(
       prisma as unknown as PrismaService,
       accountContext as unknown as AccountContextService,
+      notifications as unknown as NotificationsService,
       quota,
     );
   });
@@ -98,6 +102,32 @@ describe('ProductsService', () => {
         service.create(OWNER, { name: 'สินค้าใหม่', unit: 'ชิ้น' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.product.create).not.toHaveBeenCalled();
+    });
+
+    it('โควตาเต็มแล้วต้องยิงแจ้งเตือน PRODUCT_LIMIT_REACHED ให้เจ้าของร้าน', async () => {
+      prisma.product.count.mockResolvedValue(100);
+
+      await expect(
+        service.create(OWNER, { name: 'สินค้าใหม่', unit: 'ชิ้น' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(notifications.emit).toHaveBeenCalledWith(
+        containing({
+          userId: OWNER,
+          type: 'PRODUCT_LIMIT_REACHED',
+          dedupeWhileUnread: true,
+        }),
+      );
+    });
+
+    it('โควตายังไม่เต็มต้องไม่ยิงแจ้งเตือน', async () => {
+      prisma.product.count.mockResolvedValue(3);
+      prisma.product.findFirst.mockResolvedValue(null);
+      prisma.product.create.mockResolvedValue({ id: 'p1' });
+
+      await service.create(OWNER, { name: 'สินค้า', unit: 'ชิ้น' });
+
+      expect(notifications.emit).not.toHaveBeenCalled();
     });
 
     it('โควตาอ่านจากแพ็กเกจจริง — Pro (5,000) ยังเพิ่มได้ทั้งที่มีอยู่ 3,000', async () => {
@@ -237,6 +267,107 @@ describe('ProductsService', () => {
       await expect(service.remove(OWNER, 'p1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+  describe('ด่านตรวจสิทธิ์พนักงาน (ใช้ AccountContextService ตัวจริง)', () => {
+    let realPrisma: {
+      user: { findFirst: jest.Mock };
+      shopStaff: { findFirst: jest.Mock };
+      subscription: { findUnique: jest.Mock };
+      product: { create: jest.Mock; findFirst: jest.Mock; count: jest.Mock };
+    };
+    let realContext: AccountContextService;
+    let staffService: ProductsService;
+
+    beforeEach(() => {
+      realPrisma = {
+        user: { findFirst: jest.fn() },
+        shopStaff: { findFirst: jest.fn() },
+        subscription: { findUnique: jest.fn().mockResolvedValue(null) },
+        product: {
+          create: jest.fn().mockResolvedValue({ id: 'p1' }),
+          findFirst: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(0),
+        },
+      };
+      realContext = new AccountContextService(
+        realPrisma as unknown as PrismaService,
+      );
+      staffService = new ProductsService(
+        realPrisma as unknown as PrismaService,
+        realContext,
+        notifications as unknown as NotificationsService,
+        quota,
+      );
+    });
+
+    it('resolve() ต้องแยกออกว่าเป็นพนักงาน เมื่อได้รับ users.id ของพนักงาน', async () => {
+      realPrisma.user.findFirst.mockResolvedValue({
+        id: STAFF,
+        ownerId: OWNER,
+        status: 'ACTIVE',
+      });
+
+      await expect(realContext.resolve(STAFF)).resolves.toEqual({
+        userId: STAFF,
+        ownerId: OWNER,
+        isStaff: true,
+      });
+    });
+
+    it('พนักงานที่ไม่มีสิทธิ์ canManageProduct -> 403', async () => {
+      realPrisma.user.findFirst.mockResolvedValue({
+        id: STAFF,
+        ownerId: OWNER,
+        status: 'ACTIVE',
+      });
+      realPrisma.shopStaff.findFirst.mockResolvedValue(null);
+
+      await expect(
+        staffService.create(STAFF, { name: 'สินค้า', unit: 'ชิ้น' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(realPrisma.product.create).not.toHaveBeenCalled();
+    });
+
+    it('พนักงานที่ได้รับสิทธิ์แล้วเพิ่มสินค้าได้', async () => {
+      realPrisma.user.findFirst.mockResolvedValue({
+        id: STAFF,
+        ownerId: OWNER,
+        status: 'ACTIVE',
+      });
+      realPrisma.shopStaff.findFirst.mockResolvedValue({ id: 'assignment-1' });
+
+      await staffService.create(STAFF, { name: 'สินค้า', unit: 'ชิ้น' });
+
+      expect(realPrisma.product.create).toHaveBeenCalledWith({
+        data: containing({ ownerId: OWNER }),
+      });
+    });
+
+    it('ถ้า controller ส่ง owner id แทน id ของพนักงาน ด่านตรวจจะถูกข้าม — กันการเปลี่ยนกลับไปใช้ @OwnerId()', async () => {
+      realPrisma.user.findFirst.mockResolvedValue({
+        id: OWNER,
+        ownerId: null,
+        status: 'ACTIVE',
+      });
+      realPrisma.shopStaff.findFirst.mockResolvedValue(null);
+
+      await staffService.create(OWNER, { name: 'สินค้า', unit: 'ชิ้น' });
+
+      expect(realPrisma.shopStaff.findFirst).not.toHaveBeenCalled();
+      expect(realPrisma.product.create).toHaveBeenCalled();
+    });
+
+    it('บัญชีที่ถูกระงับใช้งานไม่ได้', async () => {
+      realPrisma.user.findFirst.mockResolvedValue({
+        id: STAFF,
+        ownerId: OWNER,
+        status: 'SUSPENDED',
+      });
+
+      await expect(
+        staffService.create(STAFF, { name: 'สินค้า', unit: 'ชิ้น' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 });

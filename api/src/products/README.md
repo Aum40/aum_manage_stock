@@ -25,45 +25,62 @@ pnpm test
 > ถ้าใช้ `db push` (ซึ่งข้าม migration) ให้รัน `prisma/sql/001_products_partial_indexes.sql`
 > เพิ่มเองหนึ่งครั้ง — ดูหัวไฟล์นั้นประกอบ
 
-## ยิงเทสต์ระหว่างที่ auth ยังไม่เสร็จ
+## ยิงเทสต์ (ต้องมี access token)
 
-ทุก endpoint ใช้ `@OwnerId()` ของอั้ม (`common/decorators/owner-id.decorator.ts`)
-ซึ่งอ่าน **users.id ของคนที่ยิง request** จาก header `x-user-id` ชั่วคราวจนกว่า JWT guard จะพร้อม
-service เป็นคน resolve เองว่า owner คือใคร (`users.owner_id ?? users.id`)
-พนักงานจึงยิง endpoint เดียวกันได้และเห็นคลังของเจ้าของร้านที่ตนสังกัด
+ตั้งแต่ `feature/auth-resource-api` ลง `dev` ทุก endpoint อยู่หลัง `AuthGuard` ที่เป็น
+global guard แล้ว header `x-user-id` ใช้ไม่ได้อีกต่อไป ต้องแนบ JWT จาก `POST /auth/login`
 
 ```bash
-curl -X POST http://localhost:8000/products \
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/login \
   -H 'content-type: application/json' \
-  -H 'x-user-id: <users.id ที่มีอยู่จริงใน DB>' \
+  -d '{"email":"owner@example.com","password":"..."}' | jq -r .accessToken)
+
+curl -X POST http://localhost:8000/products \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
   -d '{"name":"โค้ก 325ml","unit":"กระป๋อง","barcode":"8851959132012"}'
 ```
 
-> ต้องมีแถวใน `users` จริง ไม่งั้นได้ 404 — ตั้งแต่ PR ที่เพิ่มการเช็คสิทธิ์
-> ระบบ resolve ผู้ใช้จาก DB ทุก request ไม่ได้เชื่อ header ตรงๆ อีกแล้ว
+### ทำไมโมดูลนี้ใช้ `@CurrentUser('sub')` ไม่ใช่ `@OwnerId()`
+
+**อย่าเปลี่ยนกลับเป็น `@OwnerId()` เพื่อให้เหมือนโมดูลอื่น — มันเปิดช่องโหว่สิทธิ์**
+
+`@OwnerId()` แปลงพนักงานเป็น `users.owner_id` ให้ตั้งแต่ชั้น decorator ซึ่งเหมาะกับโมดูล
+ที่ต้องการแค่ "ข้อมูลก้อนนี้เป็นของใคร" แต่โมดูลนี้ต้องรู้ทั้งสองอย่าง — เป็นของใคร
+**และใครเป็นคนยิง** เพราะต้องเอาคนยิงไปเทียบกับ `staff_permissions`
+
+`AccountContextService.resolve()` เป็นคนแปลง `users.id` เป็น `{ userId, ownerId, isStaff }`
+ถ้า controller ส่ง owner id เข้ามาแทน คนยิงกับเจ้าของจะกลายเป็นคนเดียวกัน `isStaff` จะเป็น
+`false` เสมอ แล้วด่านตรวจทั้งหมดใน `assertCanManageCatalog()` กับ `PrismaShopAccessAdapter`
+จะถูกข้ามเงียบๆ ผลคือพนักงานที่ไม่มีสิทธิ์ `canManageProduct` แก้สินค้าได้
+และเข้าจัดการร้านที่ตัวเองไม่ได้ถูก assign ได้ด้วย
+
+spec ที่ mock `AccountContextService` ทั้งก้อนจับเคสนี้ไม่ได้ ดู
+`'พนักงานที่ไม่มีสิทธิ์ canManageProduct -> 403'` ใน `products.service.spec.ts`
+ซึ่งปล่อยให้ `AccountContextService` ตัวจริงทำงานกับ prisma mock
 
 ## Endpoints
 
-| Method | Path | หมายเหตุ |
-|---|---|---|
-| POST | `/products` | เช็ค `max_active_products` ตามแพ็กเกจก่อนเสมอ |
-| GET | `/products` | `?q=&categoryId=&page=&limit=` ไม่รวมสินค้าที่ลบแล้ว |
-| GET | `/products/search?barcode=` | คืน **object เดียว** (404 ถ้าไม่เจอ) |
-| GET | `/products/:id` | |
-| PATCH | `/products/:id` | |
-| DELETE | `/products/:id` | soft delete + ปิดขายในทุกร้าน |
+| Method | Path                        | หมายเหตุ                                             |
+| ------ | --------------------------- | ---------------------------------------------------- |
+| POST   | `/products`                 | เช็ค `max_active_products` ตามแพ็กเกจก่อนเสมอ        |
+| GET    | `/products`                 | `?q=&categoryId=&page=&limit=` ไม่รวมสินค้าที่ลบแล้ว |
+| GET    | `/products/search?barcode=` | คืน **object เดียว** (404 ถ้าไม่เจอ)                 |
+| GET    | `/products/:id`             |                                                      |
+| PATCH  | `/products/:id`             |                                                      |
+| DELETE | `/products/:id`             | soft delete + ปิดขายในทุกร้าน                        |
 
 > โค้ดในโมดูลนี้ไม่มี comment ในไฟล์โดยตั้งใจ — **เหตุผลเบื้องหลังทุกอย่างอยู่ใน README นี้**
 > ถ้าจะแก้อะไรที่ดูแปลก อ่านหัวข้อ "การตัดสินใจ" ด้านล่างก่อน
 
 ## การตรวจสิทธิ์
 
-| ชั้น | ทำอะไร | ที่ไหน |
-|---|---|---|
-| resolve ผู้ใช้ | `users.owner_id ?? users.id` + บล็อกบัญชีที่ถูกระงับ | `common/access/account-context.service.ts` |
-| สิทธิ์พนักงาน | เขียนคลังกลางได้เมื่อมี `staff_permissions.can_manage_product` อย่างน้อย 1 ร้านของ owner | `assertCanManageCatalog()` |
-| read-only | แพ็กเกจหมดอายุ → เขียนไม่ได้ (อ่านได้ปกติ) ใช้ `isSubscriptionReadOnly()` ของพี่ปาน | `assertNotReadOnly()` |
-| โควตา | อ่าน `subscription_plans.max_active_products` จริง ไม่มีแถว subscription = Free 100 | `common/quota/product-quota.port.ts` |
+| ชั้น           | ทำอะไร                                                                                   | ที่ไหน                                     |
+| -------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------ |
+| resolve ผู้ใช้ | `users.owner_id ?? users.id` + บล็อกบัญชีที่ถูกระงับ                                     | `common/access/account-context.service.ts` |
+| สิทธิ์พนักงาน  | เขียนคลังกลางได้เมื่อมี `staff_permissions.can_manage_product` อย่างน้อย 1 ร้านของ owner | `assertCanManageCatalog()`                 |
+| read-only      | แพ็กเกจหมดอายุ → เขียนไม่ได้ (อ่านได้ปกติ) ใช้ `isSubscriptionReadOnly()` ของพี่ปาน      | `assertNotReadOnly()`                      |
+| โควตา          | อ่าน `subscription_plans.max_active_products` จริง ไม่มีแถว subscription = Free 100      | `common/quota/product-quota.port.ts`       |
 
 ## การตัดสินใจที่ต่างจาก ERD (ยืนยันกับ SRS + endpoint sheet แล้ว)
 

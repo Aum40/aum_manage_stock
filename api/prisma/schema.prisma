@@ -17,6 +17,13 @@ datasource db {
 enum StockMovementType {
   MANUAL_ADJUSTMENT
   CHAT_ADJUSTMENT
+  SALE
+  SALE_VOID
+}
+
+enum SaleStatus {
+  COMPLETED
+  VOIDED
 }
 
 enum StockMovementSource {
@@ -97,6 +104,43 @@ model PendingAction {
   @@index([expiresAt, status])
 }
 
+model Sale {
+  id          String     @id @default(uuid()) @db.Uuid
+  shopId      String     @db.Uuid
+  staffId     String     @db.Uuid
+  status      SaleStatus @default(COMPLETED)
+  totalAmount Decimal    @db.Decimal(18, 2)
+  note        String?
+  voidedById  String?    @db.Uuid
+  voidReason  String?
+  voidedAt    DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  items       SaleItem[]
+  shop        Shop       @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  staff       User       @relation("SaleStaff", fields: [staffId], references: [id], onDelete: Restrict)
+  voidedBy    User?      @relation("SaleVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([shopId, createdAt(sort: Desc)])
+  @@index([shopId, status, createdAt(sort: Desc)])
+}
+
+model SaleItem {
+  id            String      @id @default(uuid()) @db.Uuid
+  saleId        String      @db.Uuid
+  shopProductId String      @db.Uuid
+  productName   String
+  unitPrice     Decimal     @db.Decimal(18, 2)
+  quantity      Int
+  lineTotal     Decimal     @db.Decimal(18, 2)
+  createdAt     DateTime    @default(now())
+  sale          Sale        @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  shopProduct   ShopProduct @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([shopProductId])
+}
+
 enum UserRole {
   SHOP_OWNER
   SHOP_STAFF
@@ -114,8 +158,9 @@ model User {
   firstName          String     @map("first_name")
   lastName           String     @map("last_name")
   email              String?    @unique
+  emailVerifiedAt    DateTime?  @map("email_verified_at") @db.Timestamptz(2)
   username           String?    @unique @db.VarChar(50)
-  passwordHash       String?    @map("password_hash")
+  password           String?    @map("password")
   lineUserId         String?    @unique @map("line_user_id")
   googleId           String?    @unique @map("google_id")
   ownerId            String?    @map("owner_id") @db.Uuid
@@ -128,20 +173,27 @@ model User {
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(2)
   updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(2)
 
-  owner                  User?                   @relation("OwnerStaff", fields: [ownerId], references: [id], onDelete: Restrict)
-  staff                  User[]                  @relation("OwnerStaff")
-  refreshTokens          RefreshToken[]
-  passwordResetTokens    PasswordResetToken[]
-  twoFactorRecoveryCodes TwoFactorRecoveryCode[]
+  owner                   User?                    @relation("OwnerStaff", fields: [ownerId], references: [id], onDelete: Restrict)
+  staff                   User[]                   @relation("OwnerStaff")
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  twoFactorRecoveryCodes  TwoFactorRecoveryCode[]
+  adminAuditLogs          AdminAuditLog[]          @relation("AdminAuditActor")
   // feature/subscriptions-resource + feature/shops-resource (พี่ปาน)
-  subscription           Subscription?
-  shops                  Shop[]
+  subscription            Subscription?
+  shops                   Shop[]
+  // feature/payments-resource (แพรว)
+  payments                Payment[]
   // feature/staff-resource (อั้ม) — back-relation ที่ Prisma บังคับ
-  shopStaffs             ShopStaff[]
-  permissionsGranted     StaffPermission[]
-  stockMovements         StockMovement[]         @relation("StockMovementActor")
-  pendingActions         PendingAction[]         @relation("PendingActionActor")
-  chatMessages           ChatMessage[] // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
+  shopStaffs              ShopStaff[]
+  // [เซิ่น] feature/notifications-resource — back-relation ที่ Prisma บังคับ
+  notifications           Notification[]
+  permissionsGranted      StaffPermission[]
+  stockMovements          StockMovement[]          @relation("StockMovementActor")
+  pendingActions          PendingAction[]          @relation("PendingActionActor")
+  salesCreated            Sale[]                   @relation("SaleStaff")
+  salesVoided             Sale[]                   @relation("SaleVoidedBy")
 
   @@index([email], name: "idx_user_email")
   @@index([username], name: "idx_user_username")
@@ -154,7 +206,7 @@ model User {
 model RefreshToken {
   id        String    @id @default(uuid()) @db.Uuid
   userId    String    @map("user_id") @db.Uuid
-  tokenHash String    @map("token_hash")
+  tokenHash String    @unique @map("token_hash")
   familyId  String    @map("family_id") @db.Uuid
   usedAt    DateTime? @map("used_at") @db.Timestamptz(2)
   revokedAt DateTime? @map("revoked_at") @db.Timestamptz(2)
@@ -180,6 +232,59 @@ model PasswordResetToken {
 
   @@index([userId], name: "idx_password_reset_user")
   @@map("password_reset_tokens")
+}
+
+/// ลิงก์ยืนยันอีเมลตอนสมัครด้วยอีเมล — บัญชีที่มี email แต่ยังไม่ยืนยัน
+/// จะ login ด้วยรหัสผ่านไม่ได้ (users.email_verified_at IS NULL)
+/// บัญชีที่สมัครด้วย Google ถือว่ายืนยันแล้วทันที เพราะ Google ยืนยันให้
+model EmailVerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(2)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(2)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(2)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], name: "idx_email_verification_user")
+  @@map("email_verification_tokens")
+}
+
+enum AdminAuditAction {
+  USER_SUSPEND
+  USER_REACTIVATE
+  USER_ROLE_CHANGE
+  SHOP_SUSPEND
+  SHOP_REACTIVATE
+}
+
+enum AdminAuditTargetType {
+  USER
+  SHOP
+}
+
+/// APPEND-ONLY — บันทึกทุก action ที่ Admin/Super Admin ทำกับบัญชีและร้านค้า
+/// ห้าม UPDATE/DELETE แถวเดิม (เหมือน stock_movements และ payments)
+///
+/// target_id ไม่มี FK เพราะชี้ได้ทั้ง users และ shops แล้วแต่ target_type
+/// actor ใช้ onDelete: Restrict เพื่อไม่ให้ประวัติหายเมื่อบัญชีแอดมินถูกลบ
+model AdminAuditLog {
+  id         String               @id @default(uuid()) @db.Uuid
+  actorId    String               @map("actor_id") @db.Uuid
+  action     AdminAuditAction
+  targetType AdminAuditTargetType @map("target_type")
+  targetId   String               @map("target_id") @db.Uuid
+  reason     String?
+  /// ข้อมูลเพิ่มเติมแล้วแต่ action เช่น เปลี่ยน role เก็บ { from, to }
+  metadata   Json?
+  createdAt  DateTime             @default(now()) @map("created_at") @db.Timestamptz(2)
+
+  actor User @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId, createdAt], name: "idx_admin_audit_actor")
+  @@index([targetType, targetId, createdAt], name: "idx_admin_audit_target")
+  @@map("admin_audit_logs")
 }
 
 model TwoFactorRecoveryCode {
@@ -231,17 +336,19 @@ model SubscriptionPlan {
   nameTh             String  @map("name_th") @db.VarChar(100)
   priceThb           Decimal @map("price_thb") @db.Decimal(12, 2)
   durationMonths     Int?    @map("duration_months") // NULL = Free Plan ไม่มีวันหมดอายุ
-  includedShopQuota  Int     @default(1) @map("included_shop_quota")
+  includedShopQuota  Int     @default(1) @map("included_shop_quota") // Free = 1, Plus = 3, Pro = 5
   includedStaffQuota Int     @default(0) @map("included_staff_quota") // Free = 0, Plus = 6, Pro = 10
-  maxActiveProducts  Int?    @map("max_active_products") // NULL = ไม่จำกัด (Paid), 100 = Free Plan
-  isFree             Boolean @default(false) @map("is_free")
-  isActive           Boolean @default(true) @map("is_active")
+  maxActiveProducts  Int?    @map("max_active_products") // Free = 100, Plus = 3000, Pro = 5000 (SRS §69-71)
 
-  // [อั้ม] feature-gate ตาม schema.dbml:243-245 — เดิมขาดใน schema.prisma
-  // seed ต้องตั้ง true ให้ PLUS/PRO ไม่งั้น default false จะบล็อกทุกคน
-  chatbotEnabled          Boolean @default(false) @map("chatbot_enabled") // Plus/Pro (SRS §71, §160)
-  barcodeEnabled          Boolean @default(false) @map("barcode_enabled") // Plus/Pro (SRS §72, §167)
-  aiRecommendationEnabled Boolean @default(false) @map("ai_recommendation_enabled") // Pro เท่านั้น (SRS §179, §181)
+  /// SRS §116/§171/§179/§193 — ประตูระดับแพ็กเกจ ต้องผ่านคู่กับ staff_permissions
+  /// เสมอ (ดู "Permission checks" ใน AGENTS.md) เจ้าของร้านเปิดสิทธิ์ให้พนักงาน
+  /// ได้ แต่ถ้าแพ็กเกจไม่ปลดล็อกก็ต้องถูกบล็อกอยู่ดี
+  chatbotEnabled          Boolean @default(false) @map("chatbot_enabled") // Plus/Pro (AI Chat)
+  barcodeEnabled          Boolean @default(false) @map("barcode_enabled") // Plus/Pro (ตัดสต็อกด้วยบาร์โค้ด)
+  aiRecommendationEnabled Boolean @default(false) @map("ai_recommendation_enabled") // Pro เท่านั้น
+
+  isFree   Boolean @default(false) @map("is_free")
+  isActive Boolean @default(true) @map("is_active")
 
   subscriptions Subscription[]
 
@@ -259,11 +366,56 @@ model Subscription {
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
 
-  user User             @relation(fields: [userId], references: [id], onDelete: Restrict)
-  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+  user     User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  plan     SubscriptionPlan @relation(fields: [planId], references: [id])
+  // feature/payments-resource (แพรว) — back-relation ที่ Prisma บังคับ
+  payments Payment[]
 
   @@index([expiresAt], name: "idx_subscription_expires")
   @@map("subscriptions")
+}
+
+// =====================================================================
+// feature/payments-resource (แพรว)
+// ทำให้ TODO ใน SubscriptionsService.upgrade()/renew() ทำงานได้: ทุกครั้งที่
+// อัปเกรด/ต่ออายุ ต้องสร้าง Payment แถวใหม่คู่กันในทรานแซกชันเดียว
+// =====================================================================
+
+/// SRS §66/§110: quota เปลี่ยนได้ทางเดียวคืออัปเกรดแพลน — ไม่มีการซื้อ
+/// ร้าน/สินค้า/พนักงานเพิ่มแยกต่างหาก จึงมีแค่ 2 purpose (ตัดสินใจกับทีมแล้ว
+/// ดู "SRS alignment" ใน AGENTS.md — ห้ามเพิ่ม EXTRA_SHOP กลับเข้ามา)
+enum PaymentPurpose {
+  NEW_SUBSCRIPTION
+  RENEWAL
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+/// APPEND-ONLY — ห้าม UPDATE ยอดเงินของแถวเดิม คืนเงินให้สร้างแถวใหม่
+/// status = REFUNDED แทน (เหมือน stock_movements: ledger ไม่ใช่ state)
+model Payment {
+  id             String         @id @default(uuid()) @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  subscriptionId String?        @map("subscription_id") @db.Uuid
+  purpose        PaymentPurpose
+  amountThb      Decimal        @map("amount_thb") @db.Decimal(12, 2)
+  currency       String         @default("THB") @db.Char(3)
+  status         PaymentStatus  @default(PENDING)
+  provider       String         @db.VarChar(50) // "stripe"
+  providerRef    String         @unique @map("provider_ref")
+  paidAt         DateTime?      @map("paid_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt], name: "idx_payment_user_date")
+  @@map("payments")
 }
 
 model Shop {
@@ -281,10 +433,11 @@ model Shop {
 
   owner          User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   staff          ShopStaff[] // [อั้ม] feature/staff-resource — back-relation ที่ Prisma บังคับ บรรทัดเดียว ไม่แตะ field อื่น
+  sales          Sale[]
   shopProducts   ShopProduct[]
   stockMovements StockMovement[]
   pendingActions PendingAction[]
-  chatMessages   ChatMessage[] // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
+  notifications  Notification[] // [เซิ่น] feature/notifications-resource
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
@@ -401,6 +554,7 @@ model ShopProduct {
   shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
   stockMovements StockMovement[]
   pendingActions PendingAction[]
+  saleItems      SaleItem[]
 
   @@unique([shopId, productId], map: "uq_shop_product")
   @@index([shopId, status], name: "idx_shop_product_shop_status")
@@ -409,33 +563,36 @@ model ShopProduct {
 }
 
 // =====================================================================
-// [อั้ม] feature/chatbot-resource
-// ประวัติแชท — dev ยังไม่มี ส่วน PendingAction/StockMovement เป็นของพี่ดิว
-// ใช้ enum PendingActionSource ของ dev เป็น channel เพื่อไม่สร้าง enum ซ้ำ
+// [เซิ่น] feature/notifications-resource
+// อ้างอิง prisma/design/schema.dbml -> Enum notification_type (บรรทัด 114)
+// และ Table notifications (บรรทัด 624)
 // =====================================================================
 
-enum ChatRole {
-  USER
-  ASSISTANT
+enum NotificationType {
+  LOW_STOCK
+  SUBSCRIPTION_EXPIRING
+  SUBSCRIPTION_EXPIRED
+  ACCOUNT_SUSPENDED
+  PRODUCT_LIMIT_REACHED
+  SHOP_LIMIT_REACHED
 
-  @@map("chat_role")
+  @@map("notification_type")
 }
 
-/// ประวัติแชทของผู้ใช้ต่อร้าน ทั้งฝั่งเว็บและ LINE
-model ChatMessage {
-  id              String              @id @default(uuid(7)) @db.Uuid
-  shopId          String              @map("shop_id") @db.Uuid
-  userId          String              @map("user_id") @db.Uuid
-  channel         PendingActionSource
-  role            ChatRole
-  content         String
-  pendingActionId String?             @map("pending_action_id") @db.Uuid
-  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+model Notification {
+  id        String           @id @default(uuid(7)) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  shopId    String?          @map("shop_id") @db.Uuid
+  type      NotificationType
+  title     String           @db.VarChar(200)
+  message   String
+  payload   Json?
+  readAt    DateTime?        @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  shop          Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
-  pendingAction PendingAction? @relation(fields: [pendingActionId], references: [id], onDelete: SetNull)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shop Shop? @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
-  @@index([shopId, userId, createdAt], name: "idx_chat_scope_date")
-  @@map("chat_messages")
+  @@index([userId, readAt], name: "idx_notification_unread")
+  @@map("notifications")
 }

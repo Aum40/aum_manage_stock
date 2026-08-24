@@ -12,7 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ZodValidationPipe } from 'nestjs-zod';
-import { OwnerId } from '../common/decorators/owner-id.decorator';
+import { CurrentUser } from '../common/decorator/current-user.decorator';
 import {
   AddShopProductSchema,
   ListShopProductQuerySchema,
@@ -29,7 +29,7 @@ export class ShopProductsController {
 
   @Post()
   add(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Body(new ZodValidationPipe(AddShopProductSchema)) dto: AddShopProductDto,
   ) {
@@ -38,7 +38,7 @@ export class ShopProductsController {
 
   @Get()
   findAll(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Query(new ZodValidationPipe(ListShopProductQuerySchema))
     query: ListShopProductQueryDto,
@@ -48,7 +48,7 @@ export class ShopProductsController {
 
   @Get('low-stock')
   findLowStock(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
   ) {
     return this.shopProductsService.findLowStock(userId, shopId);
@@ -56,7 +56,7 @@ export class ShopProductsController {
 
   @Get(':shopProductId')
   findOne(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Param('shopProductId', ParseUUIDPipe) shopProductId: string,
   ) {
@@ -65,7 +65,7 @@ export class ShopProductsController {
 
   @Patch(':shopProductId')
   update(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Param('shopProductId', ParseUUIDPipe) shopProductId: string,
     @Body(new ZodValidationPipe(UpdateShopProductSchema))
@@ -77,7 +77,7 @@ export class ShopProductsController {
   @Delete(':shopProductId')
   @HttpCode(HttpStatus.OK)
   remove(
-    @OwnerId() userId: string,
+    @CurrentUser('sub') userId: string,
     @Param('shopId', ParseUUIDPipe) shopId: string,
     @Param('shopProductId', ParseUUIDPipe) shopProductId: string,
   ) {
