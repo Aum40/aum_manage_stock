@@ -15,6 +15,8 @@ const envSchema = z.object({
     .default(15),
   // LINE Messaging API — คนละตัวกับ LINE_LOGIN_CHANNEL_SECRET ที่ใช้ทำ LINE Login
   LINE_CHANNEL_SECRET: z.string().min(1).optional(),
+  // [อั้ม] ใช้ตอบกลับผู้ใช้ทาง LINE — ไม่มีค่า = ทำงานได้แต่ไม่ตอบกลับ (log warn)
+  LINE_CHANNEL_ACCESS_TOKEN: z.string().min(1).optional(),
   ACCESS_TOKEN_SECRET: z.string().min(32),
   ACCESS_TOKEN_EXPIRES_IN: z.coerce.number().int().positive(),
   REFRESH_TOKEN_EXPIRES_IN: z.coerce.number().int().positive(),
