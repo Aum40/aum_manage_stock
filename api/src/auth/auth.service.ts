@@ -281,18 +281,31 @@ export class AuthService {
     return { recoveryCodes };
   }
 
+  /**
+   * SRS §112 — ปิด 2FA ต้องยืนยันด้วยรหัส 6 หลักหรือ recovery code
+   *
+   * password ไม่ใช่เงื่อนไขตาม SRS และบัญชีที่สมัครด้วย LINE/Google ล้วนๆ
+   * ก็ไม่มี password ให้กรอกตั้งแต่ต้น (SRS §89) ถ้าบังคับ คนกลุ่มนี้จะเปิด
+   * 2FA แล้วปิดเองไม่ได้เลย ต้องให้แอดมินแก้ใน DB ให้ ซึ่งแย่กว่าเดิม
+   *
+   * ความปลอดภัยไม่ได้ลดลง: ผู้เรียกต้องถือ access token อยู่แล้ว (ผ่าน
+   * LINE/Google login มา = ปัจจัยที่หนึ่ง) บวกกับ OTP หรือ recovery code
+   * (= ปัจจัยที่สอง) ครบสองชั้นตามนิยาม ส่วนบัญชีที่มี password ก็ยังต้อง
+   * กรอกให้ถูกเหมือนเดิม
+   */
   async disable2fa(userId: string, dto: TwoFactorDisableDto) {
     const user = await this.userService.findById(userId);
-    if (!user || !user.password) {
+    if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const isPasswordValid = await this.bcryptService.compare(
-      dto.password,
-      user.password,
-    );
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+    if (user.password) {
+      const isPasswordValid =
+        !!dto.password &&
+        (await this.bcryptService.compare(dto.password, user.password));
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
     }
 
     if (dto.otpCode) {
@@ -307,6 +320,10 @@ export class AuthService {
       if (!record) {
         throw new UnauthorizedException('Invalid recovery code');
       }
+    } else {
+      // DTO บังคับให้ส่งมาอย่างน้อยหนึ่งอย่างอยู่แล้ว แต่ถ้าใครแก้ DTO ทีหลัง
+      // เคสนี้จะปิด 2FA ได้โดยไม่ยืนยันอะไรเลย จึงกันไว้ที่นี่ด้วย
+      throw new UnauthorizedException('Provide either otpCode or recoveryCode');
     }
 
     await this.userService.disableTwoFactor(userId);
