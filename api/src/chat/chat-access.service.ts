@@ -6,7 +6,7 @@ import {
 import {
   AccountContextService,
   type AccountContext,
-} from '../common/access/account-context.service';
+} from '@/common/access/account-context.service';
 import { PrismaService } from '../database/prisma.service';
 
 @Injectable()

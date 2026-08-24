@@ -98,7 +98,6 @@ model PendingAction {
   shop            Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
   shopProduct     ShopProduct?        @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
   actor           User?               @relation("PendingActionActor", fields: [actorId], references: [id], onDelete: Restrict)
-  chatMessages    ChatMessage[] // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
 
   @@index([shopId, status, createdAt(sort: Desc)])
   @@index([expiresAt, status])
@@ -194,6 +193,8 @@ model User {
   pendingActions          PendingAction[]          @relation("PendingActionActor")
   salesCreated            Sale[]                   @relation("SaleStaff")
   salesVoided             Sale[]                   @relation("SaleVoidedBy")
+  // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
+  chatMessages            ChatMessage[]
 
   @@index([email], name: "idx_user_email")
   @@index([username], name: "idx_user_username")
@@ -438,6 +439,7 @@ model Shop {
   stockMovements StockMovement[]
   pendingActions PendingAction[]
   notifications  Notification[] // [เซิ่น] feature/notifications-resource
+  chatMessages   ChatMessage[] // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
   @@map("shops")
@@ -595,4 +597,42 @@ model Notification {
 
   @@index([userId, readAt], name: "idx_notification_unread")
   @@map("notifications")
+}
+
+// =====================================================================
+// [อั้ม] feature/chatbot-resource — ประวัติแชท
+// ตรงตามไฟล์ SQL อ้างอิง: chat_channel / chat_role / chat_messages
+// pending_action_id เก็บเป็น uuid เปล่า ไม่ผูก relation กับ model PendingAction
+// ของพี่ดิว เพื่อไม่ให้ต้องแก้ไฟล์ในโมดูลของเขา
+// =====================================================================
+
+enum ChatChannel {
+  WEB
+  LINE
+
+  @@map("chat_channel")
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+
+  @@map("chat_role")
+}
+
+model ChatMessage {
+  id              String      @id @default(uuid(7)) @db.Uuid
+  shopId          String      @map("shop_id") @db.Uuid
+  userId          String      @map("user_id") @db.Uuid
+  channel         ChatChannel
+  role            ChatRole
+  content         String
+  pendingActionId String?     @map("pending_action_id") @db.Uuid
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([shopId, userId, createdAt], name: "idx_chat_scope_date")
+  @@map("chat_messages")
 }
