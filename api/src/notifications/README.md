@@ -3,8 +3,7 @@
 การแจ้งเตือนในระบบ — ผู้รับคือ **ผู้ใช้รายคน** (`notifications.user_id`) ไม่ใช่ระดับร้าน
 พนักงานกับเจ้าของร้านจึงเห็นคนละกล่อง แม้จะอยู่ร้านเดียวกัน
 
-Branch: `feature/notifications-resource` (endpoint sheet แถว 87-89)
-ในชีทช่อง Name เขียนว่า "ทีม (Phase 2)" — ไม่ได้ระบุเจ้าของ **เซิ่นอาสารับไปทำ แจ้งทีมแล้ว**
+Branch: `feature/notifications-resource` (endpoint sheet แถว 88-90)
 
 > โค้ดในโมดูลนี้ไม่มี comment ในไฟล์โดยตั้งใจ — เหตุผลเบื้องหลังทุกอย่างอยู่ใน README นี้
 
@@ -89,7 +88,7 @@ index `idx_notification_unread` บน `(user_id, read_at)` ตาม DBML
 ## ที่ยังไม่ได้ทำ
 
 - **ยังไม่ push ผ่าน Socket.io** — frontend ต้อง poll `GET /notifications` เอง
-  realtime push อยู่ในขอบเขต `feature/ai-recommendations-resource` แถว 86 (`WS /ws/shops/:shopId`)
+  realtime push อยู่ในขอบเขต `feature/ai-recommendations-resource` แถว 87 (`WS /ws/shops/:shopId`)
   ซึ่งยังไม่มีเจ้าของ ถ้าใครทำแล้วให้ยิง event ตอน `create()` สำเร็จ
 - ไม่มี endpoint ลบการแจ้งเตือน — ชีทไม่ได้ระบุไว้
 - ยังไม่มีนโยบายลบของเก่า ถ้าปล่อยไว้นานตารางจะโตเรื่อยๆ
