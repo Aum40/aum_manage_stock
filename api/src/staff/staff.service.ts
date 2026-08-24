@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
+import { AccountContextService } from '../common/access/account-context.service';
 import { PrismaService } from '../database/prisma.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { AssignStaffDto, StaffPermissionsDto } from './dto/staff.dto';
@@ -24,6 +25,7 @@ export class StaffService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly accountContext: AccountContextService,
   ) {}
 
   listAll(ownerId: string) {
@@ -50,6 +52,7 @@ export class StaffService {
   }
 
   async assign(ownerId: string, staffId: string, dto: AssignStaffDto) {
+    await this.accountContext.assertNotReadOnly(ownerId);
     await this.findOwnedStaffOrThrow(ownerId, staffId);
     await this.findOwnedShopOrThrow(ownerId, dto.shopId);
 
@@ -76,6 +79,7 @@ export class StaffService {
   }
 
   async unassign(ownerId: string, staffId: string, shopId: string) {
+    await this.accountContext.assertNotReadOnly(ownerId);
     await this.findOwnedStaffOrThrow(ownerId, staffId);
     const shopStaff = await this.findActiveShopStaffOrThrow(shopId, staffId);
 
@@ -126,6 +130,7 @@ export class StaffService {
     staffId: string,
     dto: StaffPermissionsDto,
   ) {
+    await this.accountContext.assertNotReadOnly(ownerId);
     await this.findOwnedShopOrThrow(ownerId, shopId);
     const shopStaff = await this.findActiveShopStaffOrThrow(shopId, staffId);
 
