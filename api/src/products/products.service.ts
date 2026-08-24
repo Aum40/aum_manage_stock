@@ -11,6 +11,10 @@ import {
   PRODUCT_QUOTA_PROVIDER,
   type ProductQuotaProvider,
 } from '../common/quota/product-quota.port';
+import {
+  NOTIFICATION_TYPE,
+  NotificationsService,
+} from '../notifications/notifications.service';
 import type {
   CreateProductDto,
   ListProductQueryDto,
@@ -22,6 +26,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accountContext: AccountContextService,
+    private readonly notifications: NotificationsService,
     @Inject(PRODUCT_QUOTA_PROVIDER)
     private readonly quota: ProductQuotaProvider,
   ) {}
@@ -166,6 +171,15 @@ export class ProductsService {
     });
 
     if (activeCount >= max) {
+      await this.notifications.emit({
+        userId: ownerId,
+        type: NOTIFICATION_TYPE.PRODUCT_LIMIT_REACHED,
+        title: 'จำนวนสินค้าเต็มโควตาแพ็กเกจแล้ว',
+        message: `คลังสินค้ามีสินค้าที่ใช้งานอยู่ ${activeCount} จาก ${max} รายการ อัปเกรดแพ็กเกจเพื่อเพิ่มสินค้าได้อีก`,
+        payload: { limit: max, used: activeCount },
+        dedupeWhileUnread: true,
+      });
+
       throw new ForbiddenException({
         message: `จำนวนสินค้าถึงขีดจำกัดของแพ็กเกจแล้ว (${max} รายการ) กรุณาอัปเกรดแพ็กเกจเพื่อเพิ่มสินค้า`,
         code: 'PRODUCT_QUOTA_EXCEEDED',
