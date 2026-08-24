@@ -202,6 +202,19 @@ Every action a `SHOP_STAFF` user takes on stock/product/chatbot/barcode/dashboar
 
 Passing only one is a bug even if the other passes — e.g. an owner can grant `can_use_chatbot` on a Free plan, but the plan-level gate must still block it.
 
+> **Layer 2 is not implemented yet.** `subscription_plans` gained `chatbot_enabled`, `barcode_enabled` and `ai_recommendation_enabled`, but **no module reads them**, so a Free plan can currently use the chat command and barcode sale. Wiring the gate belongs to the module owners: chat command and barcode sale to `feature/stock-movements-resource` / `feature/sales-resource` (พี่ดิว), recommendations to `feature/ai-recommendations-resource`. Don't assume the check already happens somewhere upstream.
+
+## Auth and sessions — what the shared guards actually do
+
+Owned by `feature/auth-resource` (แพรว). Everyone's endpoints sit behind these, so changing them is a coordinated change, not a drive-by edit.
+
+- **Every non-public route needs `Authorization: Bearer <accessToken>`.** The old `x-user-id` header is gone. Get a token from `POST /auth/login`, or from `POST /auth/2fa/verify` when the account has 2FA on.
+- **`AuthGuard` does more than check the signature.** After verifying the JWT it looks the account up: soft-deleted gives `401`, suspended gives `403` with `code: "ACCOUNT_SUSPENDED"`. An access token is a signed blob, not a row, so it cannot be revoked — revoking refresh tokens only stops renewal, it does nothing to the token already in someone's hand. Without this lookup a deleted staff member keeps full write access until their token expires. It costs one indexed `select` per request; keep it.
+- **`ACCESS_TOKEN_EXPIRES_IN` is 900 seconds and should stay short.** It was 86400, which made the window above a whole day. The web app renews through `POST /auth/refresh`, which *is* checked against the database. `.env` is not committed, so raising it on one machine silently weakens only that machine.
+- **`@OwnerId()` resolves from the JWT**, not from a header: a `SHOP_OWNER` resolves to their own id, a `SHOP_STAFF` to `users.owner_id`, and an admin account is rejected with `403` because admins own no shop. Admin work goes through `/admin/*`.
+- **2FA is enforced on every login channel** (SRS §111) — password, LINE and Google alike. `POST /auth/login`, `GET /auth/line/callback` and `GET /auth/google/callback` all return `{ requires2fa: true, challengeToken }` instead of tokens when the account has 2FA on. Never call `issueTokensForUser()` from a new login path; go through `completeLogin()`.
+- **`POST /auth/2fa/disable` checks the password only when the account has one.** Accounts created through LINE or Google have `password = NULL` by design (SRS §89), so requiring it locked them out of ever turning 2FA off. `otpCode` or `recoveryCode` is always required — that plus the access token is already two factors.
+
 ## AI integration — reuse the patterns in `../ollama/`
 
 A sibling project at `../ollama/src` already has working reference patterns for this — don't reinvent them:
@@ -254,7 +267,7 @@ The DBML and the endpoint spreadsheet were reconciled against the SRS. These dec
 
 - **No add-on purchases.** `POST /payments/shop-addon` was removed, along with the `EXTRA_SHOP` payment purpose, `extra_shop_quota`, and `extra_shop_price_thb` in the DBML. Quota changes only by upgrading a plan (SRS §66/§110). Don't add an endpoint that sells extra shops, products, or staff slots.
 - **2FA is opt-in for every role** (SRS §39) — never forced on Shop Owners or anyone else.
-- **No downgrade flow.** `POST /subscriptions/upgrade` accepts `PLUS|PRO` only; the SRS defines no path back down to a smaller plan.
+- **No downgrade flow, and no free upgrade path.** `POST /subscriptions/upgrade` and `POST /subscriptions/renew` were **removed** — they changed the plan without taking payment, so anyone could reach PRO by calling the endpoint. Upgrading and renewing now start at `POST /payments/subscription { planCode }` and only take effect when the Stripe webhook confirms payment, via `SubscriptionsService.applyUpgrade()` / `applyRenewal()`, which have no HTTP route of their own. `planCode` accepts `PLUS|PRO` only; the SRS defines no path back down to a smaller plan, so buying a plan with a smaller quota is rejected.
 - **Admin can manage shops, not just users** — `GET /admin/shops`, `PATCH /admin/shops/:id/suspend|reactivate`, and `GET /admin/overview` were added to cover SRS §22/§76/§184/§185.
 - **A Dashboard module exists** (`feature/dashboard-resource`) covering SRS §176–§182, which the original endpoint list omitted entirely. Basic Dashboard is available on Free; the combined-shops view and Advanced Reports are Plus/Pro only.
 
