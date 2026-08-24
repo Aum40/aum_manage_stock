@@ -106,4 +106,38 @@ describe('Prisma sales adapters', () => {
       adapter.assertSalesEnabled(tx as never, 'shop'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it('allows barcode only when the active plan enables it', async () => {
+    const tx = {
+      shop: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce({
+            owner: {
+              subscription: {
+                status: 'ACTIVE',
+                expiresAt: null,
+                plan: { barcodeEnabled: true },
+              },
+            },
+          })
+          .mockResolvedValueOnce({
+            owner: {
+              subscription: {
+                status: 'ACTIVE',
+                expiresAt: null,
+                plan: { barcodeEnabled: false },
+              },
+            },
+          }),
+      },
+    };
+    const adapter = new PrismaSalesSubscriptionAdapter();
+    await expect(
+      adapter.assertBarcodeEnabled(tx as never, 'shop'),
+    ).resolves.toBeUndefined();
+    await expect(
+      adapter.assertBarcodeEnabled(tx as never, 'shop'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

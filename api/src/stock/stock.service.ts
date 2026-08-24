@@ -44,10 +44,15 @@ export class StockService {
     tx: Prisma.TransactionClient,
     input: ExecuteAdjustmentInput,
   ) {
-    await this.authorization.assertCanAdjustStock(tx, {
+    const authorizationInput = {
       shopId: input.shopId,
       actorId: input.actorId,
-    });
+    };
+    if (input.pendingAction) {
+      await this.authorization.assertCanUseChatbot(tx, authorizationInput);
+    } else {
+      await this.authorization.assertCanAdjustStock(tx, authorizationInput);
+    }
     const quantityDelta =
       input.operation === 'INCREASE' ? input.quantity : -input.quantity;
     const stock = await this.inventory.adjustStock(tx, {

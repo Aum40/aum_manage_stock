@@ -124,4 +124,11 @@ export class MockSalesSubscriptionAdapter implements SalesSubscriptionPort {
       throw new ForbiddenException('Mock sales subscription is not active');
     return Promise.resolve();
   }
+
+  assertBarcodeEnabled(
+    tx: Prisma.TransactionClient,
+    shopId: string,
+  ): Promise<void> {
+    return this.assertSalesEnabled(tx, shopId);
+  }
 }

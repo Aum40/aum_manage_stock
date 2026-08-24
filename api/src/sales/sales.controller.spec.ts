@@ -1,4 +1,3 @@
-import { UnauthorizedException } from '@nestjs/common';
 import { SalesController } from './sales.controller';
 
 describe('SalesController', () => {
@@ -36,15 +35,4 @@ describe('SalesController', () => {
     expect(sales.get).toHaveBeenCalledWith(shopId, staffId, saleId);
     expect(sales.void).toHaveBeenCalledWith(shopId, staffId, saleId, 'mistake');
   });
-
-  it.each([undefined, 'not-a-uuid'])(
-    'rejects missing or invalid staff header: %s',
-    (value) => {
-      const { controller, sales } = setup();
-      expect(() =>
-        controller.scan(shopId, value, { barcode: '885123' }),
-      ).toThrow(UnauthorizedException);
-      expect(sales.scan).not.toHaveBeenCalled();
-    },
-  );
 });

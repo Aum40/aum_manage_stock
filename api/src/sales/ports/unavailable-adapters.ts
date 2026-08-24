@@ -35,4 +35,10 @@ export class UnavailableSalesSubscriptionAdapter implements SalesSubscriptionPor
       'Subscription integration is not available yet',
     );
   }
+
+  assertBarcodeEnabled(): Promise<never> {
+    throw new ServiceUnavailableException(
+      'Subscription integration is not available yet',
+    );
+  }
 }
