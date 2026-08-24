@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ChatCommandModule } from './chat-command/chat-command.module';
+import { ChatModule } from './chat/chat.module';
 import { DatabaseModule } from './database/database.module';
 import { LineModule } from './line/line.module';
 import { StockModule } from './stock/stock.module';
@@ -47,6 +48,7 @@ import { OAuthModule } from './infrastructure/oauth/oauth.module';
     NotificationsModule,
     StockModule,
     ChatCommandModule,
+    ChatModule,
     LineModule,
     StaffModule,
     HashModule,
