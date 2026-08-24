@@ -6,10 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { AccountContextService } from '../common/access/account-context.service';
 import {
   PRODUCT_QUOTA_PROVIDER,
   type ProductQuotaProvider,
 } from '../common/quota/product-quota.port';
+import {
+  NOTIFICATION_TYPE,
+  NotificationsService,
+} from '../notifications/notifications.service';
 import type {
   CreateProductDto,
   ListProductQueryDto,
@@ -20,11 +25,17 @@ import type {
 export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly accountContext: AccountContextService,
+    private readonly notifications: NotificationsService,
     @Inject(PRODUCT_QUOTA_PROVIDER)
     private readonly quota: ProductQuotaProvider,
   ) {}
 
-  async create(ownerId: string, dto: CreateProductDto) {
+  async create(userId: string, dto: CreateProductDto) {
+    const ctx = await this.accountContext.resolve(userId);
+    await this.accountContext.assertCanManageCatalog(ctx);
+
+    const ownerId = ctx.ownerId;
     await this.assertQuotaAvailable(ownerId);
     await this.assertBarcodeIsFree(ownerId, dto.barcode ?? null);
     if (dto.categoryId)
@@ -42,7 +53,9 @@ export class ProductsService {
     });
   }
 
-  async findAll(ownerId: string, query: ListProductQueryDto) {
+  async findAll(userId: string, query: ListProductQueryDto) {
+    const { ownerId } = await this.accountContext.resolve(userId);
+
     const where = {
       ownerId,
       deletedAt: null,
@@ -78,20 +91,14 @@ export class ProductsService {
     };
   }
 
-  async findOne(ownerId: string, id: string) {
-    const product = await this.prisma.product.findFirst({
-      where: { id, ownerId, deletedAt: null },
-    });
-    if (!product)
-      throw new NotFoundException('ไม่พบสินค้านี้ในคลังสินค้าของคุณ');
-    return product;
+  async findOne(userId: string, id: string) {
+    const { ownerId } = await this.accountContext.resolve(userId);
+    return this.getOwnedProduct(ownerId, id);
   }
 
-  /**
-   * SRS/ทีม: บาร์โค้ด unique ระดับ owner จึงคืน "ชิ้นเดียว" เสมอ (ไม่ใช่ array)
-   * ดิวเอาไปใช้ตอนสแกนขายหน้าร้าน ต้อง resolve ได้ตัวเดียวชัดเจน
-   */
-  async findByBarcode(ownerId: string, barcodeValue: string) {
+  async findByBarcode(userId: string, barcodeValue: string) {
+    const { ownerId } = await this.accountContext.resolve(userId);
+
     const product = await this.prisma.product.findFirst({
       where: { ownerId, barcode: barcodeValue, deletedAt: null },
     });
@@ -99,8 +106,12 @@ export class ProductsService {
     return product;
   }
 
-  async update(ownerId: string, id: string, dto: UpdateProductDto) {
-    const current = await this.findOne(ownerId, id);
+  async update(userId: string, id: string, dto: UpdateProductDto) {
+    const ctx = await this.accountContext.resolve(userId);
+    await this.accountContext.assertCanManageCatalog(ctx);
+
+    const ownerId = ctx.ownerId;
+    const current = await this.getOwnedProduct(ownerId, id);
 
     if (dto.barcode !== undefined && dto.barcode !== current.barcode) {
       await this.assertBarcodeIsFree(ownerId, dto.barcode ?? null, id);
@@ -124,12 +135,11 @@ export class ProductsService {
     });
   }
 
-  /**
-   * SRS: ลบสินค้าเป็น soft delete เสมอ เพื่อรักษาประวัติการขาย/สต็อกย้อนหลัง
-   * และเมื่อถอดออกจากคลังกลางแล้ว ต้องหยุดขายในทุกร้านพร้อมกัน
-   */
-  async remove(ownerId: string, id: string) {
-    await this.findOne(ownerId, id);
+  async remove(userId: string, id: string) {
+    const ctx = await this.accountContext.resolve(userId);
+    await this.accountContext.assertCanManageCatalog(ctx);
+    await this.getOwnedProduct(ctx.ownerId, id);
+
     const deletedAt = new Date();
 
     await this.prisma.$transaction([
@@ -143,7 +153,15 @@ export class ProductsService {
     return { id, deletedAt };
   }
 
-  /** SRS: Free Plan ครบ 100 รายการแล้วต้องห้ามเพิ่ม + แนะนำให้อัปเกรด */
+  private async getOwnedProduct(ownerId: string, id: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { id, ownerId, deletedAt: null },
+    });
+    if (!product)
+      throw new NotFoundException('ไม่พบสินค้านี้ในคลังสินค้าของคุณ');
+    return product;
+  }
+
   private async assertQuotaAvailable(ownerId: string): Promise<void> {
     const max = await this.quota.getMaxActiveProducts(ownerId);
     if (max === null) return;
@@ -153,6 +171,15 @@ export class ProductsService {
     });
 
     if (activeCount >= max) {
+      await this.notifications.emit({
+        userId: ownerId,
+        type: NOTIFICATION_TYPE.PRODUCT_LIMIT_REACHED,
+        title: 'จำนวนสินค้าเต็มโควตาแพ็กเกจแล้ว',
+        message: `คลังสินค้ามีสินค้าที่ใช้งานอยู่ ${activeCount} จาก ${max} รายการ อัปเกรดแพ็กเกจเพื่อเพิ่มสินค้าได้อีก`,
+        payload: { limit: max, used: activeCount },
+        dedupeWhileUnread: true,
+      });
+
       throw new ForbiddenException({
         message: `จำนวนสินค้าถึงขีดจำกัดของแพ็กเกจแล้ว (${max} รายการ) กรุณาอัปเกรดแพ็กเกจเพื่อเพิ่มสินค้า`,
         code: 'PRODUCT_QUOTA_EXCEEDED',
@@ -162,11 +189,6 @@ export class ProductsService {
     }
   }
 
-  /**
-   * เช็คซ้ำระดับแอปเพื่อให้ error อ่านรู้เรื่อง
-   * ตัวกันจริงคือ partial unique index uq_products_owner_barcode
-   * (ดู prisma/sql/001_products_partial_indexes.sql)
-   */
   private async assertBarcodeIsFree(
     ownerId: string,
     barcodeValue: string | null,

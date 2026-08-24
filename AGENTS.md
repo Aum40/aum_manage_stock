@@ -46,6 +46,7 @@ Toolchain: **Node 24.x**, **pnpm 11.8.0** — pinned in `.nvmrc`, in the `engine
 | `stripe` | `^22.5.0` | payments |
 | `@nestjs/websockets` / `@nestjs/platform-socket.io` | `^11.2.1` | realtime gateway |
 | `socket.io` | `^4.8.3` | realtime transport |
+| `@nestjs/schedule` | `^6.1.3` | cron jobs (subscription expiry) |
 | `@anthropic-ai/sdk` | `^0.117.1` | Claude API (production LLM) |
 | `ollama` | `^0.6.3` | local LLM (dev/offline) |
 | `otplib` | `^13.4.1` | TOTP 2FA |
@@ -95,30 +96,33 @@ These sit on everyone's critical path, so a careless edit becomes a merge confli
 
 | File | Rule |
 |---|---|
-| `api/prisma/schema.prisma` + `api/prisma/migrations/` | **Own PR, straight to `dev`, merged before anyone builds on it.** Never bundle a schema change inside a feature PR. Announce it to the team — everyone must pull `dev` and re-run `pnpm install` (which regenerates the Prisma client) right after it lands. |
+| `api/prisma/schema.prisma` | **Own PR, straight to `dev`, merged before anyone builds on it.** Never bundle a schema change inside a feature PR. Announce it — everyone must then pull `dev`, run `pnpm install` (regenerates the Prisma client), and `pnpm prisma db push`. |
 | `api/prisma/design/schema.dbml` | Update in the **same PR** as `schema.prisma`. The two must never disagree. |
 | `api/src/app.module.ts` | Add only your own module's import line. Don't reorder or reformat the file — that turns a one-line addition into a whole-file conflict. |
 | Shared guards / decorators / interceptors / `PrismaService` | Owned by `feature/auth-resource` (แพรว). Need a change? Ask, don't fork a local copy. |
 | `package.json` + `pnpm-lock.yaml` (both apps) | Dependency changes go in their **own small PR to `dev`**, early. Never bury them in a large feature PR. |
 | `web/src/app/globals.css`, `web/components.json` | Theme is already set (see Design system). Only change with team agreement. |
 
-**Migration discipline** — this already went wrong once, so read it:
+**This project runs every command through pnpm.** Use `pnpm prisma …`, `pnpm exec …`, `pnpm <script>` — never `npx` or `npm run`. `npx` can resolve a different Prisma version than the one in `pnpm-lock.yaml`, which is how a client and a schema quietly drift apart.
 
-- **Never use `prisma db push` on this project.** It changes your local database without leaving a migration behind, so the schema drifts away from `prisma/migrations/` and a real deployment creates the wrong tables. Use `prisma migrate dev --name <what-changed>` and **commit the generated folder**.
-- Always `git pull origin dev` immediately before running `prisma migrate dev`. Two people generating migrations from different bases produces two migrations with the same parent, which Prisma cannot reconcile.
-- If someone else's migration landed first, pull, delete your unmerged migration folder, and regenerate it on top — never edit a timestamp to reorder.
-- Never edit a migration that is already merged into `dev`. Fix it forward with a new one.
-- CI checks that `prisma/migrations/` still fully describes `schema.prisma`. If that check fails, you changed the schema without generating a migration.
+**Schema workflow — the team uses `db push`, not `migrate dev`:**
+
+- Sync your own database with **`pnpm prisma db push`**. Do not run `pnpm prisma migrate dev`, and do not add folders to `prisma/migrations/` during feature work.
+- **Every time you pull `dev` and `schema.prisma` changed, run `pnpm prisma db push` again.** Nothing reminds you — a database that silently lags behind the schema is the failure mode of this workflow.
+- Changing `schema.prisma` is still a **coordinated change**: own PR, announce it, everyone pulls and re-pushes.
+- `prisma/sql/*.sql` holds constraints Prisma cannot express (e.g. the partial unique index on `products(owner_id, barcode)`). `db push` does **not** apply them — run them by hand after pushing.
+
+> **Known debt — must be resolved before deploying.** `db push` leaves no migration behind, so `prisma/migrations/` will fall behind `schema.prisma` as the schema grows. It currently covers 10 tables and is correct as of that point. Before any real deployment someone must regenerate migrations from the final schema and verify them on an empty database — `prisma migrate deploy` builds only what is in that folder, so an out-of-date folder means missing tables in production. Track this as a real task; it is not optional.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every PR into `dev`/`main`: install with `--frozen-lockfile`, migration-vs-schema drift check, lint, test, and build — for `api/` and `web/` separately.
+`.github/workflows/ci.yml` runs on every PR into `dev`/`main`: install with `--frozen-lockfile`, lint, test, and build — for `api/` and `web/` separately. It never touches a database.
 
 - `--frozen-lockfile` fails when `package.json` and `pnpm-lock.yaml` disagree, i.e. someone added a dependency without committing the lockfile. Commit both.
 - **Make CI a required status check** in Settings → Branches, otherwise a red build can still be merged.
 - If CI is red, fix the branch — never merge around it.
 
-**After pulling `dev`, always run `pnpm install` in `api/`** — its `postinstall` runs `prisma generate`, and a stale client is the most common "it builds on my machine" failure here.
+**After pulling `dev`, always run `pnpm install` in `api/`** — its `postinstall` runs `prisma generate`, and a stale client is the most common "it builds on my machine" failure here. If `pnpm install` reports "Already up to date" it skips `postinstall` too, so when the schema changed but your build still complains about missing models, run `pnpm prisma generate` directly.
 
 ## Module ownership & branches
 
@@ -199,6 +203,19 @@ Every action a `SHOP_STAFF` user takes on stock/product/chatbot/barcode/dashboar
 
 Passing only one is a bug even if the other passes — e.g. an owner can grant `can_use_chatbot` on a Free plan, but the plan-level gate must still block it.
 
+> **Layer 2 is not implemented yet.** `subscription_plans` gained `chatbot_enabled`, `barcode_enabled` and `ai_recommendation_enabled`, but **no module reads them**, so a Free plan can currently use the chat command and barcode sale. Wiring the gate belongs to the module owners: chat command and barcode sale to `feature/stock-movements-resource` / `feature/sales-resource` (พี่ดิว), recommendations to `feature/ai-recommendations-resource`. Don't assume the check already happens somewhere upstream.
+
+## Auth and sessions — what the shared guards actually do
+
+Owned by `feature/auth-resource` (แพรว). Everyone's endpoints sit behind these, so changing them is a coordinated change, not a drive-by edit.
+
+- **Every non-public route needs `Authorization: Bearer <accessToken>`.** The old `x-user-id` header is gone. Get a token from `POST /auth/login`, or from `POST /auth/2fa/verify` when the account has 2FA on.
+- **`AuthGuard` does more than check the signature.** After verifying the JWT it looks the account up: soft-deleted gives `401`, suspended gives `403` with `code: "ACCOUNT_SUSPENDED"`. An access token is a signed blob, not a row, so it cannot be revoked — revoking refresh tokens only stops renewal, it does nothing to the token already in someone's hand. Without this lookup a deleted staff member keeps full write access until their token expires. It costs one indexed `select` per request; keep it.
+- **`ACCESS_TOKEN_EXPIRES_IN` is 900 seconds and should stay short.** It was 86400, which made the window above a whole day. The web app renews through `POST /auth/refresh`, which *is* checked against the database. `.env` is not committed, so raising it on one machine silently weakens only that machine.
+- **`@OwnerId()` resolves from the JWT**, not from a header: a `SHOP_OWNER` resolves to their own id, a `SHOP_STAFF` to `users.owner_id`, and an admin account is rejected with `403` because admins own no shop. Admin work goes through `/admin/*`.
+- **2FA is enforced on every login channel** (SRS §111) — password, LINE and Google alike. `POST /auth/login`, `GET /auth/line/callback` and `GET /auth/google/callback` all return `{ requires2fa: true, challengeToken }` instead of tokens when the account has 2FA on. Never call `issueTokensForUser()` from a new login path; go through `completeLogin()`.
+- **`POST /auth/2fa/disable` checks the password only when the account has one.** Accounts created through LINE or Google have `password = NULL` by design (SRS §89), so requiring it locked them out of ever turning 2FA off. `otpCode` or `recoveryCode` is always required — that plus the access token is already two factors.
+
 ## AI integration — reuse the patterns in `../ollama/`
 
 A sibling project at `../ollama/src` already has working reference patterns for this — don't reinvent them:
@@ -251,7 +268,7 @@ The DBML and the endpoint spreadsheet were reconciled against the SRS. These dec
 
 - **No add-on purchases.** `POST /payments/shop-addon` was removed, along with the `EXTRA_SHOP` payment purpose, `extra_shop_quota`, and `extra_shop_price_thb` in the DBML. Quota changes only by upgrading a plan (SRS §66/§110). Don't add an endpoint that sells extra shops, products, or staff slots.
 - **2FA is opt-in for every role** (SRS §39) — never forced on Shop Owners or anyone else.
-- **No downgrade flow.** `POST /subscriptions/upgrade` accepts `PLUS|PRO` only; the SRS defines no path back down to a smaller plan.
+- **No downgrade flow, and no free upgrade path.** `POST /subscriptions/upgrade` and `POST /subscriptions/renew` were **removed** — they changed the plan without taking payment, so anyone could reach PRO by calling the endpoint. Upgrading and renewing now start at `POST /payments/subscription { planCode }` and only take effect when the Stripe webhook confirms payment, via `SubscriptionsService.applyUpgrade()` / `applyRenewal()`, which have no HTTP route of their own. `planCode` accepts `PLUS|PRO` only; the SRS defines no path back down to a smaller plan, so buying a plan with a smaller quota is rejected.
 - **Admin can manage shops, not just users** — `GET /admin/shops`, `PATCH /admin/shops/:id/suspend|reactivate`, and `GET /admin/overview` were added to cover SRS §22/§76/§184/§185.
 - **A Dashboard module exists** (`feature/dashboard-resource`) covering SRS §176–§182, which the original endpoint list omitted entirely. Basic Dashboard is available on Free; the combined-shops view and Advanced Reports are Plus/Pro only.
 

@@ -1,27 +1,28 @@
 import { Global, Module } from '@nestjs/common';
+import { AccountContextService } from './access/account-context.service';
 import {
   PRODUCT_QUOTA_PROVIDER,
-  StaticProductQuotaAdapter,
+  SubscriptionProductQuotaAdapter,
 } from './quota/product-quota.port';
 import {
-  AllowAllShopAccessAdapter,
+  PrismaShopAccessAdapter,
   SHOP_ACCESS_PROVIDER,
 } from './shop-access/shop-access.port';
 
-/**
- * จุดเดียวที่ต้องแก้เมื่อ branch ของคนอื่นเข้า dev
- *
- *   subscriptions (พี่ปาน) -> เปลี่ยน useClass ของ PRODUCT_QUOTA_PROVIDER
- *   shops (พี่ปาน)         -> เปลี่ยน useClass ของ SHOP_ACCESS_PROVIDER
- *
- * service และ controller ไม่ต้องแก้แม้แต่บรรทัดเดียว
- */
 @Global()
 @Module({
   providers: [
-    { provide: PRODUCT_QUOTA_PROVIDER, useClass: StaticProductQuotaAdapter },
-    { provide: SHOP_ACCESS_PROVIDER, useClass: AllowAllShopAccessAdapter },
+    AccountContextService,
+    {
+      provide: PRODUCT_QUOTA_PROVIDER,
+      useClass: SubscriptionProductQuotaAdapter,
+    },
+    { provide: SHOP_ACCESS_PROVIDER, useClass: PrismaShopAccessAdapter },
   ],
-  exports: [PRODUCT_QUOTA_PROVIDER, SHOP_ACCESS_PROVIDER],
+  exports: [
+    AccountContextService,
+    PRODUCT_QUOTA_PROVIDER,
+    SHOP_ACCESS_PROVIDER,
+  ],
 })
 export class CommonModule {}

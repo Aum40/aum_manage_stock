@@ -2,15 +2,22 @@
 /**
  * Smoke test — ยิงครบ 12 endpoint ของ products + shop-products ตามลำดับจริง
  *
- *   pnpm start:dev            # เทอร์มินัลที่ 1
- *   node scripts/smoke-test.mjs   # เทอร์มินัลที่ 2
+ *   psql "$DATABASE_URL" -f scripts/seed-smoke.sql   # ครั้งแรกครั้งเดียว
+ *   pnpm start:dev                                   # เทอร์มินัลที่ 1
+ *   node scripts/smoke-test.mjs                      # เทอร์มินัลที่ 2
  *
- * ปรับได้ด้วย env: BASE_URL, OWNER_ID, SHOP_ID
+ * ⚠️ ตั้งแต่มีการเช็คสิทธิ์จริง ทุก endpoint resolve ผู้ใช้จาก DB ไม่ได้เชื่อ header
+ * ตรงๆ อีกแล้ว จึงต้องมีแถว users + shops จริงก่อน ไม่งั้นได้ 404 ทั้งหมด
+ * seed-smoke.sql สร้าง owner + ร้านของ owner + ร้านของคนอื่น (ไว้เทสต์ว่ากันได้จริง)
+ *
+ * ปรับได้ด้วย env: BASE_URL, OWNER_ID, SHOP_ID, FOREIGN_SHOP_ID
  */
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000';
 const OWNER_ID = process.env.OWNER_ID ?? '0199a0e0-0000-7000-8000-000000000001';
 const SHOP_ID = process.env.SHOP_ID ?? '0199a0e0-0000-7000-8000-0000000000aa';
+const FOREIGN_SHOP_ID =
+  process.env.FOREIGN_SHOP_ID ?? '0199a0e0-0000-7000-8000-0000000000cc';
 const BARCODE = `SMOKE${Date.now()}`;
 
 let pass = 0;
@@ -124,7 +131,8 @@ await step('GET    /products/:id', 200, () =>
 await step(
   'PATCH  /products/:id',
   200,
-  () => call('PATCH', `/products/${productId}`, { name: 'โค้ก 325ml (แก้แล้ว)' }),
+  () =>
+    call('PATCH', `/products/${productId}`, { name: 'โค้ก 325ml (แก้แล้ว)' }),
   (b) => (b?.name === 'โค้ก 325ml (แก้แล้ว)' ? true : 'ชื่อไม่ถูกอัปเดต'),
 );
 
@@ -230,15 +238,36 @@ await step(
       : true,
 );
 
-await step(
-  'POST   /products (บาร์โค้ดเดิม หลังลบแล้ว ต้องเพิ่มได้)',
-  201,
-  () =>
-    call('POST', '/products', {
-      name: 'โค้กตัวใหม่ บาร์โค้ดเดิม',
-      unit: 'กระป๋อง',
-      barcode: BARCODE,
-    }),
+await step('POST   /products (บาร์โค้ดเดิม หลังลบแล้ว ต้องเพิ่มได้)', 201, () =>
+  call('POST', '/products', {
+    name: 'โค้กตัวใหม่ บาร์โค้ดเดิม',
+    unit: 'กระป๋อง',
+    barcode: BARCODE,
+  }),
+);
+
+console.log('\n── เช็คสิทธิ์: ร้านของคนอื่นต้องเข้าไม่ได้ ──');
+
+await step('GET    /shops/<ร้านคนอื่น>/products (ต้อง 404)', 404, () =>
+  call('GET', `/shops/${FOREIGN_SHOP_ID}/products`),
+);
+
+await step('POST   /shops/<ร้านคนอื่น>/products (ต้อง 404)', 404, () =>
+  call('POST', `/shops/${FOREIGN_SHOP_ID}/products`, {
+    productId: OWNER_ID,
+    sellPrice: 10,
+    costPrice: 5,
+    lowStockThreshold: 0,
+  }),
+);
+
+await step('GET    /products (x-user-id ที่ไม่มีใน DB ต้อง 404)', 404, () =>
+  fetch(`${BASE}/products`, {
+    headers: {
+      'content-type': 'application/json',
+      'x-user-id': '0199a0e0-0000-7000-8000-0000000000de',
+    },
+  }).then((res) => ({ status: res.status, body: null })),
 );
 
 console.log(`\n${'─'.repeat(50)}`);

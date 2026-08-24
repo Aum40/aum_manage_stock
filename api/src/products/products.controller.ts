@@ -12,7 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ZodValidationPipe } from 'nestjs-zod';
-import { OwnerId } from '../common/decorators/owner-id.decorator';
+import { CurrentUser } from '../common/decorator/current-user.decorator';
 import {
   CreateProductSchema,
   ListProductQuerySchema,
@@ -29,56 +29,55 @@ import { ProductsService } from './products.service';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  /** เพิ่มสินค้าเข้าคลังกลาง — เช็คโควตาสินค้า active ตามแพ็กเกจก่อนเสมอ */
   @Post()
   create(
-    @OwnerId() ownerId: string,
+    @CurrentUser('sub') userId: string,
     @Body(new ZodValidationPipe(CreateProductSchema)) dto: CreateProductDto,
   ) {
-    return this.productsService.create(ownerId, dto);
+    return this.productsService.create(userId, dto);
   }
 
-  /** คลังสินค้าทั้งหมดของเจ้าของร้าน (ไม่รวมที่ soft delete แล้ว) */
   @Get()
   findAll(
-    @OwnerId() ownerId: string,
+    @CurrentUser('sub') userId: string,
     @Query(new ZodValidationPipe(ListProductQuerySchema))
     query: ListProductQueryDto,
   ) {
-    return this.productsService.findAll(ownerId, query);
+    return this.productsService.findAll(userId, query);
   }
 
-  /**
-   * ค้นด้วยบาร์โค้ด — คืนสินค้าชิ้นเดียว เพราะบาร์โค้ด unique ระดับ owner
-   * ต้องประกาศก่อน :id ไม่งั้น 'search' จะถูกจับเป็น id
-   */
   @Get('search')
   findByBarcode(
-    @OwnerId() ownerId: string,
+    @CurrentUser('sub') userId: string,
     @Query(new ZodValidationPipe(SearchByBarcodeSchema))
     query: SearchByBarcodeDto,
   ) {
-    return this.productsService.findByBarcode(ownerId, query.barcode);
+    return this.productsService.findByBarcode(userId, query.barcode);
   }
 
   @Get(':id')
-  findOne(@OwnerId() ownerId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.productsService.findOne(ownerId, id);
+  findOne(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productsService.findOne(userId, id);
   }
 
   @Patch(':id')
   update(
-    @OwnerId() ownerId: string,
+    @CurrentUser('sub') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(UpdateProductSchema)) dto: UpdateProductDto,
   ) {
-    return this.productsService.update(ownerId, id, dto);
+    return this.productsService.update(userId, id, dto);
   }
 
-  /** soft delete จากคลังกลาง + หยุดขายสินค้านี้ในทุกร้าน */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  remove(@OwnerId() ownerId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.productsService.remove(ownerId, id);
+  remove(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.productsService.remove(userId, id);
   }
 }

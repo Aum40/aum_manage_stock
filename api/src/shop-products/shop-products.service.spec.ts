@@ -1,8 +1,13 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ShopProductsService } from './shop-products.service';
 import type { PrismaService } from '../database/prisma.service';
 
 const OWNER = '0199a0e0-0000-7000-8000-000000000001';
+const STAFF = '0199a0e0-0000-7000-8000-0000000000ff';
 const SHOP_ID = '0199a0e0-0000-7000-8000-0000000000aa';
 const PRODUCT_ID = '0199a0e0-0000-7000-8000-0000000000bb';
 
@@ -22,19 +27,23 @@ function createPrismaMock() {
   };
 }
 
-/** ครอบ expect.objectContaining ให้คืน unknown แทน any (กัน no-unsafe-assignment) */
 const containing = (shape: Record<string, unknown>): unknown =>
   expect.objectContaining(shape);
 
 describe('ShopProductsService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
-  let shopAccess: { assertCanManageShopProducts: jest.Mock };
+  let shopAccess: {
+    assertCanViewShopProducts: jest.Mock;
+    assertCanManageShopProducts: jest.Mock;
+  };
   let service: ShopProductsService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
+    const ctx = { userId: OWNER, ownerId: OWNER, isStaff: false };
     shopAccess = {
-      assertCanManageShopProducts: jest.fn().mockResolvedValue(undefined),
+      assertCanViewShopProducts: jest.fn().mockResolvedValue(ctx),
+      assertCanManageShopProducts: jest.fn().mockResolvedValue(ctx),
     };
     service = new ShopProductsService(
       prisma as unknown as PrismaService,
@@ -52,7 +61,6 @@ describe('ShopProductsService', () => {
         productId: PRODUCT_ID,
         sellPrice: 20,
         costPrice: 14.5,
-
         lowStockThreshold: 3,
       });
 
@@ -67,6 +75,54 @@ describe('ShopProductsService', () => {
       );
     });
 
+    it('ยิงใส่ร้านที่ไม่ใช่ของตัวเอง -> 404 และไม่แตะ DB', async () => {
+      shopAccess.assertCanManageShopProducts.mockRejectedValue(
+        new NotFoundException('ไม่พบร้านค้านี้'),
+      );
+
+      await expect(
+        service.add(OWNER, SHOP_ID, {
+          productId: PRODUCT_ID,
+          sellPrice: 20,
+          costPrice: 14,
+          lowStockThreshold: 0,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.product.findFirst).not.toHaveBeenCalled();
+      expect(prisma.shopProduct.create).not.toHaveBeenCalled();
+    });
+
+    it('พนักงานที่ไม่มีสิทธิ์ canManageProduct -> 403', async () => {
+      shopAccess.assertCanManageShopProducts.mockRejectedValue(
+        new ForbiddenException({ code: 'PRODUCT_PERMISSION_DENIED' }),
+      );
+
+      await expect(
+        service.add(STAFF, SHOP_ID, {
+          productId: PRODUCT_ID,
+          sellPrice: 20,
+          costPrice: 14,
+          lowStockThreshold: 0,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.shopProduct.create).not.toHaveBeenCalled();
+    });
+
+    it('แพ็กเกจหมดอายุ (read-only) -> 403', async () => {
+      shopAccess.assertCanManageShopProducts.mockRejectedValue(
+        new ForbiddenException({ code: 'SUBSCRIPTION_READ_ONLY' }),
+      );
+
+      await expect(
+        service.add(OWNER, SHOP_ID, {
+          productId: PRODUCT_ID,
+          sellPrice: 20,
+          costPrice: 14,
+          lowStockThreshold: 0,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
     it('เพิ่มซ้ำในร้านเดิมที่ยังขายอยู่ -> 409', async () => {
       prisma.product.findFirst.mockResolvedValue({ id: PRODUCT_ID });
       prisma.shopProduct.findUnique.mockResolvedValue({
@@ -79,7 +135,6 @@ describe('ShopProductsService', () => {
           productId: PRODUCT_ID,
           sellPrice: 20,
           costPrice: 14,
-
           lowStockThreshold: 0,
         }),
       ).rejects.toBeInstanceOf(ConflictException);
@@ -100,7 +155,6 @@ describe('ShopProductsService', () => {
         productId: PRODUCT_ID,
         sellPrice: 25,
         costPrice: 15,
-
         lowStockThreshold: 2,
       });
 
@@ -121,10 +175,45 @@ describe('ShopProductsService', () => {
           productId: PRODUCT_ID,
           sellPrice: 10,
           costPrice: 5,
-
           lowStockThreshold: 0,
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('ใช้ ownerId ที่ resolve จาก access provider ไม่ใช่ userId ที่ยิงมา', async () => {
+      shopAccess.assertCanManageShopProducts.mockResolvedValue({
+        userId: STAFF,
+        ownerId: OWNER,
+        isStaff: true,
+      });
+      prisma.product.findFirst.mockResolvedValue({ id: PRODUCT_ID });
+      prisma.shopProduct.findUnique.mockResolvedValue(null);
+      prisma.shopProduct.create.mockResolvedValue({ id: 'sp1' });
+
+      await service.add(STAFF, SHOP_ID, {
+        productId: PRODUCT_ID,
+        sellPrice: 20,
+        costPrice: 14,
+        lowStockThreshold: 0,
+      });
+
+      expect(prisma.product.findFirst).toHaveBeenCalledWith(
+        containing({ where: containing({ ownerId: OWNER }) }),
+      );
+    });
+  });
+
+  describe('findAll', () => {
+    it('การอ่านใช้สิทธิ์ระดับ view — read-only ยังดูได้', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+
+      await service.findAll(OWNER, SHOP_ID, { page: 1, limit: 20 });
+
+      expect(shopAccess.assertCanViewShopProducts).toHaveBeenCalledWith(
+        OWNER,
+        SHOP_ID,
+      );
+      expect(shopAccess.assertCanManageShopProducts).not.toHaveBeenCalled();
     });
   });
 
