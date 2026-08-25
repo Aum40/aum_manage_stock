@@ -22,6 +22,8 @@ import { STOCK_COMMAND_PARSER } from './parsers/stock-command-parser';
       useClass: FallbackStockCommandParser,
     },
   ],
-  exports: [ChatCommandService],
+  // [อั้ม] LINE ต้อง parse ซ้ำเองตอนชื่อสินค้ากำกวม เพื่อรู้จำนวน/ทิศทาง
+  // ที่ผู้ใช้สั่ง แล้วเก็บเป็นรายการรอเลือก — export เพิ่มบรรทัดเดียว ไม่แตะของเดิม
+  exports: [ChatCommandService, STOCK_COMMAND_PARSER],
 })
 export class ChatCommandModule {}
