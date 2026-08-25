@@ -18,6 +18,7 @@ import { ProductsModule } from './products/products.module';
 import { ShopProductsModule } from './shop-products/shop-products.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { StaffModule } from './staff/staff.module';
+import { AiRecommendationsModule } from './ai-recommendations/ai-recommendations.module';
 import { validate } from './config/env.validation';
 import { HashModule } from './infrastructure/hash/hash.module';
 import { JwtModule } from './infrastructure/jwt/jwt.module';
@@ -53,6 +54,7 @@ import { OAuthModule } from './infrastructure/oauth/oauth.module';
     ChatModule,
     LineModule,
     StaffModule,
+    AiRecommendationsModule,
     HashModule,
     JwtModule,
     MailModule,
