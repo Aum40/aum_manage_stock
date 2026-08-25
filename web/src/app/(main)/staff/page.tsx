@@ -1,223 +1,31 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useState } from "react";
+import StaffManager from "@/components/features/staff/StaffManager";
+import { apiGet, ApiAuthError } from "@/lib/api-server";
+import type {
+  ShopSummary,
+  StaffAccount,
+  StaffQuota,
+} from "@/lib/types/staff";
 
-import TopBar from "@/components/layout/TopBar";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { roleAvatar } from "@/components/layout/nav-config";
-import { useLocale } from "@/components/i18n/LocaleContext";
+export default async function StaffPage() {
+  let staff: StaffAccount[];
+  let quota: StaffQuota;
+  let shops: ShopSummary[];
 
-const content = {
-  th: {
-    title: "พนักงานและสิทธิ์",
-    staffListHeading: "พนักงานในร้าน",
-    createStaffBtn: "สร้างบัญชีพนักงาน →",
-    permHeading: (name: string) => `สิทธิ์ของ ${name}`,
-    resetPwBtn: "รีเซ็ตรหัสผ่าน",
-    unlinkLineBtn: "ถอดการผูก LINE",
-    deleteBtn: "ลบบัญชี",
-    newStaffHeading: "สร้างบัญชีพนักงานใหม่",
-    newStaffSub:
-      "บัญชีนี้เจ้าของร้านสร้างให้เท่านั้นมี username และรหัสผ่านคู่เสมอ และเริ่มต้นยังไม่มีสิทธิ์ใดเปิดให้เลย",
-    fieldFirstName: "ชื่อ",
-    fieldLastName: "นามสกุล",
-    fieldUsername: "Username",
-    fieldPassword: "รหัสผ่าน",
-    fieldConfirmPassword: "ยืนยันรหัสผ่าน",
-    createAccountBtn: "สร้างบัญชี →",
-    staffList: [
-      { initial: "ค", name: "คำหวาน เก่งดี", username: "numwan_ladprao", lineStatus: "success" as const, lineLabel: "ผูก LINE", avatarBg: "#5C9A54" },
-      { initial: "ต", name: "ต้น มั่นคง", username: "ton_stock01", lineStatus: "neutral" as const, lineLabel: "ยังไม่ผูก LINE", avatarBg: "#888" },
-    ],
-    permissions: [
-      { name: "จัดการสินค้า", desc: "เพิ่ม แก้ไข และถอดสินค้า (soft delete)", on: true },
-      { name: "ปรับสต็อกแบบ manual", desc: "ค้นหาสินค้าแล้วบันทึกจำนวนทีละรายการ", on: true },
-      { name: "เข้าถึงแชทบอทสต็อก", desc: "สั่งงานผ่านเว็บ และผ่าน LINE ถ้าผูกบัญชีแล้ว", on: true },
-      { name: "ขายสินค้าหน้าร้าน", desc: "สแกนบาร์โค้ดขายและบันทึกสต็อกอัตโนมัติ", on: false },
-      { name: "ดูแดชบอร์ด", desc: "ให้เห็นภาพรวมร้านที่ถูกสังกัด", on: false },
-      { name: "ดูคำแนะนำ AI", desc: "คำแนะนำเติม/ระบายสต็อกและเทรนด์ขาย", on: false },
-    ],
-  },
-  en: {
-    title: "Staff & Permissions",
-    staffListHeading: "Shop Staff",
-    createStaffBtn: "Create Staff Account →",
-    permHeading: (name: string) => `${name}'s Permissions`,
-    resetPwBtn: "Reset Password",
-    unlinkLineBtn: "Unlink LINE",
-    deleteBtn: "Delete Account",
-    newStaffHeading: "Create New Staff Account",
-    newStaffSub:
-      "Only the shop owner can create this account, which always comes with a username/password pair, and starts with every permission off.",
-    fieldFirstName: "First Name",
-    fieldLastName: "Last Name",
-    fieldUsername: "Username",
-    fieldPassword: "Password",
-    fieldConfirmPassword: "Confirm Password",
-    createAccountBtn: "Create Account →",
-    staffList: [
-      { initial: "N", name: "Numwan Kengdee", username: "numwan_ladprao", lineStatus: "success" as const, lineLabel: "LINE Linked", avatarBg: "#5C9A54" },
-      { initial: "T", name: "Ton Mankong", username: "ton_stock01", lineStatus: "neutral" as const, lineLabel: "LINE Not Linked", avatarBg: "#888" },
-    ],
-    permissions: [
-      { name: "Manage Products", desc: "Add, edit, and remove products (soft delete)", on: true },
-      { name: "Manual Stock Adjustment", desc: "Search for a product and record quantity one at a time", on: true },
-      { name: "Stock Chatbot Access", desc: "Issue commands via web, and via LINE if linked", on: true },
-      { name: "Sell at POS", desc: "Scan barcodes to sell and auto-update stock", on: false },
-      { name: "View Dashboard", desc: "See an overview of the assigned shop", on: false },
-      { name: "View AI Recommendations", desc: "Restock/clearance suggestions and sales trends", on: false },
-    ],
-  },
-};
+  try {
+    // ยิงพร้อมกันเพราะไม่ขึ้นต่อกัน — รอทีละตัวจะช้าขึ้นเป็น 3 เท่าโดยไม่จำเป็น
+    [staff, quota, shops] = await Promise.all([
+      apiGet<StaffAccount[]>("/staff"),
+      apiGet<StaffQuota>("/staff/quota"),
+      apiGet<ShopSummary[]>("/shops"),
+    ]);
+  } catch (error) {
+    // Server Component เขียน cookie ไม่ได้ จึง refresh token ที่นี่ไม่ได้
+    // (ดูคอมเมนต์ใน lib/api-server.ts) — ส่งไปเข้าสู่ระบบใหม่แทน
+    if (error instanceof ApiAuthError) redirect("/login");
+    throw error;
+  }
 
-export default function StaffPage() {
-  const { locale } = useLocale();
-  const t = content[locale];
-  const [selected, setSelected] = useState(0);
-  const [perms, setPerms] = useState(t.permissions.map((p) => p.on));
-
-  return (
-    <>
-      <TopBar title={t.title} user={roleAvatar.owner[locale]} />
-      <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
-        <div className="flex flex-col gap-5">
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[300px_1fr]">
-            <Card>
-              <div className="px-4">
-                <div className="mb-4 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
-                  {t.staffListHeading}
-                </div>
-                {t.staffList.map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setSelected(i)}
-                    className={`flex w-full items-center gap-3 py-3 text-left ${
-                      i < t.staffList.length - 1 ? "border-b border-border" : ""
-                    }`}
-                  >
-                    <Avatar
-                      className={selected === i ? "ring-2 ring-primary ring-offset-2" : ""}
-                    >
-                      <AvatarFallback
-                        className="font-heading font-bold text-white"
-                        style={{ backgroundColor: s.avatarBg }}
-                      >
-                        {s.initial}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold">{s.name}</div>
-                      <div className="font-mono text-[11px] text-muted-foreground">
-                        {s.username}
-                      </div>
-                    </div>
-                    <Badge variant={s.lineStatus}>{s.lineLabel}</Badge>
-                  </button>
-                ))}
-                <div className="mt-3">
-                  <Button variant="dark" size="sm">
-                    {t.createStaffBtn}
-                  </Button>
-                </div>
-              </div>
-            </Card>
-
-            <Card>
-              <div className="px-4">
-                <div className="mb-4 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
-                  {t.permHeading(t.staffList[selected].name)}
-                </div>
-                {t.permissions.map((p, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-center justify-between py-3 ${
-                      i < t.permissions.length - 1 ? "border-b border-border" : ""
-                    }`}
-                  >
-                    <div>
-                      <div className="text-sm font-semibold">{p.name}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {p.desc}
-                      </div>
-                    </div>
-                    <Switch
-                      checked={perms[i]}
-                      onCheckedChange={(v) =>
-                        setPerms((prev) =>
-                          prev.map((x, idx) => (idx === i ? v : x))
-                        )
-                      }
-                    />
-                  </div>
-                ))}
-                <div className="mt-4 flex flex-wrap gap-2.5">
-                  <Button variant="outline" size="sm">
-                    {t.resetPwBtn}
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    {t.unlinkLineBtn}
-                  </Button>
-                  <Button variant="destructive" size="sm">
-                    {t.deleteBtn}
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          <Card>
-            <div className="px-4">
-              <div className="mb-1 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
-                {t.newStaffHeading}
-              </div>
-              <p className="mb-4 text-xs text-muted-foreground">{t.newStaffSub}</p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] font-semibold uppercase">
-                    {t.fieldFirstName}
-                  </Label>
-                  <Input placeholder={t.staffList[0].name.split(" ")[0]} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] font-semibold uppercase">
-                    {t.fieldLastName}
-                  </Label>
-                  <Input placeholder={t.staffList[0].name.split(" ")[1] ?? ""} />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] font-semibold uppercase">
-                    {t.fieldUsername}
-                  </Label>
-                  <Input placeholder="numwan_shop" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] font-semibold uppercase">
-                    {t.fieldPassword}
-                  </Label>
-                  <Input type="password" placeholder="••••••••" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] font-semibold uppercase">
-                    {t.fieldConfirmPassword}
-                  </Label>
-                  <Input type="password" placeholder="••••••••" />
-                </div>
-              </div>
-              <div className="mt-4">
-                <Button variant="dark" size="sm">
-                  {t.createAccountBtn}
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </main>
-    </>
-  );
+  return <StaffManager staff={staff} quota={quota} shops={shops} />;
 }
