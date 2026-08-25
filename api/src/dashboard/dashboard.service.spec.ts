@@ -21,11 +21,12 @@ const RANGE = {
 
 function createPrismaMock() {
   return {
-    sale: { aggregate: jest.fn() },
+    sale: { aggregate: jest.fn(), groupBy: jest.fn(), findMany: jest.fn() },
     saleItem: { groupBy: jest.fn() },
     shopProduct: {
       count: jest.fn(),
       findMany: jest.fn(),
+      groupBy: jest.fn(),
       fields: { lowStockThreshold: 'lowStockThreshold' },
     },
     shopStaff: { findFirst: jest.fn(), findMany: jest.fn() },
@@ -221,6 +222,228 @@ describe('DashboardService', () => {
       prisma.shopProduct.findMany.mockResolvedValue([]);
 
       await service.getDeadStock(OWNER, SHOP, { days: 30 });
+
+      expect(access.assertPaidPlan).toHaveBeenCalledWith(OWNER);
+    });
+  });
+  describe('getAccountSummary', () => {
+    it('รวมยอดทุกร้าน เรียงตามยอดขายมากไปน้อย', async () => {
+      access.listVisibleShopIds.mockResolvedValue(['shop-a', 'shop-b']);
+      prisma.shop.findMany.mockResolvedValue([
+        { id: 'shop-a', name: 'สาขาหนึ่ง' },
+        { id: 'shop-b', name: 'สาขาสอง' },
+      ]);
+      prisma.sale.groupBy.mockResolvedValue([
+        { shopId: 'shop-a', _sum: { totalAmount: 300 }, _count: { _all: 2 } },
+        { shopId: 'shop-b', _sum: { totalAmount: 900 }, _count: { _all: 5 } },
+      ]);
+      prisma.shopProduct.groupBy.mockResolvedValue([
+        { shopId: 'shop-b', _count: { _all: 4 } },
+      ]);
+
+      const result = await service.getAccountSummary(OWNER, RANGE);
+
+      expect(result.shops.map((shop) => shop.shopId)).toEqual([
+        'shop-b',
+        'shop-a',
+      ]);
+      expect(result.totals).toEqual({
+        totalAmount: 1200,
+        saleCount: 7,
+        shopCount: 2,
+      });
+      expect(result.shops[0].lowStock).toBe(4);
+      expect(result.shops[1].lowStock).toBe(0);
+    });
+
+    it('ร้านที่ไม่มีบิลในช่วงนี้ยังต้องอยู่ในลิสต์ด้วยยอด 0', async () => {
+      access.listVisibleShopIds.mockResolvedValue(['shop-a']);
+      prisma.shop.findMany.mockResolvedValue([
+        { id: 'shop-a', name: 'สาขาเงียบ' },
+      ]);
+      prisma.sale.groupBy.mockResolvedValue([]);
+      prisma.shopProduct.groupBy.mockResolvedValue([]);
+
+      const result = await service.getAccountSummary(OWNER, RANGE);
+
+      expect(result.shops).toHaveLength(1);
+      expect(result.shops[0].totalAmount).toBe(0);
+      expect(result.shops[0].saleCount).toBe(0);
+    });
+
+    it('พนักงานที่ไม่ได้ถูก assign ร้านไหนเลยได้ลิสต์ว่าง ไม่ยิง query ต่อ', async () => {
+      access.listVisibleShopIds.mockResolvedValue([]);
+
+      const result = await service.getAccountSummary(STAFF, RANGE);
+
+      expect(result.shops).toEqual([]);
+      expect(result.totals.shopCount).toBe(0);
+      expect(prisma.sale.groupBy).not.toHaveBeenCalled();
+    });
+
+    it('ต้องเช็คแพ็กเกจก่อนเสมอ', async () => {
+      access.listVisibleShopIds.mockResolvedValue([]);
+
+      await service.getAccountSummary(OWNER, RANGE);
+
+      expect(access.assertPaidPlan).toHaveBeenCalledWith(OWNER);
+    });
+  });
+
+  describe('getSalesTrend', () => {
+    it('จัดกลุ่มรายวันตามเวลาไทย และเติมวันที่ไม่มียอดด้วย 0 (ช่วงเวลาส่งมาเป็น UTC ที่ตรงขอบวันไทย)', async () => {
+      prisma.sale.findMany.mockResolvedValue([
+        { createdAt: new Date('2026-08-01T03:00:00.000Z'), totalAmount: 100 },
+        { createdAt: new Date('2026-08-01T10:00:00.000Z'), totalAmount: 50 },
+        { createdAt: new Date('2026-08-03T05:00:00.000Z'), totalAmount: 70 },
+      ]);
+
+      const result = await service.getSalesTrend(OWNER, SHOP, {
+        from: new Date('2026-07-31T17:00:00.000Z'),
+        to: new Date('2026-08-03T16:59:59.000Z'),
+        groupBy: 'day',
+      });
+
+      expect(result.points).toEqual([
+        { period: '2026-08-01', totalAmount: 150, saleCount: 2 },
+        { period: '2026-08-02', totalAmount: 0, saleCount: 0 },
+        { period: '2026-08-03', totalAmount: 70, saleCount: 1 },
+      ]);
+    });
+
+    it('บิลหลังห้าโมงเย็น UTC ต้องนับเป็นวันถัดไปตามเวลาไทย', async () => {
+      prisma.sale.findMany.mockResolvedValue([
+        { createdAt: new Date('2026-08-01T18:00:00.000Z'), totalAmount: 200 },
+      ]);
+
+      const result = await service.getSalesTrend(OWNER, SHOP, {
+        from: new Date('2026-07-31T17:00:00.000Z'),
+        to: new Date('2026-08-02T16:59:59.000Z'),
+        groupBy: 'day',
+      });
+
+      expect(result.points).toEqual([
+        { period: '2026-08-01', totalAmount: 0, saleCount: 0 },
+        { period: '2026-08-02', totalAmount: 200, saleCount: 1 },
+      ]);
+    });
+
+    it('จัดกลุ่มรายเดือนได้', async () => {
+      prisma.sale.findMany.mockResolvedValue([
+        { createdAt: new Date('2026-07-15T04:00:00.000Z'), totalAmount: 10 },
+        { createdAt: new Date('2026-08-15T04:00:00.000Z'), totalAmount: 20 },
+      ]);
+
+      const result = await service.getSalesTrend(OWNER, SHOP, {
+        from: new Date('2026-07-01T00:00:00.000Z'),
+        to: new Date('2026-08-31T00:00:00.000Z'),
+        groupBy: 'month',
+      });
+
+      expect(result.points).toEqual([
+        { period: '2026-07', totalAmount: 10, saleCount: 1 },
+        { period: '2026-08', totalAmount: 20, saleCount: 1 },
+      ]);
+    });
+
+    it('ต้องเช็คแพ็กเกจก่อนเสมอ', async () => {
+      prisma.sale.findMany.mockResolvedValue([]);
+
+      await service.getSalesTrend(OWNER, SHOP, {
+        ...RANGE,
+        groupBy: 'day',
+      });
+
+      expect(access.assertPaidPlan).toHaveBeenCalledWith(OWNER);
+    });
+  });
+  describe('getSalesByCategory', () => {
+    it('รวมยอดตามหมวดหมู่ เรียงมากไปน้อย และคิดสัดส่วนให้', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([
+        { shopProductId: 'sp1', _sum: { quantity: 4, lineTotal: 600 } },
+        { shopProductId: 'sp2', _sum: { quantity: 2, lineTotal: 200 } },
+        { shopProductId: 'sp3', _sum: { quantity: 1, lineTotal: 200 } },
+      ]);
+      prisma.shopProduct.findMany.mockResolvedValue([
+        {
+          id: 'sp1',
+          product: {
+            categoryId: 'cat-drink',
+            category: { name: 'เครื่องดื่ม' },
+          },
+        },
+        {
+          id: 'sp2',
+          product: {
+            categoryId: 'cat-drink',
+            category: { name: 'เครื่องดื่ม' },
+          },
+        },
+        {
+          id: 'sp3',
+          product: { categoryId: 'cat-snack', category: { name: 'ขนม' } },
+        },
+      ]);
+
+      const result = await service.getSalesByCategory(OWNER, SHOP, RANGE);
+
+      expect(result.totalAmount).toBe(1000);
+      expect(result.categories).toEqual([
+        {
+          categoryId: 'cat-drink',
+          categoryName: 'เครื่องดื่ม',
+          totalAmount: 800,
+          quantitySold: 6,
+          shareOfTotal: 0.8,
+        },
+        {
+          categoryId: 'cat-snack',
+          categoryName: 'ขนม',
+          totalAmount: 200,
+          quantitySold: 1,
+          shareOfTotal: 0.2,
+        },
+      ]);
+    });
+
+    it('สินค้าที่ไม่มีหมวดหมู่รวมเป็นกลุ่ม null ไม่ตัดทิ้ง', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([
+        { shopProductId: 'sp1', _sum: { quantity: 3, lineTotal: 300 } },
+      ]);
+      prisma.shopProduct.findMany.mockResolvedValue([
+        { id: 'sp1', product: { categoryId: null, category: null } },
+      ]);
+
+      const result = await service.getSalesByCategory(OWNER, SHOP, RANGE);
+
+      expect(result.categories).toEqual([
+        {
+          categoryId: null,
+          categoryName: null,
+          totalAmount: 300,
+          quantitySold: 3,
+          shareOfTotal: 1,
+        },
+      ]);
+    });
+
+    it('ไม่มีบิลในช่วงนี้คืนลิสต์ว่าง ไม่ยิง query ต่อ', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([]);
+
+      const result = await service.getSalesByCategory(OWNER, SHOP, RANGE);
+
+      expect(result).toEqual({
+        range: { from: RANGE.from, to: RANGE.to },
+        totalAmount: 0,
+        categories: [],
+      });
+      expect(prisma.shopProduct.findMany).not.toHaveBeenCalled();
+    });
+
+    it('ต้องเช็คแพ็กเกจก่อนเสมอ', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([]);
+
+      await service.getSalesByCategory(OWNER, SHOP, RANGE);
 
       expect(access.assertPaidPlan).toHaveBeenCalledWith(OWNER);
     });
