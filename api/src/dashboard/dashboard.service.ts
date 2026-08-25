@@ -300,6 +300,91 @@ export class DashboardService {
     };
   }
 
+  async getSalesByCategory(
+    userId: string,
+    shopId: string,
+    query: DashboardQueryDto,
+  ) {
+    const ctx = await this.access.assertCanViewShopDashboard(userId, shopId);
+    await this.access.assertPaidPlan(ctx.ownerId);
+
+    const range = { from: query.from, to: query.to };
+
+    const soldByProduct = await this.prisma.saleItem.groupBy({
+      by: ['shopProductId'],
+      where: { sale: this.completedSalesWhere(shopId, query) },
+      _sum: { quantity: true, lineTotal: true },
+    });
+
+    if (soldByProduct.length === 0) {
+      return { range, totalAmount: 0, categories: [] };
+    }
+
+    const shopProducts = await this.prisma.shopProduct.findMany({
+      where: { id: { in: soldByProduct.map((row) => row.shopProductId) } },
+      select: {
+        id: true,
+        product: {
+          select: { categoryId: true, category: { select: { name: true } } },
+        },
+      },
+    });
+
+    const categoryOf = new Map(
+      shopProducts.map((row) => [
+        row.id,
+        {
+          categoryId: row.product.categoryId,
+          categoryName: row.product.category?.name ?? null,
+        },
+      ]),
+    );
+
+    const buckets = new Map<
+      string,
+      {
+        categoryId: string | null;
+        categoryName: string | null;
+        totalAmount: number;
+        quantitySold: number;
+      }
+    >();
+
+    for (const row of soldByProduct) {
+      const category = categoryOf.get(row.shopProductId) ?? {
+        categoryId: null,
+        categoryName: null,
+      };
+      const key = category.categoryId ?? '';
+      const bucket = buckets.get(key) ?? {
+        categoryId: category.categoryId,
+        categoryName: category.categoryName,
+        totalAmount: 0,
+        quantitySold: 0,
+      };
+      bucket.totalAmount += Number(row._sum.lineTotal ?? 0);
+      bucket.quantitySold += row._sum.quantity ?? 0;
+      buckets.set(key, bucket);
+    }
+
+    const totalAmount = [...buckets.values()].reduce(
+      (sum, bucket) => sum + bucket.totalAmount,
+      0,
+    );
+
+    const categories = [...buckets.values()]
+      .map((bucket) => ({
+        ...bucket,
+        shareOfTotal:
+          totalAmount === 0
+            ? 0
+            : Math.round((bucket.totalAmount / totalAmount) * 10_000) / 10_000,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    return { range, totalAmount, categories };
+  }
+
   private completedSalesWhere(shopId: string, range: { from: Date; to: Date }) {
     return {
       shopId,
