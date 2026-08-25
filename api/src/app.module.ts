@@ -16,6 +16,7 @@ import { ShopsModule } from './shops/shops.module';
 import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { ShopProductsModule } from './shop-products/shop-products.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { StaffModule } from './staff/staff.module';
 import { AiRecommendationsModule } from './ai-recommendations/ai-recommendations.module';
@@ -49,6 +50,7 @@ import { OAuthModule } from './infrastructure/oauth/oauth.module';
     ProductsModule,
     ShopProductsModule,
     NotificationsModule,
+    DashboardModule,
     StockModule,
     ChatCommandModule,
     ChatModule,
