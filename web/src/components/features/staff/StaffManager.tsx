@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 
 import TopBar from "@/components/layout/TopBar";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { FormError } from "@/components/features/auth/form-error";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +20,9 @@ import { useLocale } from "@/components/i18n/LocaleContext";
 import { resolveApiError } from "@/lib/api-error";
 import {
   createStaffSchema,
+  resetStaffPasswordSchema,
   type CreateStaffInput,
+  type ResetStaffPasswordInput,
 } from "@/lib/validations/staff";
 import type {
   ShopSummary,
@@ -60,7 +63,19 @@ const content = {
     loading: "กำลังโหลด...",
     noShop: "ยังไม่มีร้าน ต้องสร้างร้านก่อนถึงจะตั้งสิทธิ์ได้",
     confirmDelete: (name: string) => `ลบบัญชีของ ${name}?`,
-    newPassword: (password: string) => `รหัสผ่านใหม่คือ ${password}`,
+    passwordReset: "ตั้งรหัสผ่านใหม่ให้พนักงานแล้ว พนักงานจะถูกออกจากระบบทุกอุปกรณ์",
+    newPasswordLabel: "รหัสผ่านใหม่",
+    cancelBtn: "ยกเลิก",
+    confirmDeleteTitle: "ลบบัญชีพนักงาน",
+    confirmDeleteDesc: (name: string) =>
+      `บัญชีของ ${name} จะถูกลบและออกจากระบบทันที ประวัติการขายและสต็อกที่เคยทำไว้ยังอยู่ครบ`,
+    confirmUnassignTitle: "ถอดออกจากร้าน",
+    confirmUnassignDesc: (name: string, shop: string) =>
+      `${name} จะไม่เห็นข้อมูลของ ${shop} อีกต่อไป และสิทธิ์ทั้งหมดในร้านนี้จะถูกล้าง`,
+    confirmBtn: "ตกลง",
+    working: "กำลังดำเนินการ...",
+    deleteSuccess: "ลบบัญชีแล้ว",
+    unassignSuccess: "ถอดออกจากร้านแล้ว",
     permissions: [
       {
         key: "canManageProduct",
@@ -124,7 +139,20 @@ const content = {
     loading: "Loading...",
     noShop: "No shop yet. Create a shop before setting permissions.",
     confirmDelete: (name: string) => `Delete the account of ${name}?`,
-    newPassword: (password: string) => `New password is ${password}`,
+    passwordReset:
+      "The staff password has been reset. They will be signed out on every device.",
+    newPasswordLabel: "New Password",
+    cancelBtn: "Cancel",
+    confirmDeleteTitle: "Delete Staff Account",
+    confirmDeleteDesc: (name: string) =>
+      `The account of ${name} will be deleted and signed out immediately. Their sales and stock history stays intact.`,
+    confirmUnassignTitle: "Remove From Shop",
+    confirmUnassignDesc: (name: string, shop: string) =>
+      `${name} will no longer see ${shop}, and every permission in this shop will be cleared.`,
+    confirmBtn: "Confirm",
+    working: "Working...",
+    deleteSuccess: "Account deleted",
+    unassignSuccess: "Removed from the shop",
     permissions: [
       {
         key: "canManageProduct",
@@ -195,6 +223,10 @@ export default function StaffManager({
   const [notice, setNotice] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [confirming, setConfirming] = useState<"delete" | "unassign" | null>(
+    null,
+  );
 
   const selectedStaff = staff.find((member) => member.id === selectedStaffId);
 
@@ -204,6 +236,10 @@ export default function StaffManager({
     reset,
     formState: { errors, isSubmitting },
   } = useForm<CreateStaffInput>({ resolver: zodResolver(createStaffSchema) });
+
+  const resetPasswordForm = useForm<ResetStaffPasswordInput>({
+    resolver: zodResolver(resetStaffPasswordSchema),
+  });
 
   // สิทธิ์ผูกกับคู่ (พนักงาน, ร้าน) ไม่ใช่กับพนักงานอย่างเดียว จึงต้องโหลดใหม่
   // ทุกครั้งที่เปลี่ยนอย่างใดอย่างหนึ่ง
@@ -268,7 +304,7 @@ export default function StaffManager({
     router.refresh();
   };
 
-  const onUnassign = async () => {
+  const onUnassign = async (): Promise<boolean> => {
     setActionError(null);
 
     const response = await fetch(
@@ -279,12 +315,13 @@ export default function StaffManager({
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       setActionError(resolveApiError(data, "ถอดออกจากร้านไม่สำเร็จ"));
-      return;
+      return false;
     }
 
     setIsAssigned(false);
     setPermissions({ ...EMPTY_PERMISSIONS });
     router.refresh();
+    return true;
   };
 
   const onSavePermissions = async () => {
@@ -338,11 +375,10 @@ export default function StaffManager({
     router.refresh();
   };
 
-  const onDeleteStaff = async () => {
-    if (!selectedStaff) return;
+  const onDeleteStaff = async (): Promise<boolean> => {
+    if (!selectedStaff) return false;
 
-    const fullName = `${selectedStaff.firstName} ${selectedStaff.lastName}`;
-    if (!window.confirm(t.confirmDelete(fullName))) return;
+    setActionError(null);
 
     const response = await fetch(`/api/users/${selectedStaff.id}`, {
       method: "DELETE",
@@ -351,14 +387,15 @@ export default function StaffManager({
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       setActionError(resolveApiError(data, "ลบบัญชีไม่สำเร็จ"));
-      return;
+      return false;
     }
 
     setSelectedStaffId("");
     router.refresh();
+    return true;
   };
 
-  const onResetPassword = async () => {
+  const onResetPassword = async (values: ResetStaffPasswordInput) => {
     if (!selectedStaff) return;
 
     setActionError(null);
@@ -369,7 +406,7 @@ export default function StaffManager({
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ newPassword: values.newPassword }),
       },
     );
     const data = await response.json().catch(() => null);
@@ -379,9 +416,9 @@ export default function StaffManager({
       return;
     }
 
-    // api คืนรหัสใหม่มาครั้งเดียว ไม่ได้เก็บไว้ให้เปิดดูซ้ำ จึงต้องแสดงทันที
-    const password = (data as { password?: string } | null)?.password;
-    setNotice(password ? t.newPassword(password) : t.saved);
+    resetPasswordForm.reset();
+    setIsResettingPassword(false);
+    setNotice(t.passwordReset);
   };
 
   const isQuotaFull = quota.remaining <= 0;
@@ -538,6 +575,7 @@ export default function StaffManager({
                             </div>
                           ))}
 
+                          {/* ปุ่มกลุ่มนี้ผูกกับ "ร้านที่เลือก" จึงอยู่ในเงื่อนไข isAssigned */}
                           <div className="mt-4 flex flex-wrap gap-2.5">
                             <Button
                               variant="dark"
@@ -550,27 +588,99 @@ export default function StaffManager({
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={onResetPassword}
-                            >
-                              {t.resetPwBtn}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={onUnassign}
+                              onClick={() => setConfirming("unassign")}
                             >
                               {t.unassignBtn}
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={onDeleteStaff}
-                            >
-                              {t.deleteBtn}
                             </Button>
                           </div>
                         </>
                       )
+                    )}
+
+                    {/*
+                      รีเซ็ตรหัสผ่านกับลบบัญชีเป็นเรื่องระดับ "บัญชีผู้ใช้" ไม่ได้ผูกกับร้าน
+                      จึงต้องกดได้เสมอที่เลือกพนักงานไว้ ไม่ใช่เฉพาะตอนสังกัดร้านแล้ว
+                      (ไม่งั้นพนักงานที่ยังไม่ได้มอบหมายเข้าร้านจะลบทิ้งไม่ได้เลย)
+                    */}
+                    <div className="mt-4 flex flex-wrap gap-2.5 border-t border-border pt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setIsResettingPassword((previous) => !previous);
+                          setNotice(null);
+                          setActionError(null);
+                        }}
+                      >
+                        {isResettingPassword ? t.cancelBtn : t.resetPwBtn}
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setConfirming("delete")}
+                      >
+                        {t.deleteBtn}
+                      </Button>
+                    </div>
+
+                    {isResettingPassword && (
+                      <form
+                        className="mt-3 flex flex-col gap-3 rounded-md border border-border p-3 sm:flex-row sm:items-start"
+                        onSubmit={resetPasswordForm.handleSubmit(
+                          onResetPassword,
+                        )}
+                        noValidate
+                      >
+                        <div className="flex flex-1 flex-col gap-1">
+                          <Label className="text-[11px] font-semibold uppercase">
+                            {t.newPasswordLabel}
+                          </Label>
+                          <Input
+                            type="password"
+                            placeholder="••••••••"
+                            {...resetPasswordForm.register("newPassword")}
+                          />
+                          {resetPasswordForm.formState.errors.newPassword && (
+                            <p className="text-xs text-destructive">
+                              {
+                                resetPasswordForm.formState.errors.newPassword
+                                  .message
+                              }
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-1 flex-col gap-1">
+                          <Label className="text-[11px] font-semibold uppercase">
+                            {t.fieldConfirmPassword}
+                          </Label>
+                          <Input
+                            type="password"
+                            placeholder="••••••••"
+                            {...resetPasswordForm.register("confirmPassword")}
+                          />
+                          {resetPasswordForm.formState.errors
+                            .confirmPassword && (
+                            <p className="text-xs text-destructive">
+                              {
+                                resetPasswordForm.formState.errors
+                                  .confirmPassword.message
+                              }
+                            </p>
+                          )}
+                        </div>
+                        <div className="sm:pt-[22px]">
+                          <Button
+                            type="submit"
+                            variant="dark"
+                            size="sm"
+                            disabled={resetPasswordForm.formState.isSubmitting}
+                          >
+                            {resetPasswordForm.formState.isSubmitting
+                              ? t.saving
+                              : t.resetPwBtn}
+                          </Button>
+                        </div>
+                      </form>
                     )}
 
                     <div className="mt-3 flex flex-col gap-2">
@@ -688,6 +798,36 @@ export default function StaffManager({
           </Card>
         </div>
       </main>
+
+      <ConfirmDialog
+        open={confirming !== null}
+        title={
+          confirming === "delete"
+            ? t.confirmDeleteTitle
+            : t.confirmUnassignTitle
+        }
+        description={
+          selectedStaff
+            ? confirming === "delete"
+              ? t.confirmDeleteDesc(
+                  `${selectedStaff.firstName} ${selectedStaff.lastName}`,
+                )
+              : t.confirmUnassignDesc(
+                  `${selectedStaff.firstName} ${selectedStaff.lastName}`,
+                  shops.find((shop) => shop.id === selectedShopId)?.name ?? "",
+                )
+            : undefined
+        }
+        confirmLabel={t.confirmBtn}
+        cancelLabel={t.cancelBtn}
+        pendingLabel={t.working}
+        successLabel={
+          confirming === "delete" ? t.deleteSuccess : t.unassignSuccess
+        }
+        destructive={confirming === "delete"}
+        onConfirm={confirming === "delete" ? onDeleteStaff : onUnassign}
+        onClose={() => setConfirming(null)}
+      />
     </>
   );
 }
