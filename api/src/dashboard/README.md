@@ -18,8 +18,7 @@
 | 97  | GET    | `/shops/:shopId/dashboard/best-sellers`        | Plus / Pro |
 | 98  | GET    | `/shops/:shopId/dashboard/dead-stock`          | Plus / Pro |
 | 99  | GET    | `/shops/:shopId/dashboard/reports/sales-trend` | Plus / Pro |
-
-แถว 100 (`by-category`) ตามมาใน PR ถัดไป
+| 100 | GET    | `/shops/:shopId/dashboard/reports/by-category` | Plus / Pro |
 
 แถว 96 อยู่คนละ base path เพราะเป็นระดับบัญชี ไม่มี `:shopId` จึงแยกเป็น
 `DashboardSummaryController` ต่างหาก ไม่ได้ยัดลง controller เดิม
@@ -131,7 +130,24 @@ query แยกเป็นสองรอบโดยตั้งใจ — ร
 
 ช่วงที่ไม่มียอดขายคืนจุดที่เป็น `0` **ไม่ข้าม** เพื่อให้กราฟฝั่งเว็บไม่ขาดช่วง
 
+## by-category
+
+SRS ระบุว่า "เปรียบเทียบสินค้า/หมวดหมู่" เป็นส่วนหนึ่งของ Advanced Reports
+แต่ชีทเดิมไม่มี endpoint นี้เลย **เพิ่มแถว 100 เข้าไปในชีทแล้ว**
+
+`shareOfTotal` เป็นสัดส่วนต่อยอดรวมในช่วงเวลานั้น (0–1 ปัดทศนิยม 4 ตำแหน่ง)
+ให้หน้าเว็บเอาไปทำกราฟวงกลมได้โดยไม่ต้องคำนวณเอง
+
+**สินค้าที่ไม่มีหมวดหมู่รวมเป็นกลุ่ม `categoryId: null` ไม่ตัดทิ้ง** —
+`products.category_id` เป็น nullable และ relation เป็น `onDelete: SetNull`
+แปลว่าลบหมวดหมู่แล้วสินค้าจะกลายเป็นไม่มีหมวดทันที ถ้าตัดกลุ่มนี้ทิ้ง
+ผลรวมของทุกหมวดจะไม่เท่ากับยอดขายจริง ซึ่งคนอ่านรายงานจะจับได้ทันทีว่าตัวเลขไม่ตรง
+
+จัดกลุ่มในโค้ดด้วยเหตุผลเดียวกับ `sales-trend` — Prisma `groupBy` จัดกลุ่มตาม
+field ของ relation ข้ามชั้นไม่ได้ (`sale_items` → `shop_products` → `products.category_id`)
+ต้อง groupBy ที่ระดับ `shopProductId` ก่อนแล้วค่อยยุบเป็นหมวดหมู่ในหน่วยความจำ
+จำนวนแถวมีเพดานเท่ากับจำนวนสินค้าในร้าน ไม่ใช่จำนวนบิล
+
 ## ที่ยังไม่ได้ทำ
 
-- **แถว 100** (`by-category`) ยังไม่ได้ทำใน PR นี้
 - ยังไม่มี cache — ทุก request ยิง query จริงทั้งหมด ถ้าร้านโตจนช้าค่อยว่ากัน

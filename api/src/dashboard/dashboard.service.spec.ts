@@ -357,6 +357,97 @@ describe('DashboardService', () => {
       expect(access.assertPaidPlan).toHaveBeenCalledWith(OWNER);
     });
   });
+  describe('getSalesByCategory', () => {
+    it('รวมยอดตามหมวดหมู่ เรียงมากไปน้อย และคิดสัดส่วนให้', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([
+        { shopProductId: 'sp1', _sum: { quantity: 4, lineTotal: 600 } },
+        { shopProductId: 'sp2', _sum: { quantity: 2, lineTotal: 200 } },
+        { shopProductId: 'sp3', _sum: { quantity: 1, lineTotal: 200 } },
+      ]);
+      prisma.shopProduct.findMany.mockResolvedValue([
+        {
+          id: 'sp1',
+          product: {
+            categoryId: 'cat-drink',
+            category: { name: 'เครื่องดื่ม' },
+          },
+        },
+        {
+          id: 'sp2',
+          product: {
+            categoryId: 'cat-drink',
+            category: { name: 'เครื่องดื่ม' },
+          },
+        },
+        {
+          id: 'sp3',
+          product: { categoryId: 'cat-snack', category: { name: 'ขนม' } },
+        },
+      ]);
+
+      const result = await service.getSalesByCategory(OWNER, SHOP, RANGE);
+
+      expect(result.totalAmount).toBe(1000);
+      expect(result.categories).toEqual([
+        {
+          categoryId: 'cat-drink',
+          categoryName: 'เครื่องดื่ม',
+          totalAmount: 800,
+          quantitySold: 6,
+          shareOfTotal: 0.8,
+        },
+        {
+          categoryId: 'cat-snack',
+          categoryName: 'ขนม',
+          totalAmount: 200,
+          quantitySold: 1,
+          shareOfTotal: 0.2,
+        },
+      ]);
+    });
+
+    it('สินค้าที่ไม่มีหมวดหมู่รวมเป็นกลุ่ม null ไม่ตัดทิ้ง', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([
+        { shopProductId: 'sp1', _sum: { quantity: 3, lineTotal: 300 } },
+      ]);
+      prisma.shopProduct.findMany.mockResolvedValue([
+        { id: 'sp1', product: { categoryId: null, category: null } },
+      ]);
+
+      const result = await service.getSalesByCategory(OWNER, SHOP, RANGE);
+
+      expect(result.categories).toEqual([
+        {
+          categoryId: null,
+          categoryName: null,
+          totalAmount: 300,
+          quantitySold: 3,
+          shareOfTotal: 1,
+        },
+      ]);
+    });
+
+    it('ไม่มีบิลในช่วงนี้คืนลิสต์ว่าง ไม่ยิง query ต่อ', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([]);
+
+      const result = await service.getSalesByCategory(OWNER, SHOP, RANGE);
+
+      expect(result).toEqual({
+        range: { from: RANGE.from, to: RANGE.to },
+        totalAmount: 0,
+        categories: [],
+      });
+      expect(prisma.shopProduct.findMany).not.toHaveBeenCalled();
+    });
+
+    it('ต้องเช็คแพ็กเกจก่อนเสมอ', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([]);
+
+      await service.getSalesByCategory(OWNER, SHOP, RANGE);
+
+      expect(access.assertPaidPlan).toHaveBeenCalledWith(OWNER);
+    });
+  });
 });
 
 describe('DashboardAccessService', () => {

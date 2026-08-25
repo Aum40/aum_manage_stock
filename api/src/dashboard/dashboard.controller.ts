@@ -56,4 +56,14 @@ export class DashboardController {
   ) {
     return this.dashboardService.getSalesTrend(userId, shopId, query);
   }
+
+  @Get('reports/by-category')
+  getSalesByCategory(
+    @CurrentUser('sub') userId: string,
+    @Param('shopId', ParseUUIDPipe) shopId: string,
+    @Query(new ZodValidationPipe(DashboardQuerySchema))
+    query: DashboardQueryDto,
+  ) {
+    return this.dashboardService.getSalesByCategory(userId, shopId, query);
+  }
 }
