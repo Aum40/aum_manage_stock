@@ -5,9 +5,11 @@ import {
   BestSellersQuerySchema,
   DashboardQuerySchema,
   DeadStockQuerySchema,
+  SalesTrendQuerySchema,
   type BestSellersQueryDto,
   type DashboardQueryDto,
   type DeadStockQueryDto,
+  type SalesTrendQueryDto,
 } from './dto/dashboard.dto';
 import { DashboardService } from './dashboard.service';
 
@@ -43,5 +45,15 @@ export class DashboardController {
     query: DeadStockQueryDto,
   ) {
     return this.dashboardService.getDeadStock(userId, shopId, query);
+  }
+
+  @Get('reports/sales-trend')
+  getSalesTrend(
+    @CurrentUser('sub') userId: string,
+    @Param('shopId', ParseUUIDPipe) shopId: string,
+    @Query(new ZodValidationPipe(SalesTrendQuerySchema))
+    query: SalesTrendQueryDto,
+  ) {
+    return this.dashboardService.getSalesTrend(userId, shopId, query);
   }
 }
