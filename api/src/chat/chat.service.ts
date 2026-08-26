@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   BadRequestException,
   ConflictException,
@@ -33,6 +34,21 @@ const HELP_KEYWORDS = [
   'menu',
   'วิธีใช้',
 ];
+
+/**
+ * รูปแบบ parsedItems ที่ ChatCommandService เขียนไว้ (chat-command.service.ts)
+ * หนึ่งข้อความสั่งได้หลายรายการ คั่นด้วย ";" หรือขึ้นบรรทัดใหม่
+ */
+const pendingItemSchema = z.object({
+  shopProductId: z.string(),
+  productQuery: z.string(),
+  operation: z.enum(['INCREASE', 'DECREASE']),
+  quantity: z.number().int(),
+});
+
+const pendingItemsSchema = z.array(pendingItemSchema).min(1);
+
+type PendingItem = z.infer<typeof pendingItemSchema>;
 
 const HELP_TEXT = [
   'ผมช่วยปรับสต็อกสินค้าให้ได้ครับ พิมพ์เป็นภาษาพูดได้เลย',
@@ -106,11 +122,7 @@ export class ChatService {
         message: content,
       });
 
-      const reply = this.buildSummary(
-        pending.operation,
-        pending.quantity,
-        pending.productQuery,
-      );
+      const reply = await this.buildSummary(shopId, pending);
 
       await this.prisma.chatMessage.create({
         data: {
@@ -200,18 +212,7 @@ export class ChatService {
       { shopProductId: dto.shopProductId },
     );
 
-    // ใช้ชื่อสินค้าจริงที่เลือก ไม่ใช่คำที่ผู้ใช้พิมพ์มา ผู้ใช้จะได้เห็นชัดว่า
-    // ระบบเข้าใจตรงกับที่ตั้งใจ
-    const chosen = await this.prisma.shopProduct.findFirst({
-      where: { id: dto.shopProductId, shopId },
-      select: { product: { select: { name: true } } },
-    });
-
-    const reply = this.buildSummary(
-      pending.operation,
-      pending.quantity,
-      chosen?.product.name ?? pending.productQuery,
-    );
+    const reply = await this.buildSummary(shopId, pending);
 
     await this.prisma.chatMessage.create({
       data: {
@@ -261,27 +262,43 @@ export class ChatService {
       return { pendingAction: null, reply, candidates: [] };
     }
 
-    const result = await this.chatCommand.confirm(
+    const result = (await this.chatCommand.confirm(
       shopId,
       dto.pendingActionId,
       ctx.userId,
+    )) as {
+      items?: Array<{
+        movement?: { shopProductId?: string };
+        stock?: { quantityBefore: number; quantityAfter: number };
+      }>;
+    };
+
+    // confirm() คืน items เป็น array เพราะหนึ่งคำสั่งมีได้หลายรายการ
+    // ต้องรายงานครบทุกตัว ไม่งั้นผู้ใช้ไม่รู้ว่าอะไรถูกตัดไปบ้าง
+    const adjusted = result.items ?? [];
+    const names = await this.resolveProductNames(
+      shopId,
+      adjusted
+        .map((item) => item.movement?.shopProductId)
+        .filter((id): id is string => Boolean(id)),
     );
 
-    const stock = (
-      result as { stock?: { quantityBefore: number; quantityAfter: number } }
-    ).stock;
-    const range = stock
-      ? ` (${stock.quantityBefore} → ${stock.quantityAfter})`
-      : '';
-    const sign =
-      stock && stock.quantityAfter >= stock.quantityBefore ? '+' : '-';
-    const delta = stock
-      ? Math.abs(stock.quantityAfter - stock.quantityBefore)
-      : 0;
+    const lines = adjusted.map((item) => {
+      const stock = item.stock;
 
-    const reply = ['✅ ยืนยันแล้ว', `• ${label} ${sign}${delta}${range}`].join(
-      '\n',
-    );
+      if (!stock) return `• ${label}`;
+
+      const delta = stock.quantityAfter - stock.quantityBefore;
+      const sign = delta >= 0 ? '+' : '-';
+      const name = names.get(item.movement?.shopProductId ?? '') ?? label;
+
+      return `• ${name} ${sign}${Math.abs(delta)} (${stock.quantityBefore} → ${stock.quantityAfter})`;
+    });
+
+    const reply = [
+      '✅ ยืนยันแล้ว',
+      ...(lines.length > 0 ? lines : [`• ${label}`]),
+    ].join('\n');
 
     await this.recordAssistant(shopId, ctx.userId, reply);
 
@@ -306,18 +323,79 @@ export class ChatService {
     });
   }
 
-  private buildSummary(
-    operation: 'INCREASE' | 'DECREASE',
-    quantity: number,
-    productQuery: string,
-  ): string {
-    const sign = operation === 'INCREASE' ? '+' : '-';
+  /**
+   * อ่านรายการจาก parsedItems ไม่ใช่ฟิลด์ระดับบน
+   *
+   * ฟิลด์ระดับบน (productQuery/operation/quantity) เก็บแค่ "รายการแรก" เท่านั้น
+   * ถ้าใช้มันสรุป ผู้ใช้ที่พิมพ์ "เพิ่มโค้ก 10; ลดน้ำเปล่า 3" จะเห็นแค่โค้ก
+   * แล้วกดยืนยันโดยไม่รู้ว่าน้ำเปล่าจะถูกตัดไปด้วย
+   *
+   * แสดงชื่อสินค้าจริงแทนคำที่ผู้ใช้พิมพ์ ผู้ใช้จะได้เห็นว่าระบบเข้าใจตรงกัน
+   */
+  private async buildSummary(
+    shopId: string,
+    pending: {
+      productQuery: string;
+      operation: 'INCREASE' | 'DECREASE';
+      quantity: number;
+      shopProductId: string | null;
+      parsedItems?: unknown;
+    },
+  ): Promise<string> {
+    const items = this.readPendingItems(pending);
+    const names = await this.resolveProductNames(
+      shopId,
+      items.map((item) => item.shopProductId).filter(Boolean),
+    );
+
+    const lines = items.map((item) => {
+      const sign = item.operation === 'INCREASE' ? '+' : '-';
+      const label = names.get(item.shopProductId) ?? item.productQuery;
+
+      return `• ${label} ${sign}${item.quantity}`;
+    });
+
+    return [...lines, '', 'กดยืนยันเพื่อบันทึก หรือกดยกเลิกเพื่อยกเลิก'].join(
+      '\n',
+    );
+  }
+
+  /** parsedItems ว่างได้ (เช่นรายการที่รอเลือกสินค้า) จึงต้องมีทางถอยเสมอ */
+  private readPendingItems(pending: {
+    productQuery: string;
+    operation: 'INCREASE' | 'DECREASE';
+    quantity: number;
+    shopProductId: string | null;
+    parsedItems?: unknown;
+  }): PendingItem[] {
+    const parsed = pendingItemsSchema.safeParse(pending.parsedItems);
+
+    if (parsed.success) return parsed.data;
 
     return [
-      `• ${productQuery} ${sign}${quantity}`,
-      '',
-      'กดยืนยันเพื่อบันทึก หรือกดยกเลิกเพื่อยกเลิก',
-    ].join('\n');
+      {
+        shopProductId: pending.shopProductId ?? '',
+        productQuery: pending.productQuery,
+        operation: pending.operation,
+        quantity: pending.quantity,
+      },
+    ];
+  }
+
+  private async resolveProductNames(
+    shopId: string,
+    shopProductIds: string[],
+  ): Promise<Map<string, string>> {
+    const ids = shopProductIds.filter(Boolean);
+
+    if (ids.length === 0) return new Map();
+
+    const rows = await this.prisma.shopProduct.findMany({
+      where: { id: { in: ids }, shopId },
+      select: { id: true, product: { select: { name: true } } },
+    });
+
+    return new Map(rows.map((row) => [row.id, row.product.name]));
   }
 
   /**

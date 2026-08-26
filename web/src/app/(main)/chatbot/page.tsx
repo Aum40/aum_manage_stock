@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import TopBar from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
@@ -67,7 +67,6 @@ export default function ChatbotPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<StockCandidate[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const shopsQuery = useShops();
   const shopId = shopsQuery.data?.[0]?.id;
@@ -91,7 +90,6 @@ export default function ChatbotPage() {
     if (!message || sendMessage.isPending) return;
 
     setActionError(null);
-    setNotice(null);
 
     sendMessage.mutate(message, {
       onSuccess: (result) => {
@@ -150,121 +148,132 @@ export default function ChatbotPage() {
 
   const isBusy = applyCommand.isPending || selectCandidate.isPending;
 
+  // เลื่อนไปข้อความล่าสุดทุกครั้งที่บทสนทนายาวขึ้น ไม่งั้นผู้ใช้ต้องเลื่อนเอง
+  // ทุกครั้งที่บอทตอบ ซึ่งขัดกับความคาดหวังของหน้าแชท
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length, pendingId, candidates.length]);
+
   return (
     <>
       <TopBar title={t.title} user={roleAvatar.owner[locale]} />
-      <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
-        <div className="flex max-w-2xl flex-col gap-4">
-          <div className="flex min-h-95 flex-col gap-3 rounded-3xl bg-secondary p-5">
-            {shopsQuery.isPending || chatQuery.isPending ? (
-              <p className="text-sm text-muted-foreground">{t.loading}</p>
-            ) : !shopId ? (
-              <p className="text-sm text-muted-foreground">{t.noShop}</p>
-            ) : messages.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t.empty}</p>
-            ) : (
-              messages.map((msg, i) => (
+
+      {/*
+        min-h-0 จำเป็นทั้งชั้นนี้และชั้นกล่องแชท — flex item มี min-height:auto
+        เป็นค่าเริ่มต้น ถ้าไม่ทับค่านี้ กล่องแชทจะดันตัวเองสูงตามเนื้อหา
+        แทนที่จะคงความสูงแล้วเลื่อนอยู่ข้างในตัวเอง
+      */}
+      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4">
+        {/* กล่องแชทกินพื้นที่ที่เหลือทั้งหมด ทั้งกว้างและสูง */}
+        <div
+          ref={scrollRef}
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-2xl bg-secondary p-4 sm:p-5"
+        >
+          {shopsQuery.isPending || chatQuery.isPending ? (
+            <p className="text-sm text-muted-foreground">{t.loading}</p>
+          ) : !shopId ? (
+            <p className="text-sm text-muted-foreground">{t.noShop}</p>
+          ) : messages.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t.empty}</p>
+          ) : (
+            messages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex ${
+                  msg.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
                 <div
-                  key={i}
-                  className={`flex ${
-                    msg.role === "user" ? "justify-end" : "justify-start"
+                  className={`max-w-[min(78%,42rem)] px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
+                    msg.role === "user"
+                      ? "rounded-[17px_17px_5px_17px] bg-brand-dark text-background"
+                      : "rounded-[17px_17px_17px_5px] border border-border bg-background text-foreground"
                   }`}
                 >
-                  <div
-                    className={`max-w-[78%] px-4 py-3 text-sm leading-relaxed whitespace-pre-line ${
-                      msg.role === "user"
-                        ? "rounded-[17px_17px_5px_17px] bg-brand-dark text-background"
-                        : "rounded-[17px_17px_17px_5px] border border-border bg-background text-foreground"
-                    }`}
-                  >
-                    {msg.content}
-                  </div>
-                </div>
-              ))
-            )}
-
-            {/*
-              ปุ่มยืนยัน/ยกเลิกโผล่เฉพาะตอนมีรายการรออยู่จริง — ตรงกับฝั่ง LINE
-              ที่ต้องพิมพ์ "ยืนยัน" ก่อนสต็อกถึงจะขยับ ไม่มีการบันทึกอัตโนมัติ
-            */}
-            {pendingId && candidates.length > 0 && (
-              <div className="flex flex-col gap-2 pt-1">
-                <p className="text-xs font-semibold text-muted-foreground">
-                  {t.chooseLabel}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {candidates.map((candidate) => (
-                    <Button
-                      key={candidate.shopProductId}
-                      variant="outline"
-                      size="sm"
-                      disabled={isBusy}
-                      onClick={() => onSelectCandidate(candidate.shopProductId)}
-                    >
-                      {candidate.name} ·{" "}
-                      {t.stockLeft(candidate.stockQty, candidate.unit)}
-                    </Button>
-                  ))}
+                  {msg.content}
                 </div>
               </div>
-            )}
+            ))
+          )}
+        </div>
 
-            {pendingId && candidates.length === 0 && (
-              <div className="flex flex-wrap gap-2.5 pt-1">
+        {/*
+          ปุ่มอยู่นอกกล่องแชทที่เลื่อนได้ เพื่อให้กดได้เสมอโดยไม่ต้องเลื่อนหา
+          โผล่เฉพาะตอนมีรายการรออยู่จริง — ตรงกับฝั่ง LINE ที่ต้องพิมพ์
+          "ยืนยัน" ก่อนสต็อกถึงจะขยับ ไม่มีการบันทึกอัตโนมัติ
+        */}
+        {pendingId && candidates.length > 0 && (
+          <div className="flex flex-col gap-2 rounded-2xl border border-border bg-background p-3">
+            <p className="text-xs font-semibold text-muted-foreground">
+              {t.chooseLabel}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {candidates.map((candidate) => (
                 <Button
-                  variant="dark"
-                  size="sm"
-                  disabled={isBusy}
-                  onClick={() => onApply("CONFIRM")}
-                >
-                  {applyCommand.isPending ? t.working : t.confirmBtn}
-                </Button>
-                <Button
+                  key={candidate.shopProductId}
                   variant="outline"
                   size="sm"
                   disabled={isBusy}
-                  onClick={() => onApply("CANCEL")}
+                  onClick={() => onSelectCandidate(candidate.shopProductId)}
                 >
-                  {t.cancelBtn}
+                  {candidate.name} ·{" "}
+                  {t.stockLeft(candidate.stockQty, candidate.unit)}
                 </Button>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
+        )}
 
-          <div className="flex flex-col gap-2">
-            <FormError message={actionError} />
-            {notice && (
-              <p className="rounded-md border border-status-green/30 bg-status-green/10 px-3 py-2 text-sm text-status-green">
-                {notice}
-              </p>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            <input
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  onSend();
-                }
-              }}
-              placeholder={t.inputPh}
-              disabled={!shopId}
-              className="h-10 flex-1 rounded-full border border-border bg-background px-5 text-sm outline-none disabled:opacity-50"
-            />
+        {pendingId && candidates.length === 0 && (
+          <div className="flex flex-wrap gap-2.5 rounded-2xl border border-border bg-background p-3">
             <Button
               variant="dark"
-              onClick={onSend}
-              disabled={sendMessage.isPending || !shopId}
+              size="sm"
+              disabled={isBusy}
+              onClick={() => onApply("CONFIRM")}
             >
-              {sendMessage.isPending ? t.sending : t.sendBtn}
+              {applyCommand.isPending ? t.working : t.confirmBtn}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isBusy}
+              onClick={() => onApply("CANCEL")}
+            >
+              {t.cancelBtn}
             </Button>
           </div>
+        )}
 
-          <Caption>{t.caption}</Caption>
+        {actionError && <FormError message={actionError} />}
+
+        <div className="flex items-center gap-2.5">
+          <input
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onSend();
+              }
+            }}
+            placeholder={t.inputPh}
+            disabled={!shopId}
+            className="h-11 flex-1 rounded-full border border-border bg-background px-5 text-sm outline-none disabled:opacity-50"
+          />
+          <Button
+            variant="dark"
+            onClick={onSend}
+            disabled={sendMessage.isPending || !shopId}
+          >
+            {sendMessage.isPending ? t.sending : t.sendBtn}
+          </Button>
         </div>
+
+        <Caption>{t.caption}</Caption>
       </main>
     </>
   );
