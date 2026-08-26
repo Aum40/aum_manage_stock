@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/select";
 import TableState from "@/components/shared/TableState";
 import SuspendDialog from "@/components/features/admin/SuspendDialog";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useDebounced } from "@/lib/hooks/use-debounced";
 import {
@@ -101,7 +100,7 @@ export default function AdminShopsPage() {
 
   return (
     <>
-      <TopBar title={t.title} notifications={false} user={roleAvatar.superadmin[locale]} />
+      <TopBar title={t.title} notifications={false} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
           <div className="flex gap-3">

@@ -11,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useShops, useShopProducts, useStockMovements } from "@/lib/hooks/use-inventory";
 
@@ -68,7 +67,7 @@ export default function StockHistoryPage() {
 
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.owner[locale]} />
+      <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
           <div className="flex flex-wrap items-center gap-2.5">

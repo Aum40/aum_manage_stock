@@ -16,7 +16,6 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import Caption from "@/components/shared/Caption";
 import { FormError } from "@/components/features/auth/form-error";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import {
   useChangePassword,
@@ -220,7 +219,7 @@ export default function ProfilePage() {
 
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.owner[locale]} />
+      <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         {isPending ? (
           <p className="text-sm text-muted-foreground">{t.loading}</p>

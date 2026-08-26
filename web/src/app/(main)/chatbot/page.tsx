@@ -6,7 +6,6 @@ import TopBar from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import Caption from "@/components/shared/Caption";
 import { FormError } from "@/components/features/auth/form-error";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import {
@@ -159,7 +158,7 @@ export default function ChatbotPage() {
 
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.owner[locale]} />
+      <TopBar title={t.title} />
 
       {/*
         min-h-0 จำเป็นทั้งชั้นนี้และชั้นกล่องแชท — flex item มี min-height:auto

@@ -144,36 +144,3 @@ export function getNavSections(role: SidebarRole): NavSection[] {
     },
   ];
 }
-
-export const roleAvatar: Record<
-  SidebarRole,
-  {
-    th: { name: string; initial: string; avatarColor: string };
-    en: { name: string; initial: string; avatarColor: string };
-  }
-> = {
-  owner: {
-    th: { name: "คุณอุ้ม (เจ้าของร้าน)", initial: "อ", avatarColor: "#F5A31C" },
-    en: { name: "Khun Aum (Shop Owner)", initial: "A", avatarColor: "#F5A31C" },
-  },
-  free: {
-    th: { name: "คุณอุ้ม (เจ้าของร้าน)", initial: "อ", avatarColor: "#F5A31C" },
-    en: { name: "Khun Aum (Shop Owner)", initial: "A", avatarColor: "#F5A31C" },
-  },
-  expired: {
-    th: { name: "คุณอุ้ม (เจ้าของร้าน)", initial: "อ", avatarColor: "#F5A31C" },
-    en: { name: "Khun Aum (Shop Owner)", initial: "A", avatarColor: "#F5A31C" },
-  },
-  staff: {
-    th: { name: "คำหวาน เก่งดี (พนักงาน)", initial: "ค", avatarColor: "#5C9A54" },
-    en: { name: "Numwan Kengdee (Staff)", initial: "N", avatarColor: "#5C9A54" },
-  },
-  admin: {
-    th: { name: "วิภา ตั้งเจน (Admin)", initial: "ว", avatarColor: "#2B2A30" },
-    en: { name: "Wipa Tangjen (Admin)", initial: "W", avatarColor: "#2B2A30" },
-  },
-  superadmin: {
-    th: { name: "สมชาย (Super Admin)", initial: "ส", avatarColor: "#2B2A30" },
-    en: { name: "Somchai (Super Admin)", initial: "S", avatarColor: "#2B2A30" },
-  },
-};

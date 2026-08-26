@@ -40,6 +40,7 @@ const envSchema = z.object({
   // ถึงจะ boot ขึ้น PaymentsService จะ throw ตอนถูกเรียกถ้าไม่ได้ตั้งค่าไว้
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  STRIPE_CHECKOUT_DISPLAY_NAME: z.string().min(1).max(100).default('AumStocks'),
   // [อั้ม] feature/chatbot-resource — optional โดยตั้งใจ
   // ไม่มีค่าเหล่านี้ = LLM parser ปิดตัวเอง แล้วตกไปใช้ deterministic parser แทน
   // คนที่ไม่ได้ทำ chatbot จึงไม่ต้องหา key มาใส่ก็ boot ขึ้น

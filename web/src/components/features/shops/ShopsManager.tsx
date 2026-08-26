@@ -11,7 +11,6 @@ import Caption from "@/components/shared/Caption";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { ShopFormDialog } from "@/components/features/shops/ShopFormDialog";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import {
@@ -124,7 +123,7 @@ export default function ShopsManager() {
 
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.owner[locale]} readOnly={readOnly} />
+      <TopBar title={t.title} readOnly={readOnly} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
           <div className="flex items-center justify-between">

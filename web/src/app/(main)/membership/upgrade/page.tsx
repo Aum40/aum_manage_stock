@@ -2,7 +2,6 @@
 
 import TopBar from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import {
   useCreateSubscriptionPayment,
@@ -153,7 +152,7 @@ export default function UpgradePlanPage() {
 
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.free[locale]} />
+      <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="mx-auto max-w-4xl">
           <div className="mb-8 text-center">

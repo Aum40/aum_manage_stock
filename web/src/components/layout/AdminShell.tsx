@@ -2,11 +2,7 @@
 
 import Sidebar from "@/components/layout/Sidebar";
 import { getNavSections } from "@/components/layout/nav-config";
-
-// Hardcoded to "superadmin" so the "จัดการ Admin" nav item is visible for
-// this scaffolding pass — swap for the real session role once auth-resource
-// lands. Regular "admin" accounts should not see that item (see nav-config).
-const role = "superadmin" as const;
+import { useMe } from "@/lib/hooks/use-profile";
 
 /**
  * แยกออกมาจาก app/admin/layout.tsx เพราะ Sidebar เป็น client component
@@ -17,6 +13,11 @@ export default function AdminShell({
 }: {
   children: React.ReactNode;
 }) {
+  const { data: me } = useMe();
+  // SRS §29/§186 — เมนู "จัดการ Admin" เป็นของ Super Admin เท่านั้น
+  // Admin ทั่วไปต้องไม่เห็น (api ก็ปฏิเสธอยู่แล้ว แต่ไม่ควรโชว์เมนูที่กดไม่ได้)
+  const role = me?.role === "SUPER_ADMIN" ? "superadmin" : "admin";
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar wordmarkSuffix="Admin" sections={getNavSections(role)} />

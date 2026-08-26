@@ -8,7 +8,6 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useAddShopProduct, useAdjustStock, useProducts, useShopProducts, useShops } from "@/lib/hooks/use-inventory";
 
@@ -53,7 +52,7 @@ export default function SelectProductForShopPage() {
     router.push("/products");
   };
 
-  return <><TopBar title={t.title} user={roleAvatar.owner[locale]} /><main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8"><div className="flex flex-col gap-5">
+  return <><TopBar title={t.title} /><main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8"><div className="flex flex-col gap-5">
     <div className="text-sm text-muted-foreground">{t.intro} <strong className="text-foreground">{shopsQuery.data?.[0]?.name ?? t.noShop}</strong>{t.end}</div>
     <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t.search} className="max-w-sm" />
     <Card className="overflow-x-auto p-0"><table className="w-full min-w-125 border-collapse text-sm"><thead><tr className="border-b border-border"><th className="w-10 px-5 py-3" /><th className="px-5 py-3 text-left text-xs font-medium tracking-[0.05em] text-muted-foreground uppercase">{t.product}</th><th className="px-4 py-3 text-right text-xs font-medium tracking-[0.05em] text-muted-foreground uppercase">{t.price}</th><th className="px-4 py-3 text-right text-xs font-medium tracking-[0.05em] text-muted-foreground uppercase">{t.stock}</th></tr></thead><tbody>

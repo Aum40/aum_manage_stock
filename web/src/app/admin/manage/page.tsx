@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import TableState from "@/components/shared/TableState";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useAdminUsers, useUpdateAdminRole } from "@/lib/hooks/use-admin";
 import type { AdminUser } from "@/lib/types/admin";
@@ -64,7 +63,7 @@ export default function AdminManagePage() {
 
   return (
     <>
-      <TopBar title={t.title} notifications={false} user={roleAvatar.superadmin[locale]} />
+      <TopBar title={t.title} notifications={false} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
           <Alert variant="info">

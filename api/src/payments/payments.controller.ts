@@ -46,6 +46,15 @@ export class PaymentsController {
   }
 
   @Roles(UserRole.SHOP_OWNER)
+  @Post(':id/retry')
+  async retryPayment(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.paymentsService.retryPayment(userId, id);
+  }
+
+  @Roles(UserRole.SHOP_OWNER)
   @Get(':id')
   async getPayment(
     @CurrentUser('sub') userId: string,
