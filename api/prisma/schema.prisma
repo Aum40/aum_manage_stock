@@ -689,3 +689,14 @@ model AiRecommendation {
   @@index([shopId, generatedAt], name: "idx_ai_reco_shop_date")
   @@map("ai_recommendations")
 }
+
+/// [แพรว] บันทึกว่าไฟล์ไหนใน prisma/sql/ ถูกรันไปแล้ว — เขียนโดย SqlScriptsRunner
+/// ไม่ใช่ข้อมูลธุรกิจ แต่ต้องประกาศไว้ที่นี่ ไม่งั้น `db push` จะเห็นเป็นตาราง
+/// แปลกปลอมแล้วขอลบทิ้งทุกครั้ง (ต้องตอบ --accept-data-loss ถึงจะผ่าน)
+model SqlScript {
+  filename  String   @id
+  checksum  String
+  appliedAt DateTime @default(now()) @map("applied_at") @db.Timestamptz(6)
+
+  @@map("_sql_scripts")
+}
