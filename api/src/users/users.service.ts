@@ -46,18 +46,23 @@ export class UsersService {
    */
   async createUser(input: UserCreateInput) {
     const hash = await this.bcryptService.hash(input.password);
+    // ทุกจุดที่อ่านอีเมลเทียบด้วย .toLowerCase() แถวที่เก็บตัวใหญ่ไว้จะค้นไม่เจอ
+    // เลย — เช็คซ้ำไม่ทำงานและเจ้าของบัญชีล็อกอินด้วยอีเมลไม่ได้ ปกติ DTO
+    // normalize มาให้แล้ว (@NormalizeEmail) แต่กันไว้อีกชั้นเผื่อมี caller อื่น
+    const email = input.email?.toLowerCase();
 
     for (let attempt = 0; attempt < USERNAME_ATTEMPT_LIMIT; attempt++) {
       const username =
         input.username ??
-        (input.email
-          ? await this.generateUsernameFromEmail(input.email, attempt)
+        (email
+          ? await this.generateUsernameFromEmail(email, attempt)
           : undefined);
 
       try {
         return await this.prisma.user.create({
           data: {
             ...input,
+            email,
             username,
             password: hash,
             // เจ้าของร้านใหม่ต้องได้ Free Plan ทันที ไม่งั้นทุก endpoint ที่
@@ -158,19 +163,32 @@ export class UsersService {
    * SRS §85 — สมัครด้วย Google ต้องบันทึก email จาก Google ทันที
    * และถือว่ายืนยันอีเมลแล้ว เพราะ Google ยืนยันให้ (เช็ค email_verified มาแล้ว)
    */
-  createGoogleUser(input: {
+  async createGoogleUser(input: {
     googleId: string;
     displayName: string;
     email: string | null;
   }) {
+    const username = await this.generateUsernameFromEmail(
+      input.email ?? `${input.displayName}@google.local`,
+      0,
+    );
+
     return this.prisma.user.create({
       data: {
         firstName: input.displayName,
         lastName: '-',
+        username,
         googleId: input.googleId,
         email: input.email?.toLowerCase() ?? null,
         emailVerifiedAt: input.email ? new Date() : null,
         role: 'SHOP_OWNER',
+        subscription: {
+          create: {
+            plan: { connect: { code: FREE_PLAN_CODE } },
+            startedAt: new Date(),
+            expiresAt: null,
+          },
+        },
       },
     });
   }
@@ -302,10 +320,16 @@ export class UsersService {
     await this.updatePassword(userId, newPassword);
   }
 
+  /**
+   * redirect_uri ต้องตรงเป๊ะกับที่ฝั่งเว็บใช้ตอนขอ authorize ไม่งั้นแลก token ไม่ผ่าน
+   * เว็บใช้ callback เส้นเดียวกับตอน login (แยกด้วย cookie ของ state) เพราะ
+   * redirect_uri ทุกตัวต้องลงทะเบียนใน console ก่อน — เปิดเส้นใหม่ = ทุกคนกดไม่ได้
+   * จนกว่าจะมีคนไปเพิ่ม URL ใน console
+   */
   async linkLine(userId: string, code: string) {
     const profile = await this.lineAuthService.exchangeCodeForProfile(
       code,
-      `${this.frontendUrl}/api/users/link-line/callback`,
+      `${this.frontendUrl}/api/auth/line/callback`,
     );
     await this.linkOAuthId(userId, { lineUserId: profile.lineUserId }, 'LINE');
   }
@@ -313,7 +337,7 @@ export class UsersService {
   async linkGoogle(userId: string, code: string) {
     const profile = await this.googleAuthService.exchangeCodeForProfile(
       code,
-      `${this.frontendUrl}/api/users/link-google/callback`,
+      `${this.frontendUrl}/api/auth/google/callback`,
     );
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -353,6 +377,57 @@ export class UsersService {
     await this.prisma.user.update({
       where: { id: userId },
       data: { lineUserId: null },
+    });
+  }
+
+  async completeEmailChange(userId: string, rawEmail: string) {
+    const email = rawEmail.toLowerCase();
+    const existing = await this.prisma.user.findFirst({
+      // เทียบแบบไม่สนตัวพิมพ์ เพราะแถวเก่าก่อนแก้บั๊กนี้อาจยังเก็บตัวใหญ่ไว้อยู่
+      where: { email: { equals: email, mode: 'insensitive' }, deletedAt: null },
+    });
+    if (existing && existing.id !== userId) {
+      throw new ConflictException('Email already registered');
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { email, emailVerifiedAt: new Date() },
+    });
+  }
+
+  async ensureUsername(userId: string, source: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.username) {
+      return user;
+    }
+
+    const username = await this.generateUsernameFromEmail(
+      source.includes('@') ? source : `${source}@oauth.local`,
+      0,
+    );
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { username },
+    });
+  }
+
+  async unlinkGoogle(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (!user.googleId) {
+      throw new BadRequestException('No Google account is linked');
+    }
+    if (!user.password && !user.lineUserId) {
+      throw new BadRequestException(
+        'Cannot unlink your only sign-in method — set a password first',
+      );
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { googleId: null },
     });
   }
 
@@ -502,19 +577,27 @@ export class UsersService {
   private toUsernameBase(email: string): string {
     const localPart = email.split('@')[0] ?? '';
     const cleaned = localPart.toLowerCase().replace(/[^a-z0-9._-]/g, '');
-    // DTO บังคับ username ยาวอย่างน้อย 3 ตัว อีเมลอย่าง a@x.com จึงต้องเติมหน้า
-    const safe = cleaned.length >= 3 ? cleaned : `user${cleaned}`;
+    // DTO บังคับ username ยาวอย่างน้อย 6 ตัว
+    const safe = (cleaned.length >= 6 ? cleaned : `user${cleaned}`).padEnd(
+      6,
+      '0',
+    );
     return safe.slice(0, USERNAME_BASE_MAX_LENGTH);
   }
 
   private async isUsernameTaken(username: string): Promise<boolean> {
-    const found = await this.prisma.user.findUnique({ where: { username } });
+    const found = await this.prisma.user.findFirst({
+      where: { username, deletedAt: null },
+    });
     return found !== null;
   }
 
   private async isEmailTaken(email: string): Promise<boolean> {
-    const found = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+    const found = await this.prisma.user.findFirst({
+      where: {
+        email: { equals: email.toLowerCase(), mode: 'insensitive' },
+        deletedAt: null,
+      },
     });
     return found !== null;
   }

@@ -7,8 +7,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 
 import { FormError } from '@/components/features/auth/form-error';
+import { PasswordInput } from '@/components/features/auth/PasswordInput';
+import { getAuthCopy } from '@/components/features/auth/auth-copy';
+import { useLocale } from '@/components/i18n/LocaleContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { resolveApiError } from '@/lib/api-error';
 import {
@@ -17,6 +19,8 @@ import {
 } from '@/lib/validations/auth';
 
 export function ResetPasswordForm({ token }: { token: string | null }) {
+  const { locale } = useLocale();
+  const text = getAuthCopy(locale).reset;
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -31,9 +35,9 @@ export function ResetPasswordForm({ token }: { token: string | null }) {
   if (!token) {
     return (
       <div className="flex flex-col gap-4">
-        <FormError message="ลิงก์ไม่ถูกต้อง กรุณาขอลิงก์ตั้งรหัสผ่านใหม่อีกครั้ง" />
+        <FormError message={text.invalid} />
         <Link href="/forgot-password" className="text-sm text-primary underline">
-          ขอลิงก์ใหม่
+          {text.requestNew}
         </Link>
       </div>
     );
@@ -50,7 +54,7 @@ export function ResetPasswordForm({ token }: { token: string | null }) {
 
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      setFormError(resolveApiError(data, 'ตั้งรหัสผ่านใหม่ไม่สำเร็จ'));
+      setFormError(resolveApiError(data, locale === 'th' ? 'ตั้งรหัสผ่านใหม่ไม่สำเร็จ' : 'Unable to reset password'));
       return;
     }
 
@@ -60,8 +64,9 @@ export function ResetPasswordForm({ token }: { token: string | null }) {
   return (
     <form className="flex flex-col gap-4" onSubmit={handleSubmit(onSubmit)}>
       <div className="flex flex-col gap-2">
-        <Label htmlFor="newPassword">รหัสผ่านใหม่</Label>
-        <Input id="newPassword" type="password" {...register('newPassword')} />
+        <Label htmlFor="newPassword">{text.password}</Label>
+        <PasswordInput id="newPassword" placeholder={text.placeholder} {...register('newPassword')} showLabel={locale === 'th' ? 'แสดงรหัสผ่าน' : 'Show password'} hideLabel={locale === 'th' ? 'ซ่อนรหัสผ่าน' : 'Hide password'} />
+        <p className="text-xs text-muted-foreground">{text.hint}</p>
         {errors.newPassword && (
           <p className="text-sm text-destructive">
             {errors.newPassword.message}
@@ -70,11 +75,13 @@ export function ResetPasswordForm({ token }: { token: string | null }) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="confirmPassword">ยืนยันรหัสผ่านใหม่</Label>
-        <Input
+        <Label htmlFor="confirmPassword">{text.confirm}</Label>
+        <PasswordInput
           id="confirmPassword"
-          type="password"
+          placeholder={text.placeholder}
           {...register('confirmPassword')}
+          showLabel={locale === 'th' ? 'แสดงรหัสผ่าน' : 'Show password'}
+          hideLabel={locale === 'th' ? 'ซ่อนรหัสผ่าน' : 'Hide password'}
         />
         {errors.confirmPassword && (
           <p className="text-sm text-destructive">
@@ -86,7 +93,7 @@ export function ResetPasswordForm({ token }: { token: string | null }) {
       <FormError message={formError} />
 
       <Button type="submit" className="w-full" disabled={isSubmitting}>
-        {isSubmitting ? 'กำลังบันทึก...' : 'ตั้งรหัสผ่านใหม่'}
+        {isSubmitting ? text.submitting : text.submit}
       </Button>
     </form>
   );

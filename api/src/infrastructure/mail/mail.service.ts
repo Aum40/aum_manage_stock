@@ -48,4 +48,14 @@ export class MailService {
       html: `<p>ขอบคุณที่สมัครใช้งาน Aum Manage Stocks</p><p>กดลิงก์ด้านล่างเพื่อยืนยันอีเมลและเริ่มใช้งาน</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>หากคุณไม่ได้เป็นผู้สมัคร กรุณาเพิกเฉยต่ออีเมลฉบับนี้</p>`,
     });
   }
+
+  async sendEmailChangeVerification(to: string, verificationToken: string) {
+    const verifyUrl = `${this.frontendUrl}/verify-email?token=${encodeURIComponent(verificationToken)}`;
+    await this.transporter.sendMail({
+      from: this.configService.get('MAIL_FROM', { infer: true }),
+      to,
+      subject: 'ยืนยันอีเมลใหม่ — Aum Manage Stocks',
+      html: `<p>มีคำขอเปลี่ยนอีเมลใน Aum Manage Stocks</p><p>กดลิงก์ด้านล่างเพื่อยืนยันอีเมลใหม่นี้</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
+    });
+  }
 }

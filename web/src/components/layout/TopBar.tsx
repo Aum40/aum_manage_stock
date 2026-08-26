@@ -1,11 +1,14 @@
 "use client";
 
 import { Bell, Menu } from "lucide-react";
+import Link from "next/link";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useMobileNav } from "@/components/layout/MobileNavContext";
 import { useMarkAllNotificationsRead, useNotifications } from "@/lib/hooks/use-inventory";
+import { useMe } from "@/lib/hooks/use-profile";
+import { useLocale } from "@/components/i18n/LocaleContext";
 
 interface TopBarProps {
   title: string;
@@ -21,9 +24,21 @@ interface TopBarProps {
 
 export default function TopBar({ title, readOnly, notifications = true, user }: TopBarProps) {
   const { toggle } = useMobileNav();
+  const { locale } = useLocale();
+  const meQuery = useMe();
   const notificationsQuery = useNotifications(true, notifications);
   const markAllRead = useMarkAllNotificationsRead();
   const unreadCount = notificationsQuery.data?.items.length ?? 0;
+  const currentUser = meQuery.data;
+  const roleLabel = currentUser
+    ? locale === "th"
+      ? ({ SHOP_OWNER: "เจ้าของร้าน", SHOP_STAFF: "พนักงาน", ADMIN: "ผู้ดูแลระบบ", SUPER_ADMIN: "ผู้ดูแลระบบสูงสุด" } as const)[currentUser.role]
+      : ({ SHOP_OWNER: "Shop owner", SHOP_STAFF: "Staff", ADMIN: "Admin", SUPER_ADMIN: "Super admin" } as const)[currentUser.role]
+    : "";
+  const displayName = currentUser
+    ? `${currentUser.firstName || currentUser.username || "—"}${roleLabel ? ` (${roleLabel})` : ""}`
+    : "—";
+  const displayInitial = (currentUser?.firstName || currentUser?.username || "—").charAt(0).toUpperCase();
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border px-4 lg:h-21 lg:px-9">
@@ -60,16 +75,18 @@ export default function TopBar({ title, readOnly, notifications = true, user }: 
           )}
         </button>
         <span className="hidden text-sm text-muted-foreground sm:inline">
-          {user.name}
+          {displayName}
         </span>
-        <Avatar>
+        <Link href="/profile" aria-label={locale === "th" ? "โปรไฟล์ของฉัน" : "My profile"}>
+          <Avatar>
           <AvatarFallback
             className="font-heading font-bold text-white"
             style={{ backgroundColor: user.avatarColor }}
           >
-            {user.initial}
+            {displayInitial}
           </AvatarFallback>
-        </Avatar>
+          </Avatar>
+        </Link>
       </div>
     </header>
   );

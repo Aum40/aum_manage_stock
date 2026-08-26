@@ -11,6 +11,7 @@ export async function POST() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
+      signal: AbortSignal.timeout(800),
     }).catch(() => {
       // logout ต้องเคลียร์ cookie ฝั่งเราเสมอ แม้เรียก backend ไม่สำเร็จ
     });

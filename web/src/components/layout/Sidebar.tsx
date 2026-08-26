@@ -55,7 +55,7 @@ export default function Sidebar({
           isOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="flex items-center justify-between px-6 pt-7 pb-5">
+        <div className="flex items-center gap-5 px-6 pt-7 pb-5">
           {/* โลโก้กลับหน้าแรกเสมอ ไม่ว่าจะอยู่หน้าไหนของแอป */}
           <Link href="/" className="flex items-baseline gap-1.5">
             <span className="font-heading text-xl font-bold tracking-[-0.02em] text-brand-orange">
@@ -65,6 +65,9 @@ export default function Sidebar({
               <span className="text-[11px] text-white/40">{wordmarkSuffix}</span>
             )}
           </Link>
+          <div className="shrink-0">
+            <LanguageToggle />
+          </div>
           <button
             type="button"
             onClick={close}
@@ -95,9 +98,7 @@ export default function Sidebar({
         </nav>
 
         {footer && <div className="mx-4 mt-auto mb-3">{footer}</div>}
-        <div className={cn("mx-4", !footer && "mt-auto", "mb-6")}>
-          <LanguageToggle />
-        </div>
+        <div className={cn("mx-4", !footer && "mt-auto", "mb-6")} />
       </aside>
     </>
   );

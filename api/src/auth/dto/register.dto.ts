@@ -1,3 +1,4 @@
+import { NormalizeEmail } from '@/common/decorator/normalize-email.decorator';
 import { Trim } from '@/common/decorator/trim.decorator';
 import {
   IsEmail,
@@ -20,7 +21,7 @@ export class RegisterDto {
   @IsEmail()
   @IsString()
   @IsNotEmpty()
-  @Trim()
+  @NormalizeEmail()
   email: string;
 
   @IsString()
