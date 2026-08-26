@@ -59,6 +59,18 @@ const HELP_KEYWORDS = [
 const CANDIDATE_FETCH_LIMIT = 100;
 const LINE_TEXT_LIMIT = 4800;
 
+/** รูปแบบ parsedItems ที่ ChatCommandService เขียนไว้ */
+const pendingItemsSchema = z
+  .array(
+    z.object({
+      shopProductId: z.string(),
+      productQuery: z.string(),
+      operation: z.enum(['INCREASE', 'DECREASE']),
+      quantity: z.number().int(),
+    }),
+  )
+  .min(1);
+
 const candidateSchema = z.object({
   shopProductId: z.string(),
   name: z.string(),
@@ -72,6 +84,14 @@ const choicePayloadSchema = z.object({
 });
 
 type Candidate = z.infer<typeof candidateSchema>;
+
+/** รูปแบบที่ ChatCommandService.confirm() คืนมา — หนึ่งคำสั่งปรับได้หลายรายการ */
+type ConfirmResult = {
+  items?: Array<{
+    movement?: { shopProductId?: string };
+    stock?: { quantityBefore: number; quantityAfter: number };
+  }>;
+};
 
 const HELP_TEXT = [
   'ผมช่วยปรับสต็อกสินค้าให้ได้ครับ พิมพ์เป็นภาษาพูดได้เลย',
@@ -216,7 +236,7 @@ export class LineWebhookService {
       }
 
       const summary = [
-        `• ${pending.productQuery} ${pending.operation === 'INCREASE' ? '+' : '-'}${pending.quantity}`,
+        ...(await this.renderItems(identity.shopId, pending)),
         '',
         'พิมพ์ "ยืนยัน" เพื่อบันทึก หรือ "ยกเลิก" เพื่อยกเลิก',
       ].join('\n');
@@ -311,16 +331,117 @@ export class LineWebhookService {
       return { pendingActionId: pending.id };
     }
 
-    await this.confirmPending(shopId, actorId, pending);
+    const result = await this.confirmPending(shopId, actorId, pending);
     await this.respond(
       shopId,
       actorId,
       replyToken,
-      `✅ ยืนยันแล้ว\n• ${pending.productQuery} ${pending.operation === 'INCREASE' ? '+' : '-'}${pending.quantity}`,
+      await this.renderConfirmed(shopId, result, pending),
       pending.id,
     );
 
     return { pendingActionId: pending.id };
+  }
+
+  /**
+   * ข้อความยืนยันบอกจำนวนก่อน→หลังด้วย เพราะเป็นจุดเดียวที่สต็อกเปลี่ยนจริง
+   * ผู้ใช้บน LINE ไม่มีหน้าจอสินค้าให้เปิดเช็ค จึงควรเห็นตัวเลขในแชทเลย
+   *
+   * ถ้าอ่าน items ไม่ได้ (เช่น api เปลี่ยนรูปแบบ) ถอยไปใช้สรุปแบบไม่มีตัวเลข
+   * ดีกว่าไม่ตอบอะไรเลย
+   */
+  private async renderConfirmed(
+    shopId: string,
+    result: ConfirmResult,
+    pending: {
+      productQuery: string | null;
+      operation: 'INCREASE' | 'DECREASE';
+      quantity: number;
+      shopProductId: string | null;
+      parsedItems?: unknown;
+    },
+  ): Promise<string> {
+    const adjusted = result.items ?? [];
+
+    if (adjusted.length === 0) {
+      return [
+        '✅ ยืนยันแล้ว',
+        ...(await this.renderItems(shopId, pending)),
+      ].join('\n');
+    }
+
+    const ids = adjusted
+      .map((item) => item.movement?.shopProductId)
+      .filter((id): id is string => Boolean(id));
+    const rows = ids.length
+      ? await this.prisma.shopProduct.findMany({
+          where: { id: { in: ids }, shopId },
+          select: { id: true, product: { select: { name: true } } },
+        })
+      : [];
+    const names = new Map(rows.map((row) => [row.id, row.product.name]));
+
+    const lines = adjusted.map((item) => {
+      const stock = item.stock;
+      const name =
+        names.get(item.movement?.shopProductId ?? '') ??
+        pending.productQuery ??
+        '';
+
+      if (!stock) return `• ${name}`;
+
+      const delta = stock.quantityAfter - stock.quantityBefore;
+      const sign = delta >= 0 ? '+' : '-';
+
+      return `• ${name} ${sign}${Math.abs(delta)} (${stock.quantityBefore} → ${stock.quantityAfter})`;
+    });
+
+    return ['✅ ยืนยันแล้ว', ...lines].join('\n');
+  }
+
+  /**
+   * หนึ่งคำสั่งมีได้หลายรายการ (คั่นด้วย ";" หรือขึ้นบรรทัดใหม่ — ดู
+   * ChatCommandService.create()) ฟิลด์ระดับบนของ PendingAction เก็บแค่รายการแรก
+   * ถ้าใช้มันสรุป ผู้ใช้ที่พิมพ์ "เพิ่มโค้ก 10; ลดน้ำเปล่า 3" จะเห็นแค่โค้ก
+   * แล้วยืนยันโดยไม่รู้ว่าน้ำเปล่าจะถูกตัดไปด้วย
+   */
+  private async renderItems(
+    shopId: string,
+    pending: {
+      productQuery: string | null;
+      operation: 'INCREASE' | 'DECREASE';
+      quantity: number;
+      shopProductId: string | null;
+      parsedItems?: unknown;
+    },
+  ): Promise<string[]> {
+    const parsed = pendingItemsSchema.safeParse(pending.parsedItems);
+    const items = parsed.success
+      ? parsed.data
+      : [
+          {
+            shopProductId: pending.shopProductId ?? '',
+            productQuery: pending.productQuery ?? '',
+            operation: pending.operation,
+            quantity: pending.quantity,
+          },
+        ];
+
+    const ids = items.map((item) => item.shopProductId).filter(Boolean);
+    const rows = ids.length
+      ? await this.prisma.shopProduct.findMany({
+          where: { id: { in: ids }, shopId },
+          select: { id: true, product: { select: { name: true } } },
+        })
+      : [];
+    const names = new Map(rows.map((row) => [row.id, row.product.name]));
+
+    return items.map((item) => {
+      const sign = item.operation === 'INCREASE' ? '+' : '-';
+      const label = names.get(item.shopProductId) ?? item.productQuery;
+
+      return `• ${label} ${sign}${item.quantity}`;
+    });
   }
 
   /**
@@ -538,9 +659,9 @@ export class LineWebhookService {
       shopProductId: string | null;
       productQuery: string | null;
     },
-  ): Promise<void> {
+  ): Promise<ConfirmResult> {
     try {
-      await this.commands.confirm(shopId, pending.id, actorId);
+      return await this.commands.confirm(shopId, pending.id, actorId);
     } catch (error) {
       if (error instanceof ConflictException) {
         throw new LineUserMessageError(await this.outOfStockMessage(pending));
