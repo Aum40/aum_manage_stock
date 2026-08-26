@@ -126,8 +126,11 @@ describe('StockService', () => {
         .fn()
         .mockResolvedValue({ quantityBefore: 10, quantityAfter: 11 }),
     } as unknown as StockInventoryPort;
+    const createMovementMock = jest
+      .fn()
+      .mockResolvedValue({ id: 'movement-id' });
     const movements = {
-      create: jest.fn().mockResolvedValue({ id: 'movement-id' }),
+      create: createMovementMock,
     } as unknown as StockMovementsService;
     const service = new StockService(
       prisma,
@@ -151,5 +154,12 @@ describe('StockService', () => {
       actorId: 'actor-id',
     });
     expect(assertCanAdjustStock).not.toHaveBeenCalled();
+    expect(createMovementMock).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        pendingActionId: 'pending-id',
+        referenceType: 'PENDING_ACTION',
+      }),
+    );
   });
 });

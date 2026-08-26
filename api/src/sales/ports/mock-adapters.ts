@@ -95,7 +95,9 @@ export class MockSalesProductAdapter implements SalesProductPort {
     return {
       shopProductId: product.shopProductId,
       name: product.name,
+      barcode: product.barcode,
       unitPrice: new Prisma.Decimal(product.unitPrice),
+      costPrice: new Prisma.Decimal(0),
     };
   }
 }

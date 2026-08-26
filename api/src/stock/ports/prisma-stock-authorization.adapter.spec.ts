@@ -7,6 +7,37 @@ describe('PrismaStockAuthorizationAdapter', () => {
     owner: { subscription: { status: 'ACTIVE', expiresAt: null } },
   };
 
+  it('allows only the owner or an active shop assignment to view stock history', async () => {
+    const tx = {
+      shop: { findFirst: jest.fn().mockResolvedValue(activeShop) },
+      shopStaff: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'assignment' })
+          .mockResolvedValueOnce(null),
+      },
+    };
+    const adapter = new PrismaStockAuthorizationAdapter();
+    await expect(
+      adapter.assertCanViewStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'owner',
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      adapter.assertCanViewStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      adapter.assertCanViewStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'outsider',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('allows the owner and permitted active staff', async () => {
     const tx = {
       shop: { findFirst: jest.fn().mockResolvedValue(activeShop) },

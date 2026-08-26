@@ -50,13 +50,14 @@ describe('Prisma sales adapters', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('uses the server-side product name and selling price', async () => {
+  it('uses server-side product snapshot values', async () => {
     const tx = {
       shopProduct: {
         findFirst: jest.fn().mockResolvedValue({
           id: 'product',
           sellPrice: new Prisma.Decimal('75.00'),
-          product: { name: 'Latte' },
+          costPrice: new Prisma.Decimal('40.00'),
+          product: { name: 'Latte', barcode: '8850000000001' },
         }),
       },
     };
@@ -66,7 +67,9 @@ describe('Prisma sales adapters', () => {
     ).resolves.toMatchObject({
       shopProductId: 'product',
       name: 'Latte',
+      barcode: '8850000000001',
       unitPrice: new Prisma.Decimal('75.00'),
+      costPrice: new Prisma.Decimal('40.00'),
     });
   });
 
