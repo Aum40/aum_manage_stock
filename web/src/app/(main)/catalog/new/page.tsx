@@ -18,6 +18,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog";
 import { ApiError, api } from "@/lib/api-client";
 import {
@@ -51,6 +52,7 @@ interface ShopRow {
   threshold: string;
 }
 
+/** ร้านที่ยังไม่ถูกแตะ — ปิดสวิตช์ไว้ */
 const EMPTY_ROW: ShopRow = {
   enabled: false,
   sellPrice: "",
@@ -58,6 +60,8 @@ const EMPTY_ROW: ShopRow = {
   stock: "",
   threshold: "",
 };
+
+const ACTIVE_SHOP_ROW: ShopRow = { ...EMPTY_ROW, enabled: true };
 
 const content = {
   th: {
@@ -183,12 +187,25 @@ export default function AddProductFullPage() {
   const uploadImage = useUploadImage();
 
   const shops = shopsQuery.data ?? [];
+  const { selectedShopId } = useSelectedShop();
+  const activeShopId =
+    (selectedShopId && shops.some((shop) => shop.id === selectedShopId)
+      ? selectedShopId
+      : shops[0]?.id) ?? "";
   const quota = subscriptionQuery.data?.quotas.product;
   const categoryName =
     categoriesQuery.data?.find((category) => category.id === categoryId)?.name ??
     t.categoryNone;
 
-  const rowOf = (shopId: string) => rows[shopId] ?? EMPTY_ROW;
+  /**
+   * ร้านที่กำลังใช้งานอยู่เปิดสวิตช์ไว้ให้ตั้งแต่แรก — คนส่วนใหญ่เพิ่มสินค้าเข้าร้าน
+   * ที่ตัวเองดูอยู่ ไม่ใช่ลงคลังกลางเฉย ๆ
+   *
+   * ทำเป็น default ตอนอ่าน ไม่ใช่ seed ลง state ผ่าน useEffect เพราะรายชื่อร้าน
+   * มาแบบ async ถ้า seed จะเขียนทับค่าที่ผู้ใช้เพิ่งกดปิดไปตอน query ตอบกลับมา
+   */
+  const rowOf = (shopId: string) =>
+    rows[shopId] ?? (shopId === activeShopId ? ACTIVE_SHOP_ROW : EMPTY_ROW);
   const patchRow = (shopId: string, patch: Partial<ShopRow>) =>
     setRows((previous) => ({
       ...previous,
