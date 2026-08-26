@@ -7,6 +7,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import {
   PendingAction,
   PendingActionSource,
@@ -22,6 +24,16 @@ import type { StockAuthorizationPort } from '../stock/ports/stock-authorization.
 import { UpdatePendingActionDto } from './dto/chat-command.dto';
 import { STOCK_COMMAND_PARSER } from './parsers/stock-command-parser';
 import type { StockCommandParser } from './parsers/stock-command-parser';
+
+const persistedItemSchema = z.object({
+  id: z.string().uuid(),
+  intent: z.literal('ADJUST_STOCK'),
+  operation: z.enum(['INCREASE', 'DECREASE']),
+  productQuery: z.string().min(1),
+  quantity: z.number().int().positive(),
+  shopProductId: z.string().uuid(),
+});
+const persistedItemsSchema = z.array(persistedItemSchema).min(1).max(100);
 
 @Injectable()
 export class ChatCommandService {
@@ -47,11 +59,28 @@ export class ChatCommandService {
       throw new ForbiddenException('Authenticated chatbot user is required');
     }
     await this.assertChatbotAccess(input.shopId, input.actorId);
-    const parsed = await this.parser.parse(input.message);
-    const product = await this.inventory.resolveProduct(
-      input.shopId,
-      parsed.productQuery,
+    const commandLines = input.message
+      .split(/\r?\n|;/u)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (commandLines.length > 100) {
+      throw new BadRequestException('A command can contain at most 100 items');
+    }
+    const parsedItems = await Promise.all(
+      commandLines.map(async (line) => {
+        const parsed = await this.parser.parse(line);
+        const product = await this.inventory.resolveProduct(
+          input.shopId,
+          parsed.productQuery,
+        );
+        return {
+          id: randomUUID(),
+          ...parsed,
+          shopProductId: product.shopProductId,
+        };
+      }),
     );
+    const first = parsedItems[0];
     const ttl = this.config.get<number>('PENDING_ACTION_TTL_MINUTES', 15);
     return this.prisma.pendingAction.create({
       data: {
@@ -59,13 +88,14 @@ export class ChatCommandService {
         actorId: input.actorId,
         source: input.source,
         originalMessage: input.message,
-        intent: parsed.intent,
-        shopProductId: product.shopProductId,
-        productQuery: parsed.productQuery,
-        operation: parsed.operation,
-        quantity: parsed.quantity,
+        intent: first.intent,
+        shopProductId: first.shopProductId,
+        productQuery: first.productQuery,
+        operation: first.operation,
+        quantity: first.quantity,
         expiresAt: new Date(Date.now() + ttl * 60_000),
-        payload: parsed as unknown as Prisma.InputJsonValue,
+        payload: first,
+        parsedItems,
       },
     });
   }
@@ -87,9 +117,35 @@ export class ChatCommandService {
         await this.inventory.resolveProduct(shopId, patch.productQuery)
       ).shopProductId;
     }
+    const existingItems = pending.parsedItems
+      ? persistedItemsSchema.parse(pending.parsedItems)
+      : [];
+    const firstItem = existingItems[0] ?? {
+      id: randomUUID(),
+      intent: 'ADJUST_STOCK' as const,
+      shopProductId: pending.shopProductId,
+      productQuery: pending.productQuery,
+      operation: pending.operation,
+      quantity: pending.quantity,
+    };
+    if (!shopProductId && !firstItem.shopProductId) {
+      throw new BadRequestException('Pending action has no resolved product');
+    }
+    const parsedItems = [
+      {
+        ...firstItem,
+        ...patch,
+        shopProductId: shopProductId ?? firstItem.shopProductId,
+      },
+      ...existingItems.slice(1),
+    ];
     const result = await this.prisma.pendingAction.updateMany({
       where: { id: pendingId, shopId, status: 'PENDING' },
-      data: { ...patch, shopProductId },
+      data: {
+        ...patch,
+        shopProductId,
+        parsedItems,
+      },
     });
     if (result.count !== 1) {
       throw new ConflictException('Pending action changed concurrently');
@@ -135,15 +191,33 @@ export class ChatCommandService {
                 'Pending action has no resolved product',
               );
             }
-            const adjusted = await this.stock.adjustInTransaction(tx, {
-              shopId,
-              shopProductId: pending.shopProductId,
-              actorId,
-              operation: pending.operation,
-              quantity: pending.quantity,
-              source: pending.source,
-              pendingAction: pending,
-            });
+            const items = pending.parsedItems
+              ? persistedItemsSchema.parse(pending.parsedItems)
+              : [
+                  {
+                    id: pending.id,
+                    intent: 'ADJUST_STOCK' as const,
+                    shopProductId: pending.shopProductId,
+                    productQuery: pending.productQuery,
+                    operation: pending.operation,
+                    quantity: pending.quantity,
+                  },
+                ];
+            const adjusted = [];
+            for (const item of items) {
+              adjusted.push(
+                await this.stock.adjustInTransaction(tx, {
+                  shopId,
+                  shopProductId: item.shopProductId,
+                  actorId,
+                  operation: item.operation,
+                  quantity: item.quantity,
+                  source: pending.source,
+                  pendingAction: pending,
+                  pendingItemReferenceId: item.id,
+                }),
+              );
+            }
             const updated = await tx.pendingAction.updateMany({
               where: { id: pendingId, shopId, status: 'PENDING' },
               data: { status: 'CONFIRMED', confirmedAt: new Date(), actorId },
@@ -153,7 +227,11 @@ export class ChatCommandService {
                 'Pending action changed concurrently',
               );
             }
-            return { ...adjusted, pendingActionId: pendingId };
+            return {
+              ...adjusted[0],
+              items: adjusted,
+              pendingActionId: pendingId,
+            };
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         ),

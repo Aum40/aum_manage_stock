@@ -9,6 +9,30 @@ import { StockAuthorizationPort } from './stock-authorization.port';
 
 @Injectable()
 export class PrismaStockAuthorizationAdapter implements StockAuthorizationPort {
+  async assertCanViewStock(
+    tx: Prisma.TransactionClient,
+    input: { shopId: string; actorId: string },
+  ): Promise<void> {
+    const shop = await tx.shop.findFirst({
+      where: { id: input.shopId, deletedAt: null, status: 'ACTIVE' },
+      select: { ownerId: true },
+    });
+    if (!shop) throw new NotFoundException('Active shop not found');
+    if (shop.ownerId === input.actorId) return;
+
+    const assignment = await tx.shopStaff.findFirst({
+      where: {
+        shopId: input.shopId,
+        userId: input.actorId,
+        removedAt: null,
+        user: { status: 'ACTIVE', deletedAt: null },
+      },
+      select: { id: true },
+    });
+    if (!assignment)
+      throw new ForbiddenException('Stock history access is not permitted');
+  }
+
   async assertCanAdjustStock(
     tx: Prisma.TransactionClient,
     input: { shopId: string; actorId: string },

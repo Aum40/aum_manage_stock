@@ -41,4 +41,92 @@ describe('ChatCommandService', () => {
     expect(parser.parse).not.toHaveBeenCalled();
     expect(prisma.pendingAction.create).not.toHaveBeenCalled();
   });
+
+  it('persists and confirms multiple stock items in one transaction', async () => {
+    const pendingId = '10000000-0000-4000-8000-000000000001';
+    const productIds = [
+      '20000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000002',
+    ];
+    let persisted: Record<string, unknown> | undefined;
+    const tx = {
+      pendingAction: {
+        findFirst: jest.fn(() => Promise.resolve(persisted)),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback: (value: unknown) => unknown) =>
+        callback(tx),
+      ),
+      pendingAction: {
+        create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
+          persisted = { id: pendingId, status: 'PENDING', ...data };
+          return Promise.resolve(persisted);
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const parser = {
+      parse: jest
+        .fn()
+        .mockResolvedValueOnce({
+          intent: 'ADJUST_STOCK',
+          operation: 'INCREASE',
+          productQuery: 'coffee',
+          quantity: 2,
+        })
+        .mockResolvedValueOnce({
+          intent: 'ADJUST_STOCK',
+          operation: 'DECREASE',
+          productQuery: 'tea',
+          quantity: 1,
+        }),
+    };
+    const inventory = {
+      resolveProduct: jest
+        .fn()
+        .mockResolvedValueOnce({ shopProductId: productIds[0] })
+        .mockResolvedValueOnce({ shopProductId: productIds[1] }),
+    };
+    const stock = {
+      adjustInTransaction: jest.fn().mockResolvedValue({ stock: {} }),
+    };
+    const service = new ChatCommandService(
+      prisma as never,
+      { get: jest.fn().mockReturnValue(15) } as never,
+      stock as never,
+      parser,
+      inventory as never,
+      { assertCanUseChatbot: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+
+    const created = await service.create({
+      shopId: 'shop',
+      actorId: 'staff',
+      source: 'WEB',
+      message: 'add coffee 2\nremove tea 1',
+    });
+    expect(created).toMatchObject({ id: pendingId });
+    expect(parser.parse).toHaveBeenCalledTimes(2);
+
+    await expect(
+      service.confirm('shop', pendingId, 'staff'),
+    ).resolves.toMatchObject({
+      stock: {},
+      pendingActionId: pendingId,
+      items: [{ stock: {} }, { stock: {} }],
+    });
+    expect(stock.adjustInTransaction).toHaveBeenCalledTimes(2);
+    expect(stock.adjustInTransaction).toHaveBeenNthCalledWith(
+      1,
+      tx,
+      expect.objectContaining({ shopProductId: productIds[0], quantity: 2 }),
+    );
+    expect(stock.adjustInTransaction).toHaveBeenNthCalledWith(
+      2,
+      tx,
+      expect.objectContaining({ shopProductId: productIds[1], quantity: 1 }),
+    );
+  });
 });

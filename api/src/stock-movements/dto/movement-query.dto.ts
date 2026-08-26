@@ -8,7 +8,9 @@ export const movementQuerySchema = z
     to: z.coerce.date().optional(),
     shopProductId: z.string().uuid().optional(),
     actorId: z.string().uuid().optional(),
-    movementType: z.enum(['MANUAL_ADJUSTMENT', 'CHAT_ADJUSTMENT']).optional(),
+    movementType: z
+      .enum(['MANUAL_ADJUSTMENT', 'CHAT_ADJUSTMENT', 'SALE', 'SALE_VOID'])
+      .optional(),
   })
   .refine((value) => !value.from || !value.to || value.from <= value.to, {
     message: '`from` must be before or equal to `to`',

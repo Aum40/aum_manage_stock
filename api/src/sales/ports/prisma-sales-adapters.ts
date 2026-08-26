@@ -57,7 +57,7 @@ export class PrismaSalesProductAdapter implements SalesProductPort {
         status: 'ACTIVE',
         product: { barcode, deletedAt: null },
       },
-      include: { product: { select: { name: true } } },
+      include: { product: { select: { name: true, barcode: true } } },
       take: 2,
     });
     if (products.length === 0)
@@ -79,7 +79,7 @@ export class PrismaSalesProductAdapter implements SalesProductPort {
         status: 'ACTIVE',
         product: { deletedAt: null },
       },
-      include: { product: { select: { name: true } } },
+      include: { product: { select: { name: true, barcode: true } } },
     });
     if (!product) throw new NotFoundException('Active shop product not found');
     return this.snapshot(product);
@@ -95,12 +95,15 @@ export class PrismaSalesProductAdapter implements SalesProductPort {
   private snapshot(product: {
     id: string;
     sellPrice: Prisma.Decimal;
-    product: { name: string };
+    costPrice: Prisma.Decimal;
+    product: { name: string; barcode: string | null };
   }): SellableProduct {
     return {
       shopProductId: product.id,
       name: product.product.name,
+      barcode: product.product.barcode,
       unitPrice: product.sellPrice,
+      costPrice: product.costPrice,
     };
   }
 }

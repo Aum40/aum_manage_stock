@@ -20,6 +20,7 @@ export interface ExecuteAdjustmentInput {
   source: StockMovementSource;
   note?: string;
   pendingAction?: PendingAction;
+  pendingItemReferenceId?: string;
 }
 
 @Injectable()
@@ -73,7 +74,8 @@ export class StockService {
       source: input.source,
       note: input.note,
       referenceType: input.pendingAction ? 'PENDING_ACTION' : undefined,
-      referenceId: input.pendingAction?.id,
+      referenceId: input.pendingItemReferenceId ?? input.pendingAction?.id,
+      pendingActionId: input.pendingAction?.id,
     });
     return { movement, stock };
   }

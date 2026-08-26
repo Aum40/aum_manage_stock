@@ -34,7 +34,9 @@ describe('SalesService', () => {
       getForSale: jest.fn().mockResolvedValue({
         shopProductId: productId,
         name: 'Coffee',
+        barcode: '8850000000001',
         unitPrice: new Prisma.Decimal('12.50'),
+        costPrice: new Prisma.Decimal('8.00'),
       }),
       adjustStock: jest
         .fn()
@@ -42,7 +44,9 @@ describe('SalesService', () => {
       scan: jest.fn().mockResolvedValue({
         shopProductId: productId,
         name: 'Coffee',
+        barcode: '8850000000001',
         unitPrice: new Prisma.Decimal('12.50'),
+        costPrice: new Prisma.Decimal('8.00'),
       }),
     };
     const staff = {
@@ -69,9 +73,26 @@ describe('SalesService', () => {
     });
     expect(tx.sale.create).toHaveBeenCalled();
     const [createCall] = tx.sale.create.mock.calls as unknown as [
-      [{ data: { totalAmount: Prisma.Decimal } }],
+      [
+        {
+          data: {
+            totalAmount: Prisma.Decimal;
+            saleNo: string;
+            itemCount: number;
+            items: {
+              create: Array<{ barcode: string; costPrice: Prisma.Decimal }>;
+            };
+          };
+        },
+      ],
     ];
     expect(createCall[0].data.totalAmount.toString()).toBe('25');
+    expect(createCall[0].data.saleNo).toMatch(/^S-[A-F0-9]{20}$/);
+    expect(createCall[0].data.itemCount).toBe(2);
+    expect(createCall[0].data.items.create[0]).toMatchObject({
+      barcode: '8850000000001',
+      costPrice: new Prisma.Decimal('8.00'),
+    });
     expect(products.adjustStock).toHaveBeenCalledWith(tx, {
       shopId: 'shop',
       shopProductId: productId,
@@ -79,7 +100,11 @@ describe('SalesService', () => {
     });
     expect(movements.create).toHaveBeenCalledWith(
       tx,
-      expect.objectContaining({ movementType: 'SALE', referenceId: itemId }),
+      expect.objectContaining({
+        movementType: 'SALE',
+        saleId,
+        referenceId: itemId,
+      }),
     );
   });
 
@@ -95,6 +120,7 @@ describe('SalesService', () => {
       tx,
       expect.objectContaining({
         movementType: 'SALE_VOID',
+        saleId,
         referenceId: itemId,
       }),
     );
