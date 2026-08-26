@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 
@@ -19,7 +19,10 @@ import { FormError } from "@/components/features/auth/form-error";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import { useCreateShop, useUpdateShop, type Shop } from "@/lib/hooks/use-inventory";
+import { useUploadImage } from "@/lib/hooks/use-uploads";
 import { shopFormSchema, type ShopFormValues } from "@/lib/validations/shops";
+
+const ACCEPTED_IMAGE_TYPES = "image/jpeg,image/png,image/webp";
 
 const content = {
   th: {
@@ -29,6 +32,9 @@ const content = {
     fieldName: "ชื่อร้าน",
     fieldDescription: "คำอธิบายร้าน",
     fieldImageUrl: "ลิงก์รูปภาพ",
+    uploadBtn: "อัปโหลดรูปจากเครื่อง",
+    uploadingBtn: "กำลังอัปโหลด…",
+    uploadError: "อัปโหลดรูปไม่สำเร็จ",
     fieldPhone: "เบอร์โทร",
     fieldAddress: "ที่อยู่",
     cancelBtn: "ยกเลิก",
@@ -45,6 +51,9 @@ const content = {
     fieldName: "Shop Name",
     fieldDescription: "Description",
     fieldImageUrl: "Image URL",
+    uploadBtn: "Upload from device",
+    uploadingBtn: "Uploading…",
+    uploadError: "Failed to upload the image",
     fieldPhone: "Phone",
     fieldAddress: "Address",
     cancelBtn: "Cancel",
@@ -73,13 +82,32 @@ export function ShopFormDialog({ open, onOpenChange, shop }: ShopFormDialogProps
 
   const createShop = useCreateShop();
   const updateShop = useUpdateShop(shop?.id);
+  const uploadImage = useUploadImage();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<ShopFormValues>({ resolver: zodResolver(shopFormSchema) });
+
+  const imageUrl = watch("imageUrl");
+
+  const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // เลือกไฟล์เดิมซ้ำได้อีกครั้งหลังอัปโหลดไม่สำเร็จ
+    if (!file) return;
+
+    uploadImage.mutate(
+      { file, folder: "shops" },
+      {
+        onSuccess: ({ url }) => setValue("imageUrl", url, { shouldValidate: true }),
+      },
+    );
+  };
 
   // แบบฟอร์มต้องรีเซ็ตทุกครั้งที่เปิด — ทั้งตอนสลับจากแก้ร้านหนึ่งไปอีกร้าน
   // และตอนปิดแล้วเปิดใหม่เพื่อสร้างร้านใหม่ ไม่งั้นค่าเก่าจะค้าง
@@ -144,9 +172,40 @@ export function ShopFormDialog({ open, onOpenChange, shop }: ShopFormDialogProps
 
           <div className="flex flex-col gap-1">
             <Label className="text-[11px] font-semibold uppercase">{t.fieldImageUrl}</Label>
-            <Input placeholder="https://..." {...register("imageUrl")} />
+            <div className="flex items-center gap-2">
+              {imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={imageUrl}
+                  alt=""
+                  className="size-10 shrink-0 rounded-lg object-cover"
+                />
+              )}
+              <Input placeholder="https://..." className="flex-1" {...register("imageUrl")} />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPTED_IMAGE_TYPES}
+                className="hidden"
+                onChange={onFileSelected}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={uploadImage.isPending}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploadImage.isPending ? t.uploadingBtn : t.uploadBtn}
+              </Button>
+            </div>
             {errors.imageUrl && (
               <p className="text-xs text-destructive">{errors.imageUrl.message}</p>
+            )}
+            {uploadImage.isError && (
+              <p className="text-xs text-destructive">
+                {toMessage(uploadImage.error, t.uploadError)}
+              </p>
             )}
           </div>
 

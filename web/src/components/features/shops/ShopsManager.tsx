@@ -151,12 +151,21 @@ export default function ShopsManager() {
               <Card key={s.id}>
                 <div className="px-4">
                   <div className="mb-3.5 flex items-start justify-between">
-                    <div
-                      className="flex size-12 items-center justify-center rounded-2xl font-heading text-xl font-bold text-white"
-                      style={{ backgroundColor: i % 2 === 0 ? "#F5A31C" : "#5C9A54" }}
-                    >
-                      {s.name.charAt(0)}
-                    </div>
+                    {s.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={s.imageUrl}
+                        alt=""
+                        className="size-12 rounded-2xl object-cover"
+                      />
+                    ) : (
+                      <div
+                        className="flex size-12 items-center justify-center rounded-2xl font-heading text-xl font-bold text-white"
+                        style={{ backgroundColor: i % 2 === 0 ? "#F5A31C" : "#5C9A54" }}
+                      >
+                        {s.name.charAt(0)}
+                      </div>
+                    )}
                     <Badge variant="success">{t.activeLabel}</Badge>
                   </div>
                   <div className="mb-1 font-heading text-base font-bold text-foreground">

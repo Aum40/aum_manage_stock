@@ -341,7 +341,10 @@ export class PaymentsService {
    * ทำแบบ best-effort — ถ้าปิดฝั่ง Stripe ไม่สำเร็จ (เช่นหมดอายุไปเองแล้ว)
    * ก็ยังปิดแถวฝั่งเราให้เรียบร้อย ไม่บล็อกการซื้อรอบใหม่
    */
-  private async expirePendingCheckouts(userId: string, exceptPaymentId?: string) {
+  private async expirePendingCheckouts(
+    userId: string,
+    exceptPaymentId?: string,
+  ) {
     const pending = await this.prisma.payment.findMany({
       where: {
         userId,

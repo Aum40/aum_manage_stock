@@ -6,6 +6,7 @@ import { DeterministicStockCommandParser } from './parsers/deterministic-stock-c
 import { FallbackStockCommandParser } from './parsers/fallback-stock-command.parser';
 import { LlmStockCommandParser } from './parsers/llm-stock-command.parser';
 import { STOCK_COMMAND_PARSER } from './parsers/stock-command-parser';
+import { StockChoiceService } from './stock-choice.service';
 
 @Module({
   imports: [StockModule],
@@ -21,9 +22,11 @@ import { STOCK_COMMAND_PARSER } from './parsers/stock-command-parser';
       provide: STOCK_COMMAND_PARSER,
       useClass: FallbackStockCommandParser,
     },
+    // [อั้ม] ตัวเลือกสินค้าตอนชื่อกำกวม ใช้ร่วมกันทั้ง WEB และ LINE
+    StockChoiceService,
   ],
   // [อั้ม] LINE ต้อง parse ซ้ำเองตอนชื่อสินค้ากำกวม เพื่อรู้จำนวน/ทิศทาง
   // ที่ผู้ใช้สั่ง แล้วเก็บเป็นรายการรอเลือก — export เพิ่มบรรทัดเดียว ไม่แตะของเดิม
-  exports: [ChatCommandService, STOCK_COMMAND_PARSER],
+  exports: [ChatCommandService, STOCK_COMMAND_PARSER, StockChoiceService],
 })
 export class ChatCommandModule {}

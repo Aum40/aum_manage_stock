@@ -12,7 +12,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import Link from "next/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -110,6 +109,10 @@ function MainLayoutInner({ children }: { children: React.ReactNode }) {
   );
   // พนักงานจ่ายเงินหรืออัปเกรดแพ็กเกจแทนเจ้าของร้านไม่ได้ (SRS §126)
   const isStaff = role === "staff";
+  // Base UI ให้ <Select.Value /> แสดง "ค่า" ที่เลือก ไม่ใช่ข้อความใน <SelectItem>
+  // ถ้าใช้ตรงๆ จะได้ UUID ของร้านโผล่ในไซด์บาร์ จึงเรนเดอร์ชื่อร้านเอง
+  const activeShopName =
+    shops.find((s) => s.id === activeShopId)?.name ?? t.shopName;
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -128,7 +131,7 @@ function MainLayoutInner({ children }: { children: React.ReactNode }) {
               }}
             >
               <SelectTrigger className="w-full border-white/10 bg-transparent text-[13px] font-semibold text-white/90 hover:bg-white/5">
-                <SelectValue placeholder={t.shopName} />
+                <span className="flex-1 truncate text-left">{activeShopName}</span>
               </SelectTrigger>
               <SelectContent>
                 {shops.map((shop) => (
