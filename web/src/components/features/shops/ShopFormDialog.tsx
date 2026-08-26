@@ -20,9 +20,16 @@ import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import { useCreateShop, useUpdateShop, type Shop } from "@/lib/hooks/use-inventory";
 import { useUploadImage } from "@/lib/hooks/use-uploads";
+import { ShopLocationPicker } from "@/components/features/shops/ShopLocationPicker";
 import { shopFormSchema, type ShopFormValues } from "@/lib/validations/shops";
 
 const ACCEPTED_IMAGE_TYPES = "image/jpeg,image/png,image/webp";
+
+function toNumber(value: number | string | null | undefined): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 const content = {
   th: {
@@ -97,6 +104,8 @@ export function ShopFormDialog({ open, onOpenChange, shop }: ShopFormDialogProps
   // useWatch แทน watch() — watch() อ่าน state นอกสายตา React Compiler มันเลย
   // ข้ามการ compile ทั้ง component ทิ้ง (lint เตือน "incompatible library")
   const imageUrl = useWatch({ control, name: "imageUrl" });
+  const latitude = useWatch({ control, name: "latitude" });
+  const longitude = useWatch({ control, name: "longitude" });
 
   const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -121,6 +130,8 @@ export function ShopFormDialog({ open, onOpenChange, shop }: ShopFormDialogProps
       imageUrl: shop?.imageUrl ?? "",
       phone: shop?.phone ?? "",
       address: shop?.address ?? "",
+      latitude: toNumber(shop?.latitude),
+      longitude: toNumber(shop?.longitude),
     });
   }, [open, shop, reset]);
 
@@ -131,6 +142,8 @@ export function ShopFormDialog({ open, onOpenChange, shop }: ShopFormDialogProps
       imageUrl: values.imageUrl || undefined,
       phone: values.phone || undefined,
       address: values.address || undefined,
+      latitude: values.latitude,
+      longitude: values.longitude,
     };
 
     try {
@@ -226,6 +239,16 @@ export function ShopFormDialog({ open, onOpenChange, shop }: ShopFormDialogProps
               <p className="text-xs text-destructive">{errors.address.message}</p>
             )}
           </div>
+
+          <ShopLocationPicker
+            latitude={latitude}
+            longitude={longitude}
+            onLocationChange={({ latitude: lat, longitude: lng, address }) => {
+              setValue("latitude", lat, { shouldValidate: true });
+              setValue("longitude", lng, { shouldValidate: true });
+              if (address) setValue("address", address, { shouldValidate: true });
+            }}
+          />
 
           <FormError
             message={

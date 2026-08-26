@@ -136,17 +136,36 @@ export default function ShopsManager() {
             <p className="text-sm text-destructive">{deleteError}</p>
           )}
 
+          {shopsQuery.isLoading && (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              {t.loading}
+            </div>
+          )}
+
+          {!shopsQuery.isLoading && shops.length === 0 && (
+            <Card variant="dashed">
+              <button
+                type="button"
+                disabled={!canCreate}
+                onClick={openCreate}
+                title={readOnly ? t.readOnlyNote : !canCreate ? t.quotaFullNote : undefined}
+                className="flex w-full flex-col items-center gap-3 px-4 py-12 text-center disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <div className="text-4xl leading-none font-bold text-primary">
+                  +
+                </div>
+                <div className="font-heading text-base font-semibold text-foreground">
+                  {t.createNew}
+                </div>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {readOnly ? t.readOnlyNote : t.remainingSlot(quota?.remaining ?? 0)}
+                </p>
+              </button>
+            </Card>
+          )}
+
+          {!shopsQuery.isLoading && shops.length > 0 && (
           <div className="grid grid-cols-1 gap-4.5 sm:grid-cols-2 lg:grid-cols-3">
-            {shopsQuery.isLoading && (
-              <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
-                {t.loading}
-              </div>
-            )}
-            {!shopsQuery.isLoading && shops.length === 0 && (
-              <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
-                {t.empty}
-              </div>
-            )}
             {shops.map((s, i) => (
               <Card key={s.id}>
                 <div className="px-4">
@@ -223,6 +242,7 @@ export default function ShopsManager() {
               </div>
             </button>
           </div>
+          )}
 
           <Caption>{t.caption}</Caption>
         </div>

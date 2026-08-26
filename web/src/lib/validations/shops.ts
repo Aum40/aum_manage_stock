@@ -20,6 +20,8 @@ export const shopFormSchema = z.object({
     .optional()
     .or(z.literal("")),
   address: z.string().trim().max(2000).optional().or(z.literal("")),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
 });
 
 export type ShopFormValues = z.infer<typeof shopFormSchema>;
