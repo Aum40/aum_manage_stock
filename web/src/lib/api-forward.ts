@@ -72,15 +72,21 @@ function callApi(
   init: { method: string; body?: unknown },
   token: string,
 ) {
+  // FormData (อัปโหลดไฟล์) ต้องปล่อยให้ fetch ตั้ง Content-Type + boundary เอง
+  // ห้ามตั้งเองและห้าม JSON.stringify ไม่งั้น multipart body จะพังทันที
+  const isFormData = init.body instanceof FormData;
+
   return fetch(`${API_URL}${path}`, {
     method: init.method,
     headers: {
       Authorization: `Bearer ${token}`,
-      ...(init.body === undefined
+      ...(init.body === undefined || isFormData
         ? {}
         : { 'Content-Type': 'application/json' }),
     },
-    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    ...(init.body === undefined
+      ? {}
+      : { body: isFormData ? (init.body as FormData) : JSON.stringify(init.body) }),
   });
 }
 

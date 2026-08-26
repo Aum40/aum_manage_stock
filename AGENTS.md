@@ -51,6 +51,7 @@ Toolchain: **Node 24.x**, **pnpm 11.8.0** — pinned in `.nvmrc`, in the `engine
 | `ollama` | `^0.6.3` | local LLM (dev/offline) |
 | `otplib` | `^13.4.1` | TOTP 2FA |
 | `qrcode` (+ `@types/qrcode` `^1.5.6` dev) | `^1.5.4` | 2FA setup QR |
+| `@types/multer` (dev) | `^2.2.0` | types for `Express.Multer.File` (image upload) |
 | `@line/bot-sdk` | `^11.2.0` | LINE Messaging API |
 | `typescript` | `^5.7.3` | — |
 
