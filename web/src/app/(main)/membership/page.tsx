@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import TopBar from "@/components/layout/TopBar";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -107,6 +109,8 @@ const PAYMENT_STATUS_VARIANT: Record<string, "success" | "warning" | "error" | "
 
 export default function MembershipPage() {
   const { locale } = useLocale();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const t = content[locale];
   const subscriptionQuery = useMySubscription();
   const paymentsQuery = usePayments();
@@ -194,7 +198,13 @@ export default function MembershipPage() {
           amount={payment.amount}
           locale={locale}
           onClose={() => setPayment(null)}
-          onSuccess={() => window.location.assign("/membership?status=success")}
+          onSuccess={() => {
+            // จ่ายเงินสำเร็จแล้วแพ็กเกจ/โควตา/ประวัติเปลี่ยนหมด ล้าง cache
+            // ให้ดึงใหม่แทนการ reload ทั้งหน้า
+            setPayment(null);
+            void queryClient.invalidateQueries();
+            router.push("/membership?status=success");
+          }}
         />
       )}
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">

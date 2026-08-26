@@ -25,15 +25,6 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   /** เริ่มชำระเงิน — คืน URL ของ Stripe Checkout ยังไม่เปลี่ยนแพ็กเกจตอนนี้ */
-  @Roles(UserRole.SHOP_OWNER)
-  @Post('subscription')
-  async createSubscriptionPayment(
-    @CurrentUser('sub') userId: string,
-    @Body() dto: CreateSubscriptionPaymentDto,
-  ) {
-    return this.paymentsService.createSubscriptionPayment(userId, dto.planCode);
-  }
-
   /** เริ่มชำระเงินด้วย Card Elements — ไม่ redirect ไป Stripe Checkout */
   @Roles(UserRole.SHOP_OWNER)
   @Post('subscription-intent')
@@ -56,15 +47,6 @@ export class PaymentsController {
   @Get('')
   async listPayments(@CurrentUser('sub') userId: string) {
     return this.paymentsService.listMyPayments(userId);
-  }
-
-  @Roles(UserRole.SHOP_OWNER)
-  @Post(':id/retry')
-  async retryPayment(
-    @CurrentUser('sub') userId: string,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.paymentsService.retryPayment(userId, id);
   }
 
   @Roles(UserRole.SHOP_OWNER)

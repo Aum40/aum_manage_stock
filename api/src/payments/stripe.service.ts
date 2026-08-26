@@ -55,6 +55,12 @@ export class StripeService {
     return this.stripe.paymentIntents.retrieve(id);
   }
 
+  cancelPaymentIntent(
+    id: string,
+  ): Promise<Stripe.Response<Stripe.PaymentIntent>> {
+    return this.stripe.paymentIntents.cancel(id);
+  }
+
   /**
    * ตรวจลายเซ็นของ webhook — ต้องใช้ raw body เท่านั้น
    * ถ้าใช้ body ที่ผ่าน JSON.parse มาแล้วลายเซ็นจะไม่ตรง เพราะ Stripe

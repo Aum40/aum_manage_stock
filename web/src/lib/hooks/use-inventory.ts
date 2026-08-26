@@ -288,31 +288,12 @@ export function useMySubscription() {
   });
 }
 
-export function useCreateSubscriptionPayment() {
-  return useMutation({
-    mutationFn: (planCode: 'PLUS' | 'PRO') =>
-      api.post<{ paymentId: string; checkoutUrl: string }>(
-        '/api/backend/payments/subscription',
-        { planCode },
-      ),
-  });
-}
-
 export function useCreateSubscriptionPaymentIntent() {
   return useMutation({
     mutationFn: (planCode: 'PLUS' | 'PRO') =>
       api.post<{ paymentId: string; clientSecret: string }>(
         '/api/backend/payments/subscription-intent',
         { planCode },
-      ),
-  });
-}
-
-export function useRetrySubscriptionPayment() {
-  return useMutation({
-    mutationFn: (paymentId: string) =>
-      api.post<{ paymentId: string; checkoutUrl: string }>(
-        `/api/backend/payments/${paymentId}/retry`,
       ),
   });
 }
