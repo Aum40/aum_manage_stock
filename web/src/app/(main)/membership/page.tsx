@@ -6,14 +6,13 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import {
   useCreateSubscriptionPayment,
   useMySubscription,
   usePayments,
+  useRetrySubscriptionPayment,
 } from "@/lib/hooks/use-inventory";
 
 function toMessage(error: unknown, fallback: string): string {
@@ -29,8 +28,6 @@ const STATUS_BADGE = {
 const content = {
   th: {
     title: "สมาชิกและการชำระเงิน",
-    bannerBody:
-      "เมื่อเข้าใกล้วันหมดอายุ ระบบจะแจ้งเตือนล่วงหน้าอย่างเดียว — ดูข้อมูล สต็อก ประวัติ และแดชบอร์ดได้เสมอ ต่อเพิ่ม แก้ไข ขาย หรือรับสต็อกไม่ได้ ถ้าจะต้องอายุ",
     statusHeading: "สถานะสมาชิก",
     statusRows: [
       ["แพ็กเกจ", "รายปี (Basic)"],
@@ -52,6 +49,12 @@ const content = {
     historyHeading: "ประวัติการชำระเงิน",
     columns: ["วันที่", "รายการ", "จำนวน", "ยอด", "สถานะ"],
     paidLabel: "ชำระแล้ว",
+    purposes: { NEW_SUBSCRIPTION: "ซื้อแพ็กเกจ", RENEWAL: "ต่ออายุแพ็กเกจ" } as Record<string, string>,
+    statuses: { PAID: "ชำระแล้ว", PENDING: "รอชำระเงิน", FAILED: "ไม่สำเร็จ", REFUNDED: "คืนเงินแล้ว" } as Record<string, string>,
+    retryPayment: "ชำระอีกครั้ง",
+    retryingPayment: "กำลังเปิดหน้าชำระเงิน…",
+    retryError: "เปิดหน้าชำระเงินไม่สำเร็จ",
+    historyEmpty: "ยังไม่มีประวัติการชำระเงิน",
     payHistory: [
       { date: "15 ส.ค. 2569", item: "ซื้อสิทธิ์ร้านเพิ่ม", qty: 1, amount: "฿590.00" },
       { date: "12 มี.ค. 2569", item: "สมัครแพ็กเกจรายปี (Basic)", qty: 1, amount: "฿1,990.00" },
@@ -59,8 +62,6 @@ const content = {
   },
   en: {
     title: "Membership & Billing",
-    bannerBody:
-      "As you approach the expiry date, this is only a heads-up — you can always view data, stock, history, and the dashboard. Adding, editing, selling, or restocking is blocked once it actually expires.",
     statusHeading: "Membership Status",
     statusRows: [
       ["Plan", "Annual (Basic)"],
@@ -82,11 +83,25 @@ const content = {
     historyHeading: "Payment History",
     columns: ["Date", "Item", "Qty", "Amount", "Status"],
     paidLabel: "Paid",
+    purposes: { NEW_SUBSCRIPTION: "Plan purchase", RENEWAL: "Plan renewal" } as Record<string, string>,
+    statuses: { PAID: "Paid", PENDING: "Awaiting payment", FAILED: "Failed", REFUNDED: "Refunded" } as Record<string, string>,
+    retryPayment: "Pay again",
+    retryingPayment: "Opening checkout…",
+    retryError: "Could not open checkout",
+    historyEmpty: "No payments yet",
     payHistory: [
       { date: "Aug 15, 2026", item: "Bought extra shop slot", qty: 1, amount: "฿590.00" },
       { date: "Mar 12, 2026", item: "Subscribed to Annual Plan (Basic)", qty: 1, amount: "฿1,990.00" },
     ],
   },
+};
+
+/** สถานะจาก api ตรงๆ ไม่ใช่เดาว่าจ่ายแล้วทุกแถว */
+const PAYMENT_STATUS_VARIANT: Record<string, "success" | "warning" | "error" | "neutral"> = {
+  PAID: "success",
+  PENDING: "warning",
+  FAILED: "error",
+  REFUNDED: "neutral",
 };
 
 export default function MembershipPage() {
@@ -95,12 +110,21 @@ export default function MembershipPage() {
   const subscriptionQuery = useMySubscription();
   const paymentsQuery = usePayments();
   const createPayment = useCreateSubscriptionPayment();
+  const retryPayment = useRetrySubscriptionPayment();
   const [renewError, setRenewError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const subscription = subscriptionQuery.data;
   const statusLabel = locale === "th" ? "สถานะ" : "Status";
   const statusRows = subscription
     ? [
-        [locale === "th" ? "แพ็กเกจ" : "Plan", subscription.subscription.plan.nameTh],
+        [
+          locale === "th" ? "แพ็กเกจ" : "Plan",
+          locale === "th"
+            ? subscription.subscription.plan.nameTh
+            : ({ FREE: "Free", PLUS: "Plus", PRO: "Pro" }[
+                subscription.subscription.plan.code
+              ] ?? subscription.subscription.plan.code),
+        ],
         [statusLabel, subscription.subscription.status],
         [
           locale === "th" ? "วันหมดอายุ" : "Expires",
@@ -141,17 +165,20 @@ export default function MembershipPage() {
     });
   };
 
+  const onRetryPayment = (paymentId: string) => {
+    if (retryPayment.isPending) return;
+    setRetryError(null);
+    retryPayment.mutate(paymentId, {
+      onSuccess: ({ checkoutUrl }) => window.location.assign(checkoutUrl),
+      onError: (error) => setRetryError(toMessage(error, t.retryError)),
+    });
+  };
+
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.owner[locale]} />
+      <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
-          <Alert variant="info">
-            <AlertDescription className="text-foreground/80">
-              {t.bannerBody}
-            </AlertDescription>
-          </Alert>
-
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <Card>
               <div className="px-4">
@@ -213,7 +240,7 @@ export default function MembershipPage() {
             <div className="mb-3 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
               {t.historyHeading}
             </div>
-            <Card className="p-0 overflow-x-auto">
+            <Card className="overflow-x-auto p-0">
               <table className="w-full min-w-125 border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border">
@@ -227,18 +254,54 @@ export default function MembershipPage() {
                         {h}
                       </th>
                     ))}
+                    <th className="px-5 py-3 text-right text-xs font-medium text-muted-foreground" />
                   </tr>
                 </thead>
                 <tbody>
-                  {(paymentsQuery.data ?? []).map((row, i) => (
-                    <tr key={i} className="border-b border-border last:border-0">
+                  {(paymentsQuery.data ?? []).map((row) => (
+                    <tr key={row.id} className="border-b border-border last:border-0">
                       <td className="px-5 py-3.5 font-mono text-[13px] text-muted-foreground">{new Date(row.createdAt).toLocaleDateString(locale === "th" ? "th-TH" : "en-US")}</td>
-                      <td className="px-5 py-3.5">{row.subscription?.plan?.nameTh ?? row.purpose}</td>
+                      {/*
+                        ห้ามใช้ row.subscription.plan — นั่นคือแพ็กเกจ "ปัจจุบัน" ของผู้ใช้
+                        ไม่ใช่แพ็กเกจที่จ่ายในรายการนั้น คนที่ยังอยู่ Free แล้วกดซื้อ Plus
+                        ค้างไว้จะเห็นเป็น "ฟรี ฿2,499" ซึ่งอ่านแล้วงง
+                      */}
+                      <td className="px-5 py-3.5">{t.purposes[row.purpose] ?? row.purpose}</td>
                       <td className="px-5 py-3.5 text-right font-mono text-[13px]">1</td>
                       <td className="px-5 py-3.5 text-right font-mono text-[13px] font-semibold">฿{Number(row.amountThb).toLocaleString()}</td>
-                      <td className="px-5 py-3.5"><Badge variant="success">{t.paidLabel}</Badge></td>
+                      <td className="px-5 py-3.5">
+                        <Badge variant={PAYMENT_STATUS_VARIANT[row.status] ?? "neutral"}>
+                          {t.statuses[row.status] ?? row.status}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        {(row.status === "PENDING" || row.status === "FAILED") && (
+                          <Button
+                            size="sm"
+                            variant="gradient"
+                            disabled={retryPayment.isPending}
+                            onClick={() => onRetryPayment(row.id)}
+                          >
+                            {retryPayment.isPending ? t.retryingPayment : t.retryPayment}
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   ))}
+                  {retryError && (
+                    <tr>
+                      <td colSpan={t.columns.length + 1} className="px-5 py-3 text-sm text-destructive">
+                        {retryError}
+                      </td>
+                    </tr>
+                  )}
+                  {paymentsQuery.data?.length === 0 && (
+                    <tr>
+                      <td colSpan={t.columns.length + 1} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                        {t.historyEmpty}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </Card>

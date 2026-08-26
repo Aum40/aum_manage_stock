@@ -4,7 +4,6 @@ import Link from "next/link";
 
 import TopBar from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 
 const content = {
@@ -34,7 +33,7 @@ export default function LockedChatbotPage() {
 
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.free[locale]} />
+      <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex justify-center">
           <div className="max-w-xl rounded-3xl bg-secondary px-10 py-12 text-center">

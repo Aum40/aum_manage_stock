@@ -20,7 +20,7 @@ const API_URL = process.env.API_URL;
  */
 const inFlightRefresh = new Map<string, Promise<string | null>>();
 
-async function refreshAccessToken(): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = await getRefreshTokenCookie();
   if (!refreshToken) {
     return null;

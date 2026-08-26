@@ -297,6 +297,15 @@ export function useCreateSubscriptionPayment() {
   });
 }
 
+export function useRetrySubscriptionPayment() {
+  return useMutation({
+    mutationFn: (paymentId: string) =>
+      api.post<{ paymentId: string; checkoutUrl: string }>(
+        `/api/backend/payments/${paymentId}/retry`,
+      ),
+  });
+}
+
 export type Payment = {
   id: string;
   amountThb: number | string;

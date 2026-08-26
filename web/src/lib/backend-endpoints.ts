@@ -19,6 +19,7 @@ export const backendEndpointRules = [
   { methods: ["GET"] as const, pattern: /^admin\/overview$/ },
   { methods: ["GET"] as const, pattern: /^payments(?:\/[^/]+)?$/ },
   { methods: ["POST"] as const, pattern: /^payments\/subscription$/ },
+  { methods: ["POST"] as const, pattern: /^payments\/[^/]+\/retry$/ },
   { methods: ["GET"] as const, pattern: /^(?:subscription-plans|subscriptions\/me)$/ },
   { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^shops(?:\/[^/]+)?$/ },
   { methods: ["GET", "POST", "PATCH", "PUT", "DELETE"] as const, pattern: /^shops\/[^/]+\/(?:staff(?:\/[^/]+\/permissions)?|products(?:\/[^/]+)?|stock(?:\/adjust|\/recent|\/movements|\/chat-command(?:\/[^/]+(?:\/confirm)?)?)?|sales(?:\/scan|\/[^/]+(?:\/void)?)?|chat\/messages|ai\/recommendations(?:\/generate)?|dashboard(?:\/best-sellers|\/dead-stock|\/reports\/(?:sales-trend|by-category))?)$/ },

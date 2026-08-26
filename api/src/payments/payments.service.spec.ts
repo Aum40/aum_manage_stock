@@ -248,7 +248,7 @@ describe('PaymentsService', () => {
       expect(prisma.payment.update).toHaveBeenCalled();
     });
 
-    it('ตั้งอายุลิงก์จ่ายเงินไม่เกิน 30 นาที', async () => {
+    it('ตั้งอายุลิงก์จ่ายเงินไม่เกิน 24 ชั่วโมง', async () => {
       onPlan(FREE);
       prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
 
@@ -259,7 +259,7 @@ describe('PaymentsService', () => {
       );
       const minutesAhead = (args.expires_at * 1000 - Date.now()) / 60_000;
       expect(minutesAhead).toBeGreaterThan(29);
-      expect(minutesAhead).toBeLessThanOrEqual(30);
+      expect(minutesAhead).toBeLessThanOrEqual(24 * 60);
     });
   });
 

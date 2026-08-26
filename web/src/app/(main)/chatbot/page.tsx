@@ -5,7 +5,6 @@ import { useState } from "react";
 import TopBar from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import Caption from "@/components/shared/Caption";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import {
   useChatMessages,
@@ -86,7 +85,7 @@ export default function ChatbotPage() {
 
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.owner[locale]} />
+      <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex max-w-2xl flex-col gap-4">
           <div className="flex min-h-95 flex-col gap-3 rounded-3xl bg-secondary p-5">

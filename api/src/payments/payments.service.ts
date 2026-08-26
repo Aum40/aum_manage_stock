@@ -23,11 +23,11 @@ const PROVIDER = 'stripe';
 const SATANG_PER_BAHT = 100;
 
 /**
- * อายุของลิงก์จ่ายเงิน — Stripe ยอมให้ตั้งได้ต่ำสุด 30 นาที (สูงสุด 24 ชม.
- * ซึ่งเป็นค่า default) เราเลือกค่าต่ำสุด เพราะลิงก์เก่าที่ค้างอยู่นานๆ คือ
- * ต้นเหตุของเคส "จ่ายลิงก์เก่าหลังอัปเกรดไปแพ็กเกจสูงกว่าแล้ว"
+ * อายุของลิงก์จ่ายเงิน — Stripe เปิด Checkout Session ได้นานสูงสุด 24 ชั่วโมง
+ * จึงให้ผู้ใช้มีเวลาชำระภายในหนึ่งวันเต็ม หลังจากนั้น Stripe จะส่ง
+ * checkout.session.expired ให้เราเปลี่ยนรายการจาก PENDING เป็น FAILED
  */
-const CHECKOUT_TTL_MINUTES = 30;
+const CHECKOUT_TTL_MINUTES = 24 * 60;
 const MS_PER_MINUTE = 60_000;
 
 @Injectable()
@@ -45,7 +45,11 @@ export class PaymentsService {
    * เริ่มการชำระเงิน — ยังไม่เปลี่ยนแพ็กเกจให้ตอนนี้
    * แพ็กเกจจะเปลี่ยนก็ต่อเมื่อ Stripe ยืนยันว่าจ่ายสำเร็จแล้วผ่าน webhook
    */
-  async createSubscriptionPayment(userId: string, planCode: PaidPlanCode) {
+  async createSubscriptionPayment(
+    userId: string,
+    planCode: PaidPlanCode,
+    reusePaymentId?: string,
+  ) {
     const subscription =
       await this.subscriptionsService.getSubscriptionWithPlanOrThrow(userId);
 
@@ -79,12 +83,28 @@ export class PaymentsService {
       .replace(/\/$/, '');
 
     // ปิดลิงก์จ่ายเงินเก่าที่ยังค้างอยู่ก่อนออกใบใหม่ (ดูคอมเมนต์ของเมธอด)
-    await this.expirePendingCheckouts(userId);
+    await this.expirePendingCheckouts(userId, reusePaymentId);
 
     const session = await this.stripeService.stripe.checkout.sessions.create({
       mode: 'payment',
-      success_url: `${frontendUrl}/account/billing?status=success`,
-      cancel_url: `${frontendUrl}/account/billing?status=cancelled`,
+      /**
+       * ระบุเองไม่ปล่อยให้ Stripe เลือกให้ (automatic payment methods)
+       *
+       * ถ้าไม่ระบุ Stripe จะหยิบทุกวิธีที่เปิดไว้ใน Dashboard มาแสดง แล้วยัง
+       * เปลี่ยนไปตามอุปกรณ์ของผู้ใช้อีก (Apple Pay โผล่เฉพาะบน Safari) —
+       * แปลว่าหน้าจ่ายเงินของแต่ละคนในทีมไม่เหมือนกัน และเปลี่ยนได้จาก
+       * Dashboard โดยไม่มีร่องรอยใน git ล็อกไว้ตรงนี้ให้เห็นชัดกว่า
+       */
+      payment_method_types: ['card'],
+      // ชื่อที่แสดงบนหน้า Stripe Checkout ไม่ใช่ชื่อสินค้าใน line_items
+      branding_settings: {
+        display_name: this.configService.get('STRIPE_CHECKOUT_DISPLAY_NAME', {
+          infer: true,
+        }),
+      },
+      // หน้า membership เป็น route จริงของเว็บ (ไม่มี /account/billing)
+      success_url: `${frontendUrl}/membership?status=success`,
+      cancel_url: `${frontendUrl}/membership?status=cancelled`,
       client_reference_id: userId,
       expires_at: Math.floor(
         (Date.now() + CHECKOUT_TTL_MINUTES * MS_PER_MINUTE) / 1000,
@@ -105,17 +125,30 @@ export class PaymentsService {
       metadata: { userId, planCode, purpose },
     });
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        userId,
-        subscriptionId: subscription.id,
-        purpose,
-        amountThb: targetPlan.priceThb,
-        status: PaymentStatus.PENDING,
-        provider: PROVIDER,
-        providerRef: session.id,
-      },
-    });
+    const payment = reusePaymentId
+      ? await this.prisma.payment.update({
+          where: { id: reusePaymentId },
+          data: {
+            subscriptionId: subscription.id,
+            purpose,
+            amountThb: targetPlan.priceThb,
+            status: PaymentStatus.PENDING,
+            provider: PROVIDER,
+            providerRef: session.id,
+            paidAt: null,
+          },
+        })
+      : await this.prisma.payment.create({
+          data: {
+            userId,
+            subscriptionId: subscription.id,
+            purpose,
+            amountThb: targetPlan.priceThb,
+            status: PaymentStatus.PENDING,
+            provider: PROVIDER,
+            providerRef: session.id,
+          },
+        });
 
     return { paymentId: payment.id, checkoutUrl: session.url };
   }
@@ -124,8 +157,39 @@ export class PaymentsService {
     return this.prisma.payment.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      take: 5,
       include: { subscription: { include: { plan: true } } },
     });
+  }
+
+  /**
+   * สร้าง Checkout URL ใหม่จากรายการที่ยังค้างอยู่
+   * planCode อยู่ใน metadata ของ Stripe session เพราะ Payment ledger เดิม
+   * ไม่ได้เก็บแพ็กเกจเป้าหมายแยกจาก subscription ปัจจุบัน
+   */
+  async retryPayment(userId: string, paymentId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, userId },
+    });
+    if (!payment) {
+      throw new NotFoundException('ไม่พบรายการชำระเงินนี้');
+    }
+    if (
+      payment.status !== PaymentStatus.PENDING &&
+      payment.status !== PaymentStatus.FAILED
+    ) {
+      throw new BadRequestException('รายการนี้ไม่สามารถชำระซ้ำได้');
+    }
+
+    const session = await this.stripeService.stripe.checkout.sessions.retrieve(
+      payment.providerRef,
+    );
+    const planCode = session.metadata?.planCode;
+    if (planCode !== 'PLUS' && planCode !== 'PRO') {
+      throw new BadRequestException('ไม่พบแพ็กเกจของรายการชำระเงินนี้');
+    }
+
+    return this.createSubscriptionPayment(userId, planCode, payment.id);
   }
 
   async getMyPayment(userId: string, paymentId: string) {
@@ -277,9 +341,14 @@ export class PaymentsService {
    * ทำแบบ best-effort — ถ้าปิดฝั่ง Stripe ไม่สำเร็จ (เช่นหมดอายุไปเองแล้ว)
    * ก็ยังปิดแถวฝั่งเราให้เรียบร้อย ไม่บล็อกการซื้อรอบใหม่
    */
-  private async expirePendingCheckouts(userId: string) {
+  private async expirePendingCheckouts(userId: string, exceptPaymentId?: string) {
     const pending = await this.prisma.payment.findMany({
-      where: { userId, status: PaymentStatus.PENDING, provider: PROVIDER },
+      where: {
+        userId,
+        status: PaymentStatus.PENDING,
+        provider: PROVIDER,
+        ...(exceptPaymentId ? { id: { not: exceptPaymentId } } : {}),
+      },
       select: { id: true, providerRef: true },
     });
 

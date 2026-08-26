@@ -14,7 +14,6 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import { useSetStaffPermissions, useShops } from "@/lib/hooks/use-inventory";
@@ -369,7 +368,7 @@ export default function StaffManager() {
 
   return (
     <>
-      <TopBar title={t.title} user={roleAvatar.owner[locale]} />
+      <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[300px_1fr]">

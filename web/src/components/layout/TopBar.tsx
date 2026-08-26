@@ -15,14 +15,9 @@ interface TopBarProps {
   readOnly?: boolean;
   /** ปิดในหน้า admin — บัญชี admin ไม่มีร้าน จึงอ่าน /notifications ไม่ได้ */
   notifications?: boolean;
-  user: {
-    name: string;
-    initial: string;
-    avatarColor: string;
-  };
 }
 
-export default function TopBar({ title, readOnly, notifications = true, user }: TopBarProps) {
+export default function TopBar({ title, readOnly, notifications = true }: TopBarProps) {
   const { toggle } = useMobileNav();
   const { locale } = useLocale();
   const meQuery = useMe();
@@ -79,10 +74,8 @@ export default function TopBar({ title, readOnly, notifications = true, user }: 
         </span>
         <Link href="/profile" aria-label={locale === "th" ? "โปรไฟล์ของฉัน" : "My profile"}>
           <Avatar>
-          <AvatarFallback
-            className="font-heading font-bold text-white"
-            style={{ backgroundColor: user.avatarColor }}
-          >
+          {/* ใช้สีจาก token แทนสีที่ hardcode มากับข้อมูลผู้ใช้ปลอมชุดเดิม */}
+          <AvatarFallback className="bg-primary font-heading font-bold text-primary-foreground">
             {displayInitial}
           </AvatarFallback>
           </Avatar>
