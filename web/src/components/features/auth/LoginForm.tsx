@@ -17,11 +17,19 @@ import SocialButtons from "@/components/features/auth/SocialButtons";
 import { resolveApiError } from "@/lib/api-error";
 import { loginSchema, type LoginValues } from "@/lib/validations/auth";
 
+type SignedInUser = { role?: string };
+
 type LoginResponse =
   | { requires2fa: true; challengeToken: string }
-  | { user: unknown };
+  | { user?: SignedInUser };
 
-const AFTER_LOGIN = "/dashboard";
+/**
+ * แอดมินไม่มีร้าน — @OwnerId() ฝั่ง api ตอบ 403 ให้ทุก endpoint ของฝั่งร้านค้า
+ * ถ้าพาไป /dashboard ก็จะเจอหน้าเปล่าที่ทุก query แดงหมด
+ */
+function landingPathFor(role: string | undefined): string {
+  return role === "ADMIN" || role === "SUPER_ADMIN" ? "/admin" : "/dashboard";
+}
 
 export default function LoginForm() {
   const { locale } = useLocale();
@@ -96,7 +104,7 @@ export default function LoginForm() {
       return;
     }
 
-    router.push(AFTER_LOGIN);
+    router.push(landingPathFor(result.user?.role));
     router.refresh();
   };
 
@@ -135,7 +143,7 @@ export default function LoginForm() {
       return;
     }
 
-    router.push(AFTER_LOGIN);
+    router.push(landingPathFor((result as { user?: SignedInUser })?.user?.role));
     router.refresh();
   };
 
