@@ -10,6 +10,34 @@ export const SendChatMessageSchema = z.object({
 
 export type SendChatMessageDto = z.infer<typeof SendChatMessageSchema>;
 
+/**
+ * เลือกสินค้าตอนชื่อกำกวม — ใช้ PATCH บน path เดิม (chat/messages) แทนการเพิ่ม
+ * path ใหม่ เพราะ allowlist ของ proxy ฝั่งเว็บ (backend-endpoints.ts) ครอบ
+ * chat/messages ไว้อยู่แล้ว จะได้ไม่ต้องไปแก้ไฟล์กลางของแพรว
+ */
+export const SelectChatProductSchema = z.object({
+  pendingActionId: z.uuid(),
+  shopProductId: z.uuid(),
+});
+
+export type SelectChatProductDto = z.infer<typeof SelectChatProductSchema>;
+
+/**
+ * ยืนยัน/ยกเลิกรายการที่ค้างอยู่ ผ่าน PUT บน path เดิม (chat/messages)
+ *
+ * ทำที่ ChatModule ไม่ใช่เรียก stock/chat-command ตรงๆ เพราะต้องบันทึกข้อความ
+ * ตอบกลับของบอทลงประวัติแชทด้วย — ให้เหมือนฝั่ง LINE ที่ตอบทุกครั้ง
+ *
+ * รวมสองอย่างไว้ใน endpoint เดียวเพราะ DELETE ส่ง body ไม่ได้ (forwardAuthed
+ * ตัด body ทิ้งสำหรับ GET/DELETE) จึงส่ง pendingActionId มากับ DELETE ไม่ได้
+ */
+export const ApplyChatCommandSchema = z.object({
+  pendingActionId: z.uuid(),
+  action: z.enum(['CONFIRM', 'CANCEL']),
+});
+
+export type ApplyChatCommandDto = z.infer<typeof ApplyChatCommandSchema>;
+
 export const ListChatMessagesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
