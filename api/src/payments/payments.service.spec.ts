@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { PaymentsService } from './payments.service';
 import {
@@ -12,12 +16,6 @@ const anyDate = (): unknown => expect.any(Date);
 /** expect.objectContaining() คืน any — ห่อเป็น unknown กัน no-unsafe-assignment */
 const containing = (shape: Record<string, unknown>): unknown =>
   expect.objectContaining(shape);
-
-/** อ่านอาร์กิวเมนต์ตัวแรกของการเรียก mock ครั้งแรกแบบมี type */
-function firstArg<T>(mock: jest.Mock): T {
-  const calls = mock.mock.calls as unknown as unknown[][];
-  return calls[0][0] as T;
-}
 
 const USER = '0199a0e0-0000-7000-8000-000000000001';
 const OTHER = '0199a0e0-0000-7000-8000-000000000002';
@@ -46,10 +44,12 @@ const PRO = {
   isActive: true,
 };
 
-function session(overrides: Record<string, unknown> = {}) {
+function intent(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'cs_test_1',
-    payment_status: 'paid',
+    id: 'pi_test_1',
+    status: 'succeeded',
+    amount_received: 249900,
+    client_secret: 'pi_test_1_secret',
     metadata: { userId: USER, planCode: 'PLUS' },
     ...overrides,
   } as never;
@@ -62,9 +62,9 @@ describe('PaymentsService', () => {
     $transaction: jest.Mock;
   };
   let stripe: {
-    checkout: {
-      sessions: { create: jest.Mock; expire: jest.Mock };
-    };
+    createCardPaymentIntent: jest.Mock;
+    retrievePaymentIntent: jest.Mock;
+    cancelPaymentIntent: jest.Mock;
   };
   let subscriptions: {
     getSubscriptionWithPlanOrThrow: jest.Mock;
@@ -89,15 +89,9 @@ describe('PaymentsService', () => {
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     stripe = {
-      checkout: {
-        sessions: {
-          create: jest.fn().mockResolvedValue({
-            id: 'cs_test_1',
-            url: 'https://stripe.test/pay',
-          }),
-          expire: jest.fn().mockResolvedValue({}),
-        },
-      },
+      createCardPaymentIntent: jest.fn().mockResolvedValue(intent()),
+      retrievePaymentIntent: jest.fn().mockResolvedValue(intent()),
+      cancelPaymentIntent: jest.fn().mockResolvedValue({}),
     };
     subscriptions = {
       getSubscriptionWithPlanOrThrow: jest.fn(),
@@ -107,7 +101,7 @@ describe('PaymentsService', () => {
 
     service = new PaymentsService(
       prisma as never,
-      { stripe } as never,
+      stripe as never,
       subscriptions as never,
       { get: jest.fn(() => 'https://app.example.com/') } as never,
     );
@@ -122,7 +116,7 @@ describe('PaymentsService', () => {
     return jest.spyOn(logger, 'error').mockImplementation(() => undefined);
   }
 
-  describe('createSubscriptionPayment', () => {
+  describe('createSubscriptionPaymentIntent', () => {
     function onPlan(plan: typeof FREE | typeof PLUS | typeof PRO) {
       subscriptions.getSubscriptionWithPlanOrThrow.mockResolvedValue({
         id: SUB,
@@ -136,7 +130,7 @@ describe('PaymentsService', () => {
       prisma.subscriptionPlan.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.createSubscriptionPayment(USER, 'PLUS'),
+        service.createSubscriptionPaymentIntent(USER, 'PLUS'),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
@@ -146,23 +140,23 @@ describe('PaymentsService', () => {
       prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
 
       await expect(
-        service.createSubscriptionPayment(USER, 'PLUS'),
+        service.createSubscriptionPaymentIntent(USER, 'PLUS'),
       ).rejects.toBeInstanceOf(ConflictException);
-      expect(stripe.checkout.sessions.create).not.toHaveBeenCalled();
+      expect(stripe.createCardPaymentIntent).not.toHaveBeenCalled();
     });
 
     it('ซื้อแพ็กเกจเดิม = ต่ออายุ (purpose RENEWAL)', async () => {
       onPlan(PLUS);
       prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
 
-      await service.createSubscriptionPayment(USER, 'PLUS');
+      await service.createSubscriptionPaymentIntent(USER, 'PLUS');
 
       expect(prisma.payment.create).toHaveBeenCalledWith(
         containing({
           data: containing({
             purpose: PaymentPurpose.RENEWAL,
             status: PaymentStatus.PENDING,
-            providerRef: 'cs_test_1',
+            providerRef: 'pi_test_1',
           }),
         }),
       );
@@ -172,98 +166,168 @@ describe('PaymentsService', () => {
       onPlan(FREE);
       prisma.subscriptionPlan.findUnique.mockResolvedValue(PRO);
 
-      await service.createSubscriptionPayment(USER, 'PRO');
+      await service.createSubscriptionPaymentIntent(USER, 'PRO');
 
       expect(prisma.payment.create).toHaveBeenCalledWith(
         containing({
-          data: containing({
-            purpose: PaymentPurpose.NEW_SUBSCRIPTION,
-          }),
+          data: containing({ purpose: PaymentPurpose.NEW_SUBSCRIPTION }),
         }),
       );
     });
 
-    it('ยังไม่เปลี่ยนแพ็กเกจให้ตอนสร้างลิงก์จ่ายเงิน', async () => {
+    it('ยังไม่เปลี่ยนแพ็กเกจให้ตอนเปิดรายการชำระเงิน', async () => {
       onPlan(FREE);
       prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
 
-      await service.createSubscriptionPayment(USER, 'PLUS');
+      await service.createSubscriptionPaymentIntent(USER, 'PLUS');
 
       expect(subscriptions.applyUpgrade).not.toHaveBeenCalled();
       expect(subscriptions.applyRenewal).not.toHaveBeenCalled();
     });
 
-    it('แปลงราคาบาทเป็นสตางค์ให้ Stripe', async () => {
+    it('ส่งราคาเป็นบาทให้ StripeService แปลงเป็นสตางค์', async () => {
       onPlan(FREE);
       prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
 
-      await service.createSubscriptionPayment(USER, 'PLUS');
+      await service.createSubscriptionPaymentIntent(USER, 'PLUS');
 
-      const args = firstArg<{
-        line_items: { price_data: { unit_amount: number } }[];
-      }>(stripe.checkout.sessions.create);
-      expect(args.line_items[0].price_data.unit_amount).toBe(249900);
+      expect(stripe.createCardPaymentIntent).toHaveBeenCalledWith(2499, {
+        userId: USER,
+        planCode: 'PLUS',
+        purpose: PaymentPurpose.NEW_SUBSCRIPTION,
+      });
     });
 
-    // ลิงก์เก่าที่ค้างอยู่คือต้นเหตุของเคส "จ่ายลิงก์เก่าหลังอัปเกรดไปแล้ว"
-    it('ปิดลิงก์จ่ายเงินเก่าที่ยังค้างก่อนออกลิงก์ใหม่', async () => {
+    it('คืน client secret ให้ฟอร์มบัตรใช้ต่อ', async () => {
+      onPlan(FREE);
+      prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
+
+      await expect(
+        service.createSubscriptionPaymentIntent(USER, 'PLUS'),
+      ).resolves.toEqual({
+        paymentId: PAYMENT,
+        clientSecret: 'pi_test_1_secret',
+      });
+    });
+
+    // ใบเก่าที่ค้างคือต้นเหตุของเคส "จ่ายใบ PLUS เก่าหลังอัปเป็น PRO ไปแล้ว"
+    it('ยกเลิกใบที่ค้างอยู่ก่อนเปิดใบใหม่', async () => {
       onPlan(FREE);
       prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
       prisma.payment.findMany.mockResolvedValue([
-        { id: 'old', providerRef: 'cs_old' },
+        { id: 'old', providerRef: 'pi_old' },
       ]);
       prisma.payment.findUnique.mockResolvedValue({
         id: 'old',
         status: PaymentStatus.PENDING,
       });
 
-      await service.createSubscriptionPayment(USER, 'PLUS');
+      await service.createSubscriptionPaymentIntent(USER, 'PLUS');
 
-      expect(stripe.checkout.sessions.expire).toHaveBeenCalledWith('cs_old');
+      expect(stripe.cancelPaymentIntent).toHaveBeenCalledWith('pi_old');
       expect(prisma.payment.update).toHaveBeenCalledWith({
         where: { id: 'old' },
         data: { status: PaymentStatus.FAILED },
       });
     });
 
-    it('ปิดแถวฝั่งเราต่อได้แม้ Stripe ปิด session เก่าไม่สำเร็จ', async () => {
+    it('ปิดแถวฝั่งเราต่อได้แม้ Stripe ยกเลิกใบเก่าไม่สำเร็จ', async () => {
       onPlan(FREE);
       prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
       prisma.payment.findMany.mockResolvedValue([
-        { id: 'old', providerRef: 'cs_old' },
+        { id: 'old', providerRef: 'pi_old' },
       ]);
       prisma.payment.findUnique.mockResolvedValue({
         id: 'old',
         status: PaymentStatus.PENDING,
       });
-      stripe.checkout.sessions.expire.mockRejectedValue(
-        new Error('already expired'),
+      stripe.cancelPaymentIntent.mockRejectedValue(
+        new Error('already canceled'),
       );
 
       await expect(
-        service.createSubscriptionPayment(USER, 'PLUS'),
+        service.createSubscriptionPaymentIntent(USER, 'PLUS'),
       ).resolves.toEqual(
-        expect.objectContaining({ checkoutUrl: 'https://stripe.test/pay' }),
+        expect.objectContaining({ clientSecret: 'pi_test_1_secret' }),
       );
       expect(prisma.payment.update).toHaveBeenCalled();
     });
+  });
 
-    it('ตั้งอายุลิงก์จ่ายเงินไม่เกิน 24 ชั่วโมง', async () => {
-      onPlan(FREE);
-      prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
+  describe('confirmPaymentIntent', () => {
+    function pendingRow(overrides: Record<string, unknown> = {}) {
+      return {
+        id: PAYMENT,
+        userId: USER,
+        status: PaymentStatus.PENDING,
+        purpose: PaymentPurpose.NEW_SUBSCRIPTION,
+        amountThb: 2499,
+        providerRef: 'pi_test_1',
+        ...overrides,
+      };
+    }
 
-      await service.createSubscriptionPayment(USER, 'PLUS');
-
-      const args = firstArg<{ expires_at: number }>(
-        stripe.checkout.sessions.create,
+    it('ปฏิเสธเมื่อ intent เป็นของบัญชีอื่น', async () => {
+      prisma.payment.findFirst.mockResolvedValue(pendingRow());
+      stripe.retrievePaymentIntent.mockResolvedValue(
+        intent({ metadata: { userId: OTHER, planCode: 'PLUS' } }),
       );
-      const minutesAhead = (args.expires_at * 1000 - Date.now()) / 60_000;
-      expect(minutesAhead).toBeGreaterThan(29);
-      expect(minutesAhead).toBeLessThanOrEqual(24 * 60);
+
+      await expect(
+        service.confirmPaymentIntent(USER, PAYMENT),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(subscriptions.applyUpgrade).not.toHaveBeenCalled();
+    });
+
+    it('ปฏิเสธเมื่อ Stripe ยังไม่ยืนยันว่าจ่ายสำเร็จ', async () => {
+      prisma.payment.findFirst.mockResolvedValue(pendingRow());
+      stripe.retrievePaymentIntent.mockResolvedValue(
+        intent({ status: 'requires_payment_method' }),
+      );
+
+      await expect(
+        service.confirmPaymentIntent(USER, PAYMENT),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    // กันคนจ่ายน้อยกว่าราคาแพ็กเกจแล้วอ้างว่าจ่ายครบ
+    it('ปฏิเสธเมื่อยอดที่จ่ายไม่ตรงกับราคาแพ็กเกจ', async () => {
+      prisma.payment.findFirst.mockResolvedValue(pendingRow());
+      stripe.retrievePaymentIntent.mockResolvedValue(
+        intent({ amount_received: 100 }),
+      );
+
+      await expect(
+        service.confirmPaymentIntent(USER, PAYMENT),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('ผ่านครบทุกด่านแล้วจึงอัปเกรดให้', async () => {
+      prisma.payment.findFirst.mockResolvedValue(pendingRow());
+      prisma.payment.findUnique.mockResolvedValue(pendingRow());
+
+      await expect(
+        service.confirmPaymentIntent(USER, PAYMENT),
+      ).resolves.toEqual({ message: 'ชำระเงินสำเร็จ' });
+      expect(subscriptions.applyUpgrade).toHaveBeenCalledWith(
+        USER,
+        'PLUS',
+        prisma,
+      );
+    });
+
+    it('รายการที่ปิดยอดไปแล้วตอบกลับเฉยๆ ไม่อัปเกรดซ้ำ', async () => {
+      prisma.payment.findFirst.mockResolvedValue(
+        pendingRow({ status: PaymentStatus.PAID }),
+      );
+
+      await service.confirmPaymentIntent(USER, PAYMENT);
+
+      expect(subscriptions.applyUpgrade).not.toHaveBeenCalled();
     });
   });
 
-  describe('handleWebhook — checkout.session.completed', () => {
+  describe('handleWebhook — payment_intent.succeeded', () => {
     function pending(overrides: Record<string, unknown> = {}) {
       return {
         id: PAYMENT,
@@ -274,13 +338,13 @@ describe('PaymentsService', () => {
       };
     }
 
-    async function fulfill(s = session()) {
+    async function fulfill(object = intent()) {
       // เรียกผ่าน handleWebhook เพื่อครอบ flow จริงตั้งแต่ตรวจลายเซ็น
       const stripeService = {
-        stripe,
+        ...stripe,
         constructEvent: jest.fn(() => ({
-          type: 'checkout.session.completed',
-          data: { object: s },
+          type: 'payment_intent.succeeded',
+          data: { object },
         })),
       };
       service = new PaymentsService(
@@ -341,22 +405,14 @@ describe('PaymentsService', () => {
       expect(subscriptions.applyUpgrade).not.toHaveBeenCalled();
     });
 
-    it('ไม่ทำอะไรเมื่อ session ยังจ่ายไม่สำเร็จ', async () => {
-      prisma.payment.findUnique.mockResolvedValue(pending());
-
-      await fulfill(session({ payment_status: 'unpaid' }));
-
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-    });
-
-    it('ไม่พัง เมื่อไม่พบ payment ของ session นี้', async () => {
+    it('ไม่พัง เมื่อไม่พบ payment ของ intent นี้', async () => {
       prisma.payment.findUnique.mockResolvedValue(null);
 
       await expect(fulfill()).resolves.toEqual({ received: true });
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
-    // เงินถูกตัดแล้วแต่เปลี่ยนแพ็กเกจไม่ได้ (เช่นจ่ายลิงก์ PLUS เก่าหลังอัปเป็น
+    // เงินถูกตัดแล้วแต่เปลี่ยนแพ็กเกจไม่ได้ (เช่นจ่ายใบ PLUS เก่าหลังอัปเป็น
     // PRO ไปแล้ว) retry อีกกี่ครั้งก็ไม่ผ่าน — ต้องบันทึกไว้แล้วตอบ 200
     it('บันทึกเป็น PAID + ตอบ 200 เมื่อจ่ายแล้วแต่เปลี่ยนแพ็กเกจไม่ได้', async () => {
       prisma.payment.findUnique.mockResolvedValue(pending());

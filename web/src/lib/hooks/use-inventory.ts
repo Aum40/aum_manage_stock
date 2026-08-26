@@ -197,12 +197,33 @@ export function useBestSellers(shopId: string | undefined) {
   });
 }
 
-export function useStockMovements(shopId: string | undefined) {
+export type MovementFilters = {
+  /** ISO string — api รับเป็น z.coerce.date() แล้วกรอง createdAt >= from */
+  from?: string;
+  to?: string;
+  shopProductId?: string;
+  actorId?: string;
+  movementType?: StockMovement['movementType'];
+  limit?: number;
+};
+
+export function useStockMovements(
+  shopId: string | undefined,
+  filters: MovementFilters = {},
+) {
   return useQuery({
-    queryKey: [...inventoryKeys.all, 'movements', shopId ?? 'none'],
+    // filters อยู่ใน key ด้วย เปลี่ยนตัวกรองแล้วต้องยิงใหม่ ไม่ใช่อ่าน cache เดิม
+    queryKey: [...inventoryKeys.all, 'movements', shopId ?? 'none', filters],
     queryFn: () =>
       api.get<{ items: StockMovement[]; nextCursor: string | null }>(
-        withQuery(`/api/backend/shops/${shopId}/stock/movements`, { limit: 50 }),
+        withQuery(`/api/backend/shops/${shopId}/stock/movements`, {
+          limit: filters.limit ?? 50,
+          from: filters.from,
+          to: filters.to,
+          shopProductId: filters.shopProductId,
+          actorId: filters.actorId,
+          movementType: filters.movementType,
+        }),
       ),
     enabled: Boolean(shopId),
   });
@@ -288,22 +309,29 @@ export function useMySubscription() {
   });
 }
 
-export function useCreateSubscriptionPayment() {
+export function useCreateSubscriptionPaymentIntent() {
   return useMutation({
     mutationFn: (planCode: 'PLUS' | 'PRO') =>
-      api.post<{ paymentId: string; checkoutUrl: string }>(
-        '/api/backend/payments/subscription',
+      api.post<{ paymentId: string; clientSecret: string }>(
+        '/api/backend/payments/subscription-intent',
         { planCode },
       ),
   });
 }
 
-export function useRetrySubscriptionPayment() {
+export function useRetrySubscriptionPaymentIntent() {
   return useMutation({
     mutationFn: (paymentId: string) =>
-      api.post<{ paymentId: string; checkoutUrl: string }>(
-        `/api/backend/payments/${paymentId}/retry`,
+      api.post<{ paymentId: string; clientSecret: string }>(
+        `/api/backend/payments/${paymentId}/retry-intent`,
       ),
+  });
+}
+
+export function useConfirmSubscriptionPayment() {
+  return useMutation({
+    mutationFn: (paymentId: string) =>
+      api.post<{ message: string }>(`/api/backend/payments/${paymentId}/confirm`),
   });
 }
 

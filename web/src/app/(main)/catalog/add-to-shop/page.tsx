@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useAddShopProduct, useAdjustStock, useProducts, useShopProducts, useShops } from "@/lib/hooks/use-inventory";
+import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 
 const content = {
   th: { title: "เพิ่มสินค้าเข้าร้าน", intro: "เลือกสินค้าจากแคตตาล็อกกลางมาขายที่", end: "แล้วตั้งราคาและสต็อกเริ่มต้นของร้านนี้", search: "ค้นหาสินค้าในแคตตาล็อก…", product: "สินค้า", price: "ราคาขาย", stock: "สต็อกเริ่มต้น", selling: "ขายอยู่แล้ว", selected: (n: number) => `เลือกแล้ว ${n} รายการ`, add: "เพิ่มเข้าร้าน →", cancel: "ยกเลิก", empty: "ยังไม่มีสินค้าในแคตตาล็อก", loading: "กำลังโหลด...", noShop: "ยังไม่มีร้านค้า" },
@@ -27,7 +28,13 @@ export default function SelectProductForShopPage() {
   const [search, setSearch] = useState("");
   const [selections, setSelections] = useState<Record<string, Selection>>({});
   const shopsQuery = useShops();
-  const shopId = shopsQuery.data?.[0]?.id;
+  const shops = shopsQuery.data ?? [];
+  const { selectedShopId } = useSelectedShop();
+  // ร้านที่เคยเลือกอาจถูกลบไปแล้ว — ตกกลับไปร้านแรกเหมือนที่ (main)/layout.tsx ทำ
+  const shopId =
+    selectedShopId && shops.some((shop) => shop.id === selectedShopId)
+      ? selectedShopId
+      : shops[0]?.id;
   const productsQuery = useProducts({ q: search || undefined, limit: 100 });
   const shopProductsQuery = useShopProducts(shopId, { limit: 100 });
   const addProduct = useAddShopProduct(shopId);
@@ -53,7 +60,7 @@ export default function SelectProductForShopPage() {
   };
 
   return <><TopBar title={t.title} /><main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8"><div className="flex flex-col gap-5">
-    <div className="text-sm text-muted-foreground">{t.intro} <strong className="text-foreground">{shopsQuery.data?.[0]?.name ?? t.noShop}</strong>{t.end}</div>
+    <div className="text-sm text-muted-foreground">{t.intro} <strong className="text-foreground">{shops.find((shop) => shop.id === shopId)?.name ?? t.noShop}</strong>{t.end}</div>
     <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t.search} className="max-w-sm" />
     <Card className="overflow-x-auto p-0"><table className="w-full min-w-125 border-collapse text-sm"><thead><tr className="border-b border-border"><th className="w-10 px-5 py-3" /><th className="px-5 py-3 text-left text-xs font-medium tracking-[0.05em] text-muted-foreground uppercase">{t.product}</th><th className="px-4 py-3 text-right text-xs font-medium tracking-[0.05em] text-muted-foreground uppercase">{t.price}</th><th className="px-4 py-3 text-right text-xs font-medium tracking-[0.05em] text-muted-foreground uppercase">{t.stock}</th></tr></thead><tbody>
       {products.map((product) => { const item = selections[product.id] ?? EMPTY_SELECTION; const alreadySelling = sellingIds.has(product.id); return <tr key={product.id} className="border-b border-border last:border-0"><td className="px-5 py-3.5">{alreadySelling ? <Badge variant="neutral">{t.selling}</Badge> : <input type="checkbox" checked={item.checked} onChange={(event) => setSelection(product.id, { checked: event.target.checked })} className="size-4 accent-primary" />}</td><td className="px-5 py-3.5"><div className="font-medium">{product.name}</div><div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{product.barcode ?? product.unit}</div></td><td className="px-4 py-3.5"><Input value={item.price} onChange={(event) => setSelection(product.id, { price: event.target.value })} disabled={!item.checked || alreadySelling} className="w-20 text-right font-mono" /></td><td className="px-4 py-3.5"><Input value={item.stock} onChange={(event) => setSelection(product.id, { stock: event.target.value })} disabled={!item.checked || alreadySelling} className="w-20 text-right font-mono" /></td></tr>; })}
