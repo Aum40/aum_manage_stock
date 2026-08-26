@@ -10,6 +10,7 @@ import Stepper from "@/components/shared/Stepper";
 import Caption from "@/components/shared/Caption";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useCreateSale, useScanSale, useShops } from "@/lib/hooks/use-inventory";
+import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 
 type PosItem = {
   shopProductId: string;
@@ -67,7 +68,13 @@ export default function POSPage() {
   const { locale } = useLocale();
   const t = content[locale];
   const shopsQuery = useShops();
-  const shopId = shopsQuery.data?.[0]?.id;
+  const shops = shopsQuery.data ?? [];
+  const { selectedShopId } = useSelectedShop();
+  // ร้านที่เคยเลือกอาจถูกลบไปแล้ว — ตกกลับไปร้านแรกเหมือนที่ (main)/layout.tsx ทำ
+  const shopId =
+    selectedShopId && shops.some((shop) => shop.id === selectedShopId)
+      ? selectedShopId
+      : shops[0]?.id;
   const scanSale = useScanSale(shopId);
   const createSale = useCreateSale(shopId);
   const [barcode, setBarcode] = useState("");
