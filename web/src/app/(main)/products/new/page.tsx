@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 
 import TopBar from "@/components/layout/TopBar";

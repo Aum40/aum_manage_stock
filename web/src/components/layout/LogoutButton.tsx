@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
+import { LogOut } from "lucide-react";
 
 /**
  * /api/auth/logout เพิกถอน refresh token ฝั่ง api แล้วลบ cookie ทั้งสองใบทิ้ง
@@ -13,7 +14,13 @@ import { Button } from "@/components/ui/button";
  * ถ้าไม่ล้าง cache ข้อมูลคนที่เพิ่งออกจากระบบจะยังค้างอยู่ — และ router.replace
  * ไปหน้าที่ยืนอยู่แล้วไม่ทำให้ component remount ด้วย
  */
-export default function LogoutButton({ label }: { label: string }) {
+export default function LogoutButton({
+  label,
+  iconOnly = false,
+}: {
+  label: string;
+  iconOnly?: boolean;
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isPending, setIsPending] = useState(false);
@@ -38,8 +45,15 @@ export default function LogoutButton({ label }: { label: string }) {
   };
 
   return (
-    <Button variant="outline" size="sm" disabled={isPending} onClick={onLogout}>
-      {isPending ? "…" : label}
+    <Button
+      variant="outline"
+      size={iconOnly ? "icon" : "sm"}
+      disabled={isPending}
+      onClick={onLogout}
+      aria-label={label}
+      title={label}
+    >
+      {isPending ? "…" : iconOnly ? <LogOut className="size-4" /> : label}
     </Button>
   );
 }

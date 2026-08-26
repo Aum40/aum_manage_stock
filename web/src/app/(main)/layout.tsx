@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 import Sidebar from "@/components/layout/Sidebar";
 import QuotaMeter from "@/components/shared/QuotaMeter";
 import {
@@ -14,6 +16,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getNavSections, type SidebarRole } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
@@ -83,6 +86,7 @@ export default function MainLayout({
 function MainLayoutInner({ children }: { children: React.ReactNode }) {
   const { locale } = useLocale();
   const t = content[locale];
+  const router = useRouter();
   const meQuery = useMe();
   const shopsQuery = useShops();
   const subscriptionQuery = useMySubscription();
@@ -109,6 +113,20 @@ function MainLayoutInner({ children }: { children: React.ReactNode }) {
   );
   // พนักงานจ่ายเงินหรืออัปเกรดแพ็กเกจแทนเจ้าของร้านไม่ได้ (SRS §126)
   const isStaff = role === "staff";
+  const isAdmin = role === "admin" || role === "superadmin";
+
+  /**
+   * แอดมินไม่มีร้าน — @OwnerId() ฝั่ง api ตอบ 403 ให้ทุก endpoint ของฝั่งร้านค้า
+   * ถ้าปล่อยให้ render ต่อจะเห็นเมนูของเจ้าของร้านที่กดแล้วพังทุกอัน
+   *
+   * ดักที่ layout เพราะทางเข้ามาที่นี่มีหลายทาง ไม่ใช่แค่หลังล็อกอิน — OAuth
+   * callback เด้งไป "/", ปุ่มบนหน้าแรก, ลิงก์ที่ bookmark ไว้, หรือพิมพ์ URL เอง
+   */
+  useEffect(() => {
+    if (isAdmin) router.replace("/admin");
+  }, [isAdmin, router]);
+
+  if (isAdmin) return null;
   // Base UI ให้ <Select.Value /> แสดง "ค่า" ที่เลือก ไม่ใช่ข้อความใน <SelectItem>
   // ถ้าใช้ตรงๆ จะได้ UUID ของร้านโผล่ในไซด์บาร์ จึงเรนเดอร์ชื่อร้านเอง
   const activeShopName =

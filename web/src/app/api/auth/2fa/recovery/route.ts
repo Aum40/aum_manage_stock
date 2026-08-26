@@ -43,5 +43,7 @@ export async function POST(request: Request) {
 
   await setSessionCookies(data.accessToken, data.refreshToken);
   await clearTwoFactorChallenge();
-  return NextResponse.json({ ok: true });
+  // ส่ง user กลับไปด้วยเพื่อให้ฟอร์มเลือกหน้าปลายทางตาม role ได้เหมือนตอน
+  // ล็อกอินด้วยรหัสผ่าน (แอดมินต้องไป /admin ไม่ใช่ /dashboard ของร้านค้า)
+  return NextResponse.json({ ok: true, user: data.user });
 }
