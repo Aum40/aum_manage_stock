@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 
 import TopBar from "@/components/layout/TopBar";
@@ -38,6 +38,7 @@ import {
   useShops,
   type Product,
 } from "@/lib/hooks/use-inventory";
+import { useUploadImage } from "@/lib/hooks/use-uploads";
 
 /** หัวตารางกับช่องข้อมูลอ่านค่าจัดตำแหน่งจากที่เดียว ไม่งั้นเหลื่อมกัน */
 const COLUMN_ALIGN = [
@@ -80,6 +81,12 @@ const content = {
     newCategoryPh: "ชื่อหมวดหมู่ เช่น ของสด",
     createCategory: "สร้าง",
     cancelCategory: "ยกเลิก",
+    image: "รูปสินค้า",
+    imageHint: "JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB",
+    imagePick: "เลือกรูป",
+    imageChange: "เปลี่ยนรูป",
+    imageRemove: "เอารูปออก",
+    imageUploading: "กำลังอัปโหลด…",
     save: "บันทึก",
     saving: "กำลังบันทึก…",
     saved: "บันทึกแล้ว",
@@ -129,6 +136,12 @@ const content = {
     newCategoryPh: "Category name, e.g. Fresh food",
     createCategory: "Create",
     cancelCategory: "Cancel",
+    image: "Product image",
+    imageHint: "JPG, PNG or WebP, up to 5 MB",
+    imagePick: "Choose image",
+    imageChange: "Change image",
+    imageRemove: "Remove image",
+    imageUploading: "Uploading…",
     save: "Save",
     saving: "Saving…",
     saved: "Saved",
@@ -374,10 +387,24 @@ export default function ProductCatalogPage() {
                       className="border-b border-border last:border-0"
                     >
                       <td className={`px-4 py-3.5 font-medium ${COLUMN_ALIGN[0]}`}>
-                        <span className="block truncate">
-                          {product.name}
-                          <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            / {product.unit}
+                        <span className="flex items-center gap-3">
+                          {product.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={product.imageUrl}
+                              alt=""
+                              className="size-9 shrink-0 rounded-lg object-cover ring-1 ring-border"
+                            />
+                          ) : (
+                            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground">
+                              🖼️
+                            </span>
+                          )}
+                          <span className="min-w-0 truncate">
+                            {product.name}
+                            <span className="ml-2 text-xs font-normal text-muted-foreground">
+                              / {product.unit}
+                            </span>
                           </span>
                         </span>
                       </td>
@@ -497,8 +524,11 @@ function EditCatalogDialog({
   const [barcode, setBarcode] = useState(product?.barcode ?? "");
   const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadImage = useUploadImage();
 
   const updateProduct = useMutation({
     mutationFn: (input: {
@@ -506,6 +536,7 @@ function EditCatalogDialog({
       unit: string;
       categoryId: string | null;
       barcode: string | null;
+      imageUrl: string | null;
     }) => api.patch(`/api/backend/products/${product?.id}`, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
@@ -542,6 +573,7 @@ function EditCatalogDialog({
         unit: unit.trim(),
         categoryId: categoryId || null,
         barcode: barcode.trim() || null,
+        imageUrl: imageUrl || null,
       });
       setSaved(true);
     } catch (caught) {
@@ -647,6 +679,79 @@ function EditCatalogDialog({
                 {t.newCategory}
               </button>
             )}
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Label className="text-[11px] font-semibold tracking-[0.08em] uppercase">
+              {t.image}
+            </Label>
+            <div className="flex flex-wrap items-center gap-3">
+              {imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={imageUrl}
+                  alt=""
+                  className="size-20 shrink-0 rounded-xl object-cover ring-1 ring-border"
+                />
+              ) : (
+                <div className="flex size-20 shrink-0 items-center justify-center rounded-xl border-2 border-dashed border-border text-xl">
+                  🖼️
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      // ล้างค่าทันที ไม่งั้นเลือกไฟล์เดิมซ้ำจะไม่ยิง onChange
+                      event.target.value = "";
+                      if (!file) return;
+                      setError(null);
+                      uploadImage.mutate(
+                        { file, folder: "products" },
+                        {
+                          onSuccess: ({ url }) => setImageUrl(url),
+                          onError: (caught) =>
+                            setError(
+                              caught instanceof Error
+                                ? caught.message
+                                : String(caught),
+                            ),
+                        },
+                      );
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadImage.isPending}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploadImage.isPending
+                      ? t.imageUploading
+                      : imageUrl
+                        ? t.imageChange
+                        : t.imagePick}
+                  </Button>
+                  {imageUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setImageUrl("")}
+                    >
+                      {t.imageRemove}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">{t.imageHint}</p>
+              </div>
+            </div>
           </div>
 
           <p className="rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">

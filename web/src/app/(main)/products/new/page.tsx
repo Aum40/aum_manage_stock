@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 
@@ -26,6 +26,7 @@ import {
   useMySubscription,
   useShops,
 } from "@/lib/hooks/use-inventory";
+import { useUploadImage } from "@/lib/hooks/use-uploads";
 
 /**
  * สินค้าอยู่ 2 ชั้นตามที่ api ออกแบบไว้
@@ -67,9 +68,12 @@ const content = {
     addToShop: "ลงขายในร้านนี้เลย",
     addToShopHint: "ถ้าไม่เลือก สินค้าจะอยู่ในแคตตาล็อกกลางอย่างเดียว ยังไม่ขึ้นหน้าร้าน",
     image: "รูปสินค้า",
-    imageSoon: "ยังอัปโหลดรูปไม่ได้",
-    imageSoonHint:
-      "ระบบหลังบ้านยังไม่มีเส้นทางอัปโหลดไฟล์ ทีมต้องตกลงกันก่อนว่าจะอัปผ่าน Cloudinary ตรงจากเว็บ หรือทำ endpoint ฝั่ง api",
+    imageHint: "JPG, PNG หรือ WebP ขนาดไม่เกิน 5 MB",
+    imagePick: "เลือกรูป",
+    imageChange: "เปลี่ยนรูป",
+    imageRemove: "เอารูปออก",
+    imageUploading: "กำลังอัปโหลด…",
+    imageEmpty: "ยังไม่ได้ใส่รูป — ใส่ทีหลังได้ในหน้าแคตตาล็อก",
     saveBtn: "บันทึกสินค้า →",
     saving: "กำลังบันทึก…",
     cancelBtn: "ยกเลิก",
@@ -112,9 +116,12 @@ const content = {
     addToShopHint:
       "If unchecked the product stays in the central catalog only and will not appear in the shop.",
     image: "Product image",
-    imageSoon: "Image upload is not available yet",
-    imageSoonHint:
-      "The backend has no file-upload route yet — the team needs to decide between uploading to Cloudinary from the browser or adding an API endpoint.",
+    imageHint: "JPG, PNG or WebP, up to 5 MB",
+    imagePick: "Choose image",
+    imageChange: "Change image",
+    imageRemove: "Remove image",
+    imageUploading: "Uploading…",
+    imageEmpty: "No image yet — you can add one later from the catalog page.",
     saveBtn: "Save product →",
     saving: "Saving…",
     cancelBtn: "Cancel",
@@ -149,6 +156,8 @@ export default function AddProductPage() {
   const [listInShop, setListInShop] = useState(true);
   const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
 
   const categoriesQuery = useCategories();
@@ -182,6 +191,7 @@ export default function AddProductPage() {
     },
   });
 
+  const uploadImage = useUploadImage();
   const createProduct = useCreateProduct();
   const addShopProduct = useAddShopProduct(shopId);
   const isSaving = createProduct.isPending || addShopProduct.isPending;
@@ -210,6 +220,7 @@ export default function AddProductPage() {
         unit: unit.trim(),
         barcode: barcode.trim() || undefined,
         categoryId: categoryId || undefined,
+        imageUrl: imageUrl || undefined,
       });
 
       if (willList) {
@@ -451,13 +462,73 @@ export default function AddProductPage() {
                 <div className="px-4 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
                   {t.image}
                 </div>
-                <div className="px-4">
-                  <div className="rounded-2xl border-2 border-dashed border-border px-5 py-6 text-center">
-                    <div className="mb-1 text-sm font-semibold text-foreground">
-                      {t.imageSoon}
+                <div className="flex flex-wrap items-center gap-4 px-4">
+                  {imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={imageUrl}
+                      alt=""
+                      className="size-24 shrink-0 rounded-xl object-cover ring-1 ring-border"
+                    />
+                  ) : (
+                    <div className="flex size-24 shrink-0 items-center justify-center rounded-xl border-2 border-dashed border-border text-2xl">
+                      🖼️
                     </div>
-                    <p className="mx-auto max-w-md text-xs text-muted-foreground">
-                      {t.imageSoonHint}
+                  )}
+
+                  <div className="flex min-w-48 flex-1 flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          // ล้างค่า input ทันที ไม่งั้นเลือกไฟล์เดิมซ้ำจะไม่ยิง onChange
+                          event.target.value = "";
+                          if (!file) return;
+                          setError(null);
+                          uploadImage.mutate(
+                            { file, folder: "products" },
+                            {
+                              onSuccess: ({ url }) => setImageUrl(url),
+                              onError: (caught) =>
+                                setError(
+                                  caught instanceof Error
+                                    ? caught.message
+                                    : String(caught),
+                                ),
+                            },
+                          );
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={uploadImage.isPending}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        {uploadImage.isPending
+                          ? t.imageUploading
+                          : imageUrl
+                            ? t.imageChange
+                            : t.imagePick}
+                      </Button>
+                      {imageUrl && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setImageUrl("")}
+                        >
+                          {t.imageRemove}
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {imageUrl ? t.imageHint : t.imageEmpty}
                     </p>
                   </div>
                 </div>
