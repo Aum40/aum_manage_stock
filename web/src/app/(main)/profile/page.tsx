@@ -8,6 +8,7 @@ import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PasswordInput } from "@/components/features/auth/PasswordInput";
+import TwoFactorCard from "@/components/features/auth/TwoFactorCard";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -444,6 +445,12 @@ export default function ProfilePage() {
                 </form>
               </Card>
             </div>
+
+            {/* SRS §39 — 2FA เป็นตัวเลือก เปิดเองได้ทุก role ไม่มีการบังคับ */}
+            <TwoFactorCard
+              enabled={Boolean(me?.twoFactorEnabled)}
+              hasPassword={Boolean(me?.hasPassword)}
+            />
 
             <Card>
               <div className="px-4">

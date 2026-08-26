@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -33,6 +33,12 @@ export default function LoginForm() {
     "idle",
   );
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  /**
+   * ล็อกอินผ่าน LINE/Google ที่บัญชีเปิด 2FA ไว้จะถูกเด้งกลับมาที่ ?twofa=1
+   * ตัว challengeToken ไม่ได้ติดมาใน URL ด้วย — มันอยู่ใน httpOnly cookie ที่
+   * route handler ฝั่ง /api/auth/2fa/* หยิบเอง (ดู lib/twofa-challenge.ts)
+   */
+  const awaitingOAuth2fa = useSearchParams().get("twofa") === "1";
   const [otpCode, setOtpCode] = useState("");
   const [otpError, setOtpError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -95,7 +101,7 @@ export default function LoginForm() {
   };
 
   const onVerifyOtp = async () => {
-    if (!challengeToken) return;
+    if (!challengeToken && !awaitingOAuth2fa) return;
     setOtpError(null);
     setIsVerifying(true);
 
@@ -104,9 +110,10 @@ export default function LoginForm() {
     const endpoint = useRecovery
       ? "/api/auth/2fa/recovery"
       : "/api/auth/2fa/verify";
+    // ไม่มี challengeToken ในมือแปลว่ามาจาก LINE/Google — ฝั่ง server อ่านจาก cookie เอง
     const payload = useRecovery
-      ? { challengeToken, recoveryCode: otpCode }
-      : { challengeToken, otpCode };
+      ? { ...(challengeToken ? { challengeToken } : {}), recoveryCode: otpCode }
+      : { ...(challengeToken ? { challengeToken } : {}), otpCode };
 
     const res = await fetch(endpoint, {
       method: "POST",
@@ -132,7 +139,7 @@ export default function LoginForm() {
     router.refresh();
   };
 
-  if (challengeToken) {
+  if (challengeToken || awaitingOAuth2fa) {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-[13px] text-muted-foreground">

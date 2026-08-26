@@ -79,3 +79,48 @@ export function useUnlinkGoogle() {
       queryClient.invalidateQueries({ queryKey: profileKeys.me }),
   });
 }
+
+// =====================================================================
+// การยืนยันตัวตน 2 ขั้นตอน (SRS §39 — เปิดเองได้ทุก role ไม่มีการบังคับ)
+// =====================================================================
+
+export type TwoFactorSetup = { qrCodeDataUrl: string; secret: string };
+
+/**
+ * ขอ QR ยังไม่ใช่การเปิดใช้งานจริง — api เก็บ secret ไว้เฉยๆ ต้องยืนยันรหัส
+ * 6 หลักที่ useConfirmTwoFactor() ก่อน กันคนสแกน QR พลาดแล้วล็อกตัวเองออก
+ */
+export function useStartTwoFactor() {
+  return useMutation({
+    mutationFn: () => api.post<TwoFactorSetup>('/api/auth/2fa/enable'),
+  });
+}
+
+export function useConfirmTwoFactor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (values: { otpCode: string }) =>
+      api.post<{ recoveryCodes: string[] }>('/api/auth/2fa/confirm', values),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: profileKeys.me }),
+  });
+}
+
+/**
+ * SRS §112 — ปิด 2FA ยืนยันด้วยรหัส 6 หลักหรือรหัสกู้คืน ส่วน password ส่งไป
+ * เฉพาะบัญชีที่มี เพราะบัญชีที่สมัครผ่าน LINE/Google ล้วนๆ ไม่มีรหัสผ่าน
+ */
+export function useDisableTwoFactor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (values: {
+      otpCode?: string;
+      recoveryCode?: string;
+      password?: string;
+    }) => api.post<{ message: string }>('/api/auth/2fa/disable', values),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: profileKeys.me }),
+  });
+}

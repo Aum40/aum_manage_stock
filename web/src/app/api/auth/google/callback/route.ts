@@ -3,6 +3,7 @@ import { setSessionCookies } from '@/lib/session-cookies';
 import { isValidOAuthState, oauthStateCookieName } from '@/lib/oauth-state';
 import { linkStateCookieName } from '@/lib/oauth-link-state';
 import { forwardAuthed } from '@/lib/api-forward';
+import { twoFactorChallengeCookie } from '@/lib/twofa-challenge';
 
 const API_URL = process.env.API_URL;
 const STATE_COOKIE = oauthStateCookieName('google');
@@ -60,7 +61,26 @@ export async function GET(request: NextRequest) {
   );
   const data = await res.json().catch(() => null);
 
-  if (!res.ok || !data?.accessToken) {
+  if (!res.ok) {
+    return done('/login?error=google_login_failed');
+  }
+
+  /**
+   * SRS §111 — 2FA บังคับใช้กับทุกช่องทางล็อกอิน รวม LINE/Google api จึงตอบ
+   * challengeToken แทน token ชุดจริงเมื่อบัญชีเปิด 2FA ไว้ ต้องพากลับไปกรอก
+   * รหัส 6 หลักที่หน้า login ก่อน ไม่ใช่ตีเป็นล็อกอินไม่สำเร็จ
+   */
+  if (data?.requires2fa && data.challengeToken) {
+    const response = done('/login?twofa=1');
+    response.cookies.set(
+      twoFactorChallengeCookie.name,
+      data.challengeToken,
+      twoFactorChallengeCookie.options,
+    );
+    return response;
+  }
+
+  if (!data?.accessToken) {
     return done('/login?error=google_login_failed');
   }
 
