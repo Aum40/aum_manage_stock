@@ -37,6 +37,24 @@ export class StripeService {
     return this.client;
   }
 
+  createCardPaymentIntent(
+    amountThb: number,
+    metadata: Record<string, string>,
+  ): Promise<Stripe.Response<Stripe.PaymentIntent>> {
+    return this.stripe.paymentIntents.create({
+      amount: Math.round(amountThb * 100),
+      currency: 'thb',
+      payment_method_types: ['card'],
+      metadata,
+    });
+  }
+
+  retrievePaymentIntent(
+    id: string,
+  ): Promise<Stripe.Response<Stripe.PaymentIntent>> {
+    return this.stripe.paymentIntents.retrieve(id);
+  }
+
   /**
    * ตรวจลายเซ็นของ webhook — ต้องใช้ raw body เท่านั้น
    * ถ้าใช้ body ที่ผ่าน JSON.parse มาแล้วลายเซ็นจะไม่ตรง เพราะ Stripe

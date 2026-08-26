@@ -34,6 +34,19 @@ export class PaymentsController {
     return this.paymentsService.createSubscriptionPayment(userId, dto.planCode);
   }
 
+  /** เริ่มชำระเงินด้วย Card Elements — ไม่ redirect ไป Stripe Checkout */
+  @Roles(UserRole.SHOP_OWNER)
+  @Post('subscription-intent')
+  async createSubscriptionPaymentIntent(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: CreateSubscriptionPaymentDto,
+  ) {
+    return this.paymentsService.createSubscriptionPaymentIntent(
+      userId,
+      dto.planCode,
+    );
+  }
+
   // SRS §66/§110 — quota เปลี่ยนได้ทางเดียวคืออัปเกรดแพลน ไม่มีการซื้อร้าน/
   // สินค้า/พนักงานเพิ่มแยกต่างหาก POST /payments/shop-addon จึงถูกตัดออก
   // พร้อม EXTRA_SHOP purpose แล้ว (ดู "SRS alignment" ใน AGENTS.md)
@@ -52,6 +65,24 @@ export class PaymentsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.paymentsService.retryPayment(userId, id);
+  }
+
+  @Roles(UserRole.SHOP_OWNER)
+  @Post(':id/retry-intent')
+  async retryPaymentIntent(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.paymentsService.retryPaymentIntent(userId, id);
+  }
+
+  @Roles(UserRole.SHOP_OWNER)
+  @Post(':id/confirm')
+  async confirmPaymentIntent(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.paymentsService.confirmPaymentIntent(userId, id);
   }
 
   @Roles(UserRole.SHOP_OWNER)

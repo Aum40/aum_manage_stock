@@ -6,13 +6,14 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import CardPaymentDialog from "@/components/features/payment/CardPaymentDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import {
-  useCreateSubscriptionPayment,
+  useCreateSubscriptionPaymentIntent,
   useMySubscription,
   usePayments,
-  useRetrySubscriptionPayment,
+  useRetrySubscriptionPaymentIntent,
 } from "@/lib/hooks/use-inventory";
 
 function toMessage(error: unknown, fallback: string): string {
@@ -109,8 +110,9 @@ export default function MembershipPage() {
   const t = content[locale];
   const subscriptionQuery = useMySubscription();
   const paymentsQuery = usePayments();
-  const createPayment = useCreateSubscriptionPayment();
-  const retryPayment = useRetrySubscriptionPayment();
+  const createPayment = useCreateSubscriptionPaymentIntent();
+  const retryPayment = useRetrySubscriptionPaymentIntent();
+  const [payment, setPayment] = useState<{ paymentId: string; clientSecret: string; amount: number } | null>(null);
   const [renewError, setRenewError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const subscription = subscriptionQuery.data;
@@ -156,8 +158,11 @@ export default function MembershipPage() {
     if (!currentPlanCode || currentPlanCode === "FREE" || createPayment.isPending) return;
     setRenewError(null);
     createPayment.mutate(currentPlanCode as "PLUS" | "PRO", {
-      onSuccess: ({ checkoutUrl }) => {
-        window.location.assign(checkoutUrl);
+      onSuccess: ({ paymentId, clientSecret }) => {
+        const plan = subscription?.subscription.plan;
+        if (clientSecret && plan) {
+          setPayment({ paymentId, clientSecret, amount: Number(plan.priceThb) });
+        }
       },
       onError: (error) => {
         setRenewError(toMessage(error, t.renewError));
@@ -169,7 +174,12 @@ export default function MembershipPage() {
     if (retryPayment.isPending) return;
     setRetryError(null);
     retryPayment.mutate(paymentId, {
-      onSuccess: ({ checkoutUrl }) => window.location.assign(checkoutUrl),
+      onSuccess: ({ clientSecret }) => {
+        const row = paymentsQuery.data?.find((item) => item.id === paymentId);
+        if (clientSecret && row) {
+          setPayment({ paymentId, clientSecret, amount: Number(row.amountThb) });
+        }
+      },
       onError: (error) => setRetryError(toMessage(error, t.retryError)),
     });
   };
@@ -177,6 +187,16 @@ export default function MembershipPage() {
   return (
     <>
       <TopBar title={t.title} />
+      {payment && (
+        <CardPaymentDialog
+          clientSecret={payment.clientSecret}
+          paymentId={payment.paymentId}
+          amount={payment.amount}
+          locale={locale}
+          onClose={() => setPayment(null)}
+          onSuccess={() => window.location.assign("/membership?status=success")}
+        />
+      )}
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
