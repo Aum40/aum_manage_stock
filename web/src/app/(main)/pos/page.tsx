@@ -10,6 +10,14 @@ import Stepper from "@/components/shared/Stepper";
 import Caption from "@/components/shared/Caption";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useCreateSale, useScanSale, useShops } from "@/lib/hooks/use-inventory";
+
+type PosItem = {
+  shopProductId: string;
+  name: string;
+  price: number;
+  qty: number;
+};
 
 const content = {
   th: {
@@ -59,7 +67,41 @@ const content = {
 export default function POSPage() {
   const { locale } = useLocale();
   const t = content[locale];
-  const [items, setItems] = useState(t.items);
+  const shopsQuery = useShops();
+  const shopId = shopsQuery.data?.[0]?.id;
+  const scanSale = useScanSale(shopId);
+  const createSale = useCreateSale(shopId);
+  const [barcode, setBarcode] = useState("");
+  const [items, setItems] = useState<PosItem[]>([]);
+
+  const scanBarcode = () => {
+    const value = barcode.trim();
+    if (!value || scanSale.isPending) return;
+    scanSale.mutate(value, {
+      onSuccess: (product) => {
+        setItems((previous) => {
+          const existing = previous.find((item) => item.shopProductId === product.shopProductId);
+          if (existing) {
+            return previous.map((item) =>
+              item.shopProductId === product.shopProductId
+                ? { ...item, qty: item.qty + 1 }
+                : item,
+            );
+          }
+          return [
+            ...previous,
+            {
+              shopProductId: product.shopProductId,
+              name: product.name,
+              price: Number(product.unitPrice),
+              qty: 1,
+            },
+          ];
+        });
+        setBarcode("");
+      },
+    });
+  };
 
   const updateQty = (i: number, delta: number) => {
     setItems((prev) =>
@@ -91,7 +133,18 @@ export default function POSPage() {
                 </div>
                 <div className="mt-1 text-xs text-border">{t.scanFormats}</div>
               </div>
-              <Input placeholder={t.scanInputPh} className="mt-3.5 font-mono" />
+            <Input
+              value={barcode}
+              onChange={(event) => setBarcode(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  scanBarcode();
+                }
+              }}
+              placeholder={t.scanInputPh}
+              className="mt-3.5 font-mono"
+            />
             </div>
           </Card>
 
@@ -125,8 +178,8 @@ export default function POSPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item, i) => (
-                      <tr key={i} className="border-b border-border">
+                    {items.map((item) => (
+                      <tr key={item.shopProductId} className="border-b border-border">
                         <td className="py-3">{item.name}</td>
                         <td className="py-3 text-right font-mono text-[13px]">
                           ฿{item.price.toFixed(2)}
@@ -134,8 +187,8 @@ export default function POSPage() {
                         <td className="py-3 text-center">
                           <Stepper
                             value={item.qty}
-                            onInc={() => updateQty(i, 1)}
-                            onDec={() => updateQty(i, -1)}
+                            onInc={() => updateQty(items.indexOf(item), 1)}
+                            onDec={() => updateQty(items.indexOf(item), -1)}
                             className="justify-center"
                           />
                         </td>
@@ -167,7 +220,18 @@ export default function POSPage() {
                 >
                   {t.clearBtn}
                 </button>
-                <Button variant="gradient">{t.confirmBtn}</Button>
+                <Button
+                  variant="gradient"
+                  disabled={items.length === 0 || createSale.isPending}
+                  onClick={() =>
+                    createSale.mutate(
+                      { items: items.map(({ shopProductId, qty }) => ({ shopProductId, quantity: qty })) },
+                      { onSuccess: () => setItems([]) },
+                    )
+                  }
+                >
+                  {createSale.isPending ? "กำลังบันทึก…" : t.confirmBtn}
+                </Button>
               </div>
               <Caption>{t.caption}</Caption>
             </div>

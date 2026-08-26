@@ -41,7 +41,7 @@ export default function LockedChatbotPage() {
             <div className="mx-auto mb-5 flex size-18 items-center justify-center rounded-full bg-primary text-3xl">
               🔒
             </div>
-            <span className="mb-4 inline-block rounded-full bg-primary px-3.5 py-1 text-[11px] font-bold tracking-widest text-white">
+            <span className="mb-4 inline-block rounded-full bg-primary px-3.5 py-1 text-[11px] font-bold tracking-widest text-primary-foreground">
               PLUS
             </span>
             <h2 className="mb-3 font-heading text-xl font-bold text-foreground">

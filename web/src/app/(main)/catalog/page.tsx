@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
@@ -19,8 +20,7 @@ import QuotaStrip from "@/components/shared/QuotaStrip";
 import Caption from "@/components/shared/Caption";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
-
-const shopColors: Record<string, string> = { ล: "#F5A31C", บ: "#5C9A54", L: "#F5A31C", B: "#5C9A54" };
+import { useMySubscription, useProducts } from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -30,8 +30,6 @@ const content = {
     searchPlaceholder: "ค้นหาด้วยชื่อหรือการแสกน…",
     allCategories: "ทุกหมวดหมู่",
     allShops: "ทุกร้าน",
-    shopA: "สาขาลาดพร้าว",
-    shopB: "สาขาบางนา",
     addBtn: "เพิ่มสินค้าใหม่ →",
     columns: ["สินค้า", "หมวดหมู่", "ต้นทุน", "ขายในร้าน", ""],
     notSelling: "ไม่ขายเลย",
@@ -39,12 +37,6 @@ const content = {
     addToShopBtn: "เพิ่มเข้าร้าน",
     caption:
       "สินค้าหนึ่งรายการในแคตตาล็อกกลาง สามารถเข้าได้หลายร้าน โดยแต่ละร้านมีราคาขายและสต็อกแยกกัน และนับโควตาเพียง 1 รายการ",
-    products: [
-      { name: "โค้กกระป๋อง 325 มล.", category: "เครื่องดื่ม", cost: "11.00", shops: ["ล", "บ"] },
-      { name: "มามาห่มูสับ", category: "บะหมี่-เส้น", cost: "5.50", shops: ["ล"] },
-      { name: "น้ำดื่มตราสิงห์ 600 มล.", category: "เครื่องดื่ม", cost: "6.00", shops: ["ล", "บ"] },
-      { name: "สบู่กูเก้ว (สูตรเดิม)", category: "ของใช้", cost: "9.00", shops: [] as string[] },
-    ],
   },
   en: {
     title: "Product Catalog",
@@ -53,8 +45,6 @@ const content = {
     searchPlaceholder: "Search by name or scan…",
     allCategories: "All Categories",
     allShops: "All Shops",
-    shopA: "Lat Phrao Branch",
-    shopB: "Bang Na Branch",
     addBtn: "Add New Product →",
     columns: ["Product", "Category", "Cost", "Sold At", ""],
     notSelling: "Not selling anywhere",
@@ -62,18 +52,17 @@ const content = {
     addToShopBtn: "Add to Shop",
     caption:
       "One item in the central catalog can be sold at multiple shops, each with its own sell price and stock, and counts toward the quota only once.",
-    products: [
-      { name: "Coke Can 325 ml.", category: "Drinks", cost: "11.00", shops: ["L", "B"] },
-      { name: "Mama Pork Noodles", category: "Noodles", cost: "5.50", shops: ["L"] },
-      { name: "Singha Water 600 ml.", category: "Drinks", cost: "6.00", shops: ["L", "B"] },
-      { name: "Kuge Soap (Original)", category: "Sundries", cost: "9.00", shops: [] as string[] },
-    ],
   },
 };
 
 export default function ProductCatalogPage() {
   const { locale } = useLocale();
   const t = content[locale];
+  const [search, setSearch] = useState("");
+  const productsQuery = useProducts({ q: search || undefined, limit: 100 });
+  const subscriptionQuery = useMySubscription();
+  const productQuota = subscriptionQuery.data?.quotas.product;
+  const products = productsQuery.data?.items ?? [];
 
   return (
     <>
@@ -82,7 +71,7 @@ export default function ProductCatalogPage() {
         <div className="flex flex-col gap-5">
           <QuotaStrip>
             <div className="flex-1">
-              <QuotaMeter label={t.quotaLabel} used={78} total={100} />
+              <QuotaMeter label={t.quotaLabel} used={productQuota?.used ?? 0} total={productQuota?.allowed ?? 0} />
             </div>
             <button className="text-xs font-semibold whitespace-nowrap text-primary">
               {t.upgradeLink}
@@ -90,7 +79,7 @@ export default function ProductCatalogPage() {
           </QuotaStrip>
 
           <div className="flex items-center gap-3">
-            <Input placeholder={t.searchPlaceholder} className="flex-1" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t.searchPlaceholder} className="flex-1" />
             <Select defaultValue="all-cat">
               <SelectTrigger>
                 <SelectValue />
@@ -105,8 +94,6 @@ export default function ProductCatalogPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all-shop">{t.allShops}</SelectItem>
-                <SelectItem value="shop-a">{t.shopA}</SelectItem>
-                <SelectItem value="shop-b">{t.shopB}</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="dark" render={<Link href="/catalog/new" />}>
@@ -131,49 +118,30 @@ export default function ProductCatalogPage() {
                 </tr>
               </thead>
               <tbody>
-                {t.products.map((p, i) => (
-                  <tr key={i} className="border-b border-border last:border-0">
+                {productsQuery.isLoading && <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">กำลังโหลดข้อมูล…</td></tr>}
+                {!productsQuery.isLoading && products.length === 0 && <tr><td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">ยังไม่มีสินค้าในแคตตาล็อก</td></tr>}
+                {products.map((p) => (
+                  <tr key={p.id} className="border-b border-border last:border-0">
                     <td className="px-5 py-3.5 font-medium">{p.name}</td>
-                    <td className="px-5 py-3.5 text-muted-foreground">
-                      {p.category}
-                    </td>
+                    <td className="px-5 py-3.5 text-muted-foreground">{p.categoryId ?? "—"}</td>
                     <td className="px-5 py-3.5 text-right font-mono text-[13px]">
-                      ฿{p.cost}
+                      —
                     </td>
                     <td className="px-5 py-3.5">
-                      {p.shops.length === 0 ? (
-                        <Badge variant="neutral">{t.notSelling}</Badge>
-                      ) : (
-                        <div className="flex">
-                          {p.shops.map((s, idx) => (
-                            <div
-                              key={s}
-                              className="flex size-7 items-center justify-center rounded-lg border-2 border-secondary font-heading text-[13px] font-bold text-white"
-                              style={{
-                                backgroundColor: shopColors[s],
-                                marginLeft: idx === 0 ? 0 : -6,
-                              }}
-                            >
-                              {s}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <Badge variant="neutral">{t.notSelling}</Badge>
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap">
                       <button className="mr-3 text-[13px] text-muted-foreground">
                         {t.editBtn}
                       </button>
-                      {p.shops.length === 0 && (
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="h-auto p-0 text-[13px] font-semibold"
-                          render={<Link href="/catalog/add-to-shop" />}
-                        >
-                          {t.addToShopBtn}
-                        </Button>
-                      )}
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-[13px] font-semibold"
+                        render={<Link href="/catalog/add-to-shop" />}
+                      >
+                        {t.addToShopBtn}
+                      </Button>
                     </td>
                   </tr>
                 ))}

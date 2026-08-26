@@ -36,6 +36,18 @@ export class ShopsService {
   async create(userId: string, dto: CreateShopDto) {
     const subscription =
       await this.subscriptionsService.getSubscriptionWithPlanOrThrow(userId);
+
+    if (
+      isSubscriptionReadOnly({
+        status: subscription.status,
+        expiresAt: subscription.expiresAt,
+      })
+    ) {
+      throw new ForbiddenException(
+        'Account is in read-only mode because the subscription has expired. Please renew first.',
+      );
+    }
+
     const usedShopCount = await this.prisma.shop.count({
       where: { ownerId: userId, deletedAt: null },
     });

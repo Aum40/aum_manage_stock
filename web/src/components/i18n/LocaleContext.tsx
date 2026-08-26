@@ -45,9 +45,6 @@ interface LocaleContextValue {
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
-// Guest pages (Landing, login/register/forgot-password) are Thai-only by
-// design and never call useLocale() — this provider only matters to pages
-// rendered inside a Sidebar.
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const locale = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 

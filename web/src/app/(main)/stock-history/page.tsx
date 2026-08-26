@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useShops, useShopProducts, useStockMovements } from "@/lib/hooks/use-inventory";
 
 const sourceVariant = { chatbot: "warning", scan: "success", manual: "neutral" } as const;
 
@@ -56,6 +57,14 @@ const content = {
 export default function StockHistoryPage() {
   const { locale } = useLocale();
   const t = content[locale];
+  const shopsQuery = useShops();
+  const shopId = shopsQuery.data?.[0]?.id;
+  const movementsQuery = useStockMovements(shopId);
+  const shopProductsQuery = useShopProducts(shopId, { limit: 100 });
+  const productNames = new Map(
+    (shopProductsQuery.data?.items ?? []).map((item) => [item.id, item.product.name]),
+  );
+  const rows = movementsQuery.data?.items ?? [];
 
   return (
     <>
@@ -121,36 +130,50 @@ export default function StockHistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {t.rows.map((row, i) => {
-                  const isPositive = row.change.startsWith("+");
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                      {movementsQuery.isLoading ? "กำลังโหลดข้อมูล…" : "ยังไม่มีประวัติสต็อก"}
+                    </td>
+                  </tr>
+                )}
+                {rows.map((row) => {
+                  const isPositive = row.quantityDelta >= 0;
+                  const source = row.movementType === "CHAT_ADJUSTMENT"
+                    ? "chatbot"
+                    : row.movementType === "SALE" || row.movementType === "SALE_VOID"
+                      ? "scan"
+                      : "manual";
                   return (
-                    <tr key={i} className="border-b border-border last:border-0">
+                    <tr key={row.id} className="border-b border-border last:border-0">
                       <td className="px-5 py-3.5 font-mono text-xs whitespace-nowrap text-muted-foreground">
-                        {row.datetime}
+                        {new Date(row.createdAt).toLocaleString(locale === "th" ? "th-TH" : "en-US")}
                       </td>
-                      <td className="px-5 py-3.5 font-medium">{row.product}</td>
+                      <td className="px-5 py-3.5 font-medium">
+                        {productNames.get(row.shopProductId) ?? row.shopProductId}
+                      </td>
                       <td className="px-5 py-3.5">
                         <span
                           className={`font-mono text-[13px] font-semibold ${
                             isPositive ? "text-status-green" : "text-destructive"
                           }`}
                         >
-                          {row.change}
+                          {row.quantityDelta > 0 ? "+" : ""}{row.quantityDelta}
                         </span>
                         <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">
-                          ({row.from} → {row.to})
+                          ({row.quantityBefore} → {row.quantityAfter})
                         </span>
                       </td>
                       <td className="px-5 py-3.5">
-                        <Badge variant={sourceVariant[row.source]}>
-                          {t.sourceLabel[row.source]}
+                        <Badge variant={sourceVariant[source]}>
+                          {t.sourceLabel[source]}
                         </Badge>
                       </td>
                       <td className="px-5 py-3.5 text-muted-foreground">
-                        {row.by}
+                        {row.actorId ?? "—"}
                       </td>
                       <td className="px-5 py-3.5 text-[13px] text-muted-foreground">
-                        {row.note}
+                        {row.note ?? "—"}
                       </td>
                     </tr>
                   );
