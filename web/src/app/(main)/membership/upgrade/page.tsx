@@ -4,13 +4,18 @@ import TopBar from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
-import { useCreateSubscriptionPayment } from "@/lib/hooks/use-inventory";
+import {
+  useCreateSubscriptionPayment,
+  useMySubscription,
+  useSubscriptionPlans,
+  type SubscriptionPlan,
+} from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
     title: "อัปเกรดแพ็กเกจ",
     heading: "เลือกแพ็กเกจที่ใช่สำหรับร้านคุณ",
-    subheading: "ตอนนี้คุณอยู่ Free Plan — อัปเกรดเพื่อเพิ่มร้าน สินค้า และปลดล็อกฟีเจอร์",
+    subheading: "อัปเกรดเพื่อเพิ่มร้าน สินค้า และปลดล็อกฟีเจอร์",
     lifelong: "ตลอดชีพ",
     perYear: "ต่อปี",
     recommended: "แนะนำ",
@@ -19,24 +24,22 @@ const content = {
     chooseProBtn: "เลือก Pro →",
     footerNote:
       "ร้านและสินค้าที่มีอยู่แล้วจะถูกเก็บไว้เต็มจำนวนเมื่ออัปเกรดแพ็กเกจ ไม่มีการหักข้อมูลเก่าใดๆ",
-    features: [
-      { label: "จำนวนร้านค้า", free: "1", plus: "3", pro: "5" },
-      { label: "สินค้าสูงสุด", free: "100", plus: "3,000", pro: "5,000" },
-      { label: "บัญชีพนักงาน", free: "✗", plus: "6", pro: "10" },
-      { label: "บันทึกสต็อกแบบ manual", free: "✓", plus: "✓", pro: "✓" },
-      { label: "ประวัติการเคลื่อนไหวสต็อก", free: "✓", plus: "✓", pro: "✓" },
-      { label: "แดชบอร์ดพื้นฐาน", free: "✓", plus: "✓", pro: "✓" },
-      { label: "สแกนบาร์โค้ดขายหน้าร้าน", free: "✗", plus: "✓", pro: "✓" },
-      { label: "แชทบอทรับสต็อก (LINE)", free: "✗", plus: "✓", pro: "✓" },
-      { label: "รายงานเชิงลึก", free: "✗", plus: "✓", pro: "✓" },
-      { label: "คำแนะนำจาก AI", free: "✗", plus: "✗", pro: "✓" },
-      { label: "ซื้อสิทธิ์ร้านเพิ่ม", free: "✗", plus: "✓", pro: "✓" },
-    ],
+    unlimited: "ไม่จำกัด",
+    featShops: "จำนวนร้านค้า",
+    featProducts: "สินค้าสูงสุด",
+    featStaff: "บัญชีพนักงาน",
+    featManualStock: "บันทึกสต็อกแบบ manual",
+    featStockHistory: "ประวัติการเคลื่อนไหวสต็อก",
+    featBasicDashboard: "แดชบอร์ดพื้นฐาน",
+    featBarcode: "สแกนบาร์โค้ดขายหน้าร้าน",
+    featChatbot: "แชทบอทรับสต็อก (LINE)",
+    featReports: "รายงานเชิงลึก",
+    featAi: "คำแนะนำจาก AI",
   },
   en: {
     title: "Upgrade Plan",
     heading: "Choose the Right Plan for Your Shop",
-    subheading: "You're currently on the Free Plan — upgrade to add shops, products, and unlock features.",
+    subheading: "Upgrade to add shops, products, and unlock features.",
     lifelong: "Lifetime",
     perYear: "per year",
     recommended: "Recommended",
@@ -45,19 +48,17 @@ const content = {
     chooseProBtn: "Choose Pro →",
     footerNote:
       "Existing shops and products are kept in full when you upgrade — nothing is ever deducted.",
-    features: [
-      { label: "Number of Shops", free: "1", plus: "3", pro: "5" },
-      { label: "Max Products", free: "100", plus: "3,000", pro: "5,000" },
-      { label: "Staff Accounts", free: "✗", plus: "6", pro: "10" },
-      { label: "Manual Stock Entry", free: "✓", plus: "✓", pro: "✓" },
-      { label: "Stock Movement History", free: "✓", plus: "✓", pro: "✓" },
-      { label: "Basic Dashboard", free: "✓", plus: "✓", pro: "✓" },
-      { label: "Barcode Scanning (POS)", free: "✗", plus: "✓", pro: "✓" },
-      { label: "Stock Chatbot (LINE)", free: "✗", plus: "✓", pro: "✓" },
-      { label: "Advanced Reports", free: "✗", plus: "✓", pro: "✓" },
-      { label: "AI Recommendations", free: "✗", plus: "✗", pro: "✓" },
-      { label: "Buy Extra Shop Slots", free: "✗", plus: "✓", pro: "✓" },
-    ],
+    unlimited: "Unlimited",
+    featShops: "Number of Shops",
+    featProducts: "Max Products",
+    featStaff: "Staff Accounts",
+    featManualStock: "Manual Stock Entry",
+    featStockHistory: "Stock Movement History",
+    featBasicDashboard: "Basic Dashboard",
+    featBarcode: "Barcode Scanning (POS)",
+    featChatbot: "Stock Chatbot (LINE)",
+    featReports: "Advanced Reports",
+    featAi: "AI Recommendations",
   },
 };
 
@@ -69,10 +70,77 @@ function Cell({ val }: { val: string }) {
   return <span className="font-mono text-[13px] font-semibold">{val}</span>;
 }
 
+function boolCell(value: boolean | undefined): string {
+  return value ? "✓" : "✗";
+}
+
+function staffCell(plan: SubscriptionPlan | undefined): string {
+  if (!plan) return "—";
+  return plan.includedStaffQuota > 0 ? String(plan.includedStaffQuota) : "✗";
+}
+
 export default function UpgradePlanPage() {
   const { locale } = useLocale();
   const t = content[locale];
   const createPayment = useCreateSubscriptionPayment();
+  const plansQuery = useSubscriptionPlans();
+  const subscriptionQuery = useMySubscription();
+
+  const plans = plansQuery.data ?? [];
+  const freePlan = plans.find((p) => p.code === "FREE");
+  const plusPlan = plans.find((p) => p.code === "PLUS");
+  const proPlan = plans.find((p) => p.code === "PRO");
+  const currentPlanCode = subscriptionQuery.data?.subscription.plan.code;
+
+  const features = [
+    {
+      label: t.featShops,
+      free: String(freePlan?.includedShopQuota ?? "—"),
+      plus: String(plusPlan?.includedShopQuota ?? "—"),
+      pro: String(proPlan?.includedShopQuota ?? "—"),
+    },
+    {
+      label: t.featProducts,
+      free: freePlan?.maxActiveProducts?.toLocaleString() ?? t.unlimited,
+      plus: plusPlan?.maxActiveProducts?.toLocaleString() ?? t.unlimited,
+      pro: proPlan?.maxActiveProducts?.toLocaleString() ?? t.unlimited,
+    },
+    {
+      label: t.featStaff,
+      free: staffCell(freePlan),
+      plus: staffCell(plusPlan),
+      pro: staffCell(proPlan),
+    },
+    { label: t.featManualStock, free: "✓", plus: "✓", pro: "✓" },
+    { label: t.featStockHistory, free: "✓", plus: "✓", pro: "✓" },
+    { label: t.featBasicDashboard, free: "✓", plus: "✓", pro: "✓" },
+    {
+      label: t.featBarcode,
+      free: boolCell(freePlan?.barcodeEnabled),
+      plus: boolCell(plusPlan?.barcodeEnabled),
+      pro: boolCell(proPlan?.barcodeEnabled),
+    },
+    {
+      label: t.featChatbot,
+      free: boolCell(freePlan?.chatbotEnabled),
+      plus: boolCell(plusPlan?.chatbotEnabled),
+      pro: boolCell(proPlan?.chatbotEnabled),
+    },
+    // "รายงานเชิงลึก" ไม่มี flag แยกในฐานข้อมูล — อนุมานจาก isFree ตามที่
+    // AGENTS.md ระบุว่า Advanced Reports เป็นสิทธิ์ของ Plus/Pro เท่านั้น
+    {
+      label: t.featReports,
+      free: boolCell(freePlan ? !freePlan.isFree : false),
+      plus: boolCell(plusPlan ? !plusPlan.isFree : false),
+      pro: boolCell(proPlan ? !proPlan.isFree : false),
+    },
+    {
+      label: t.featAi,
+      free: boolCell(freePlan?.aiRecommendationEnabled),
+      plus: boolCell(plusPlan?.aiRecommendationEnabled),
+      pro: boolCell(proPlan?.aiRecommendationEnabled),
+    },
+  ];
 
   const startCheckout = (planCode: "PLUS" | "PRO") => {
     if (createPayment.isPending) return;
@@ -106,7 +174,7 @@ export default function UpgradePlanPage() {
                       FREE
                     </div>
                     <div className="font-mono text-2xl font-bold tracking-[-0.02em]">
-                      ฿0
+                      ฿{Number(freePlan?.priceThb ?? 0).toLocaleString()}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {t.lifelong}
@@ -120,7 +188,7 @@ export default function UpgradePlanPage() {
                       PLUS
                     </div>
                     <div className="font-mono text-2xl font-bold tracking-[-0.02em]">
-                      ฿2,499
+                      ฿{Number(plusPlan?.priceThb ?? 0).toLocaleString()}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {t.perYear}
@@ -131,7 +199,7 @@ export default function UpgradePlanPage() {
                       PRO
                     </div>
                     <div className="font-mono text-2xl font-bold tracking-[-0.02em]">
-                      ฿3,499
+                      ฿{Number(proPlan?.priceThb ?? 0).toLocaleString()}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {t.perYear}
@@ -140,7 +208,7 @@ export default function UpgradePlanPage() {
                 </tr>
               </thead>
               <tbody>
-                {t.features.map((f) => (
+                {features.map((f) => (
                   <tr key={f.label} className="border-t border-border">
                     <td className="px-6 py-3.5 text-foreground">{f.label}</td>
                     <td className="px-4 py-3.5 text-center">
@@ -157,27 +225,41 @@ export default function UpgradePlanPage() {
                 <tr className="border-t border-border">
                   <td className="px-6 py-5" />
                   <td className="px-4 py-5 text-center">
-                    <Button variant="secondary" disabled className="opacity-50">
-                      {t.currentPlanBtn}
-                    </Button>
+                    {currentPlanCode === "FREE" && (
+                      <Button variant="secondary" disabled className="opacity-50">
+                        {t.currentPlanBtn}
+                      </Button>
+                    )}
                   </td>
                   <td className="bg-primary/7 px-4 py-5 text-center">
-                    <Button
-                      variant="gradient"
-                      disabled={createPayment.isPending}
-                      onClick={() => startCheckout("PLUS")}
-                    >
-                      {t.choosePlusBtn}
-                    </Button>
+                    {currentPlanCode === "PLUS" ? (
+                      <Button variant="secondary" disabled className="opacity-50">
+                        {t.currentPlanBtn}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="gradient"
+                        disabled={createPayment.isPending}
+                        onClick={() => startCheckout("PLUS")}
+                      >
+                        {t.choosePlusBtn}
+                      </Button>
+                    )}
                   </td>
                   <td className="px-4 py-5 text-center">
-                    <Button
-                      variant="dark"
-                      disabled={createPayment.isPending}
-                      onClick={() => startCheckout("PRO")}
-                    >
-                      {t.chooseProBtn}
-                    </Button>
+                    {currentPlanCode === "PRO" ? (
+                      <Button variant="secondary" disabled className="opacity-50">
+                        {t.currentPlanBtn}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="dark"
+                        disabled={createPayment.isPending}
+                        onClick={() => startCheckout("PRO")}
+                      >
+                        {t.chooseProBtn}
+                      </Button>
+                    )}
                   </td>
                 </tr>
               </tbody>

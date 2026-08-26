@@ -136,7 +136,7 @@ export function getNavSections(role: SidebarRole): NavSection[] {
         { label: { th: "ร้านค้าของฉัน", en: "My Shops" }, href: "/shops", icon: "store" },
         {
           label: { th: "สมาชิกและการชำระเงิน", en: "Membership & Billing" },
-          href: isFree ? "/membership/free" : "/membership/plus",
+          href: "/membership",
           icon: "card",
         },
         { label: { th: "โปรไฟล์ของฉัน", en: "My Profile" }, href: "/profile", icon: "user" },
