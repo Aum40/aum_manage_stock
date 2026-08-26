@@ -6,8 +6,8 @@
 -- stored as Earthty@gmail.com is unreachable — the duplicate check silently
 -- passes and the owner cannot sign in with their own email.
 --
--- ⚠️ Run this AFTER `prisma db push`. `db push` skips prisma/sql/ entirely, so
---    without it the users table has no uniqueness on email/username at all.
+-- SqlScriptsRunner รันไฟล์นี้ให้เองตอน api เริ่มทำงาน (db push ข้าม prisma/sql/
+-- ทั้งโฟลเดอร์ จึงต้องมีตัวรันแยก) ถ้าจะรันเองก็ได้ ไฟล์นี้รันซ้ำได้ไม่พัง:
 --
 --     pnpm prisma db execute --file prisma/sql/004_users_partial_unique_indexes.sql --schema prisma/schema.prisma
 --
