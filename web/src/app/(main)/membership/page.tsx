@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import TopBar from "@/components/layout/TopBar";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -8,7 +9,22 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
-import { useMySubscription, usePayments } from "@/lib/hooks/use-inventory";
+import { ApiError } from "@/lib/api-client";
+import {
+  useCreateSubscriptionPayment,
+  useMySubscription,
+  usePayments,
+} from "@/lib/hooks/use-inventory";
+
+function toMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiError ? error.message : fallback;
+}
+
+const STATUS_BADGE = {
+  ACTIVE: "success",
+  EXPIRED: "error",
+  CANCELLED: "neutral",
+} as const;
 
 const content = {
   th: {
@@ -21,10 +37,14 @@ const content = {
       ["สถานะ", "active"],
       ["วันหมดอายุ", "12 มี.ค. 2570 (เหลือ 207 วัน)"],
       ["สิทธิ์สร้างร้าน", "2 / 3 ร้าน"],
-      ["สิทธิ์ที่ซื้อเพิ่ม", "0 ร้าน"],
     ],
     activeLabel: "กำลังใช้งาน",
+    expiredLabel: "หมดอายุแล้ว",
+    cancelledLabel: "ยกเลิกแล้ว",
+    readOnlyNote: "แพ็กเกจหมดอายุ ร้านค้าอยู่ในโหมดอ่านอย่างเดียว",
     renewBtn: "ต่ออายุตอนนี้ →",
+    renewing: "กำลังต่ออายุ…",
+    renewError: "ต่ออายุไม่สำเร็จ",
     buyExtraHeading: "เพิ่มโควต้าด้วยการอัปเกรดแพ็กเกจ",
     buyExtraSub: "ระบบไม่มีการซื้อโควต้าแยก แพ็กเกจที่สูงขึ้นจะเพิ่มสิทธิ์ร้านค้า สินค้า และพนักงานตามแผน",
     qtyLabel: "เลือกแพ็กเกจที่ต้องการ",
@@ -47,10 +67,14 @@ const content = {
       ["Status", "active"],
       ["Expires", "Mar 12, 2027 (207 days left)"],
       ["Shop Slots", "2 / 3 shops"],
-      ["Extra Slots Purchased", "0 shops"],
     ],
     activeLabel: "Active",
+    expiredLabel: "Expired",
+    cancelledLabel: "Cancelled",
+    readOnlyNote: "Subscription expired — shops are in read-only mode.",
     renewBtn: "Renew Now →",
+    renewing: "Renewing…",
+    renewError: "Failed to renew",
     buyExtraHeading: "Increase Quota with a Plan Upgrade",
     buyExtraSub: "There are no separate quota add-ons. Upgrade your plan to increase shop, product, and staff limits.",
     qtyLabel: "Choose a plan",
@@ -70,11 +94,14 @@ export default function MembershipPage() {
   const t = content[locale];
   const subscriptionQuery = useMySubscription();
   const paymentsQuery = usePayments();
+  const createPayment = useCreateSubscriptionPayment();
+  const [renewError, setRenewError] = useState<string | null>(null);
   const subscription = subscriptionQuery.data;
+  const statusLabel = locale === "th" ? "สถานะ" : "Status";
   const statusRows = subscription
     ? [
         [locale === "th" ? "แพ็กเกจ" : "Plan", subscription.subscription.plan.nameTh],
-        [locale === "th" ? "สถานะ" : "Status", subscription.subscription.status],
+        [statusLabel, subscription.subscription.status],
         [
           locale === "th" ? "วันหมดอายุ" : "Expires",
           subscription.subscription.expiresAt
@@ -85,6 +112,34 @@ export default function MembershipPage() {
         [locale === "th" ? "สินค้า" : "Products", `${subscription.quotas.product.used} / ${subscription.quotas.product.allowed ?? "∞"}`],
       ]
     : t.statusRows;
+
+  const statusBadge = subscription
+    ? {
+        variant: STATUS_BADGE[subscription.subscription.status as keyof typeof STATUS_BADGE] ?? "neutral",
+        label:
+          subscription.subscription.status === "ACTIVE"
+            ? t.activeLabel
+            : subscription.subscription.status === "EXPIRED"
+              ? t.expiredLabel
+              : t.cancelledLabel,
+      }
+    : { variant: "success" as const, label: t.activeLabel };
+
+  const currentPlanCode = subscription?.subscription.plan.code;
+  const canRenew = Boolean(currentPlanCode) && currentPlanCode !== "FREE";
+
+  const onRenew = () => {
+    if (!currentPlanCode || currentPlanCode === "FREE" || createPayment.isPending) return;
+    setRenewError(null);
+    createPayment.mutate(currentPlanCode as "PLUS" | "PRO", {
+      onSuccess: ({ checkoutUrl }) => {
+        window.location.assign(checkoutUrl);
+      },
+      onError: (error) => {
+        setRenewError(toMessage(error, t.renewError));
+      },
+    });
+  };
 
   return (
     <>
@@ -107,22 +162,36 @@ export default function MembershipPage() {
                   <div
                     key={label}
                     className={`flex items-center justify-between py-2.75 ${
-                      i < t.statusRows.length - 1 ? "border-b border-border" : ""
+                      i < statusRows.length - 1 ? "border-b border-border" : ""
                     }`}
                   >
                     <span className="text-[13px] text-muted-foreground">
                       {label}
                     </span>
-                    {label === (locale === "th" ? "สถานะ" : "Status") ? (
-                      <Badge variant="success">{t.activeLabel}</Badge>
+                    {label === statusLabel ? (
+                      <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
                     ) : (
                       <span className="text-sm font-semibold">{value}</span>
                     )}
                   </div>
                 ))}
-                <div className="mt-4">
-                  <Button variant="gradient">{t.renewBtn}</Button>
-                </div>
+                {subscription?.readOnly && (
+                  <p className="mt-3 text-xs text-destructive">{t.readOnlyNote}</p>
+                )}
+                {renewError && (
+                  <p className="mt-3 text-xs text-destructive">{renewError}</p>
+                )}
+                {canRenew && (
+                  <div className="mt-4">
+                    <Button
+                      variant="gradient"
+                      disabled={createPayment.isPending}
+                      onClick={onRenew}
+                    >
+                      {createPayment.isPending ? t.renewing : t.renewBtn}
+                    </Button>
+                  </div>
+                )}
               </div>
             </Card>
 

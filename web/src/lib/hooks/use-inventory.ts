@@ -87,6 +87,49 @@ export function useShops() {
   });
 }
 
+export type ShopInput = {
+  name: string;
+  description?: string;
+  imageUrl?: string;
+  phone?: string;
+  address?: string;
+};
+
+export function useCreateShop() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: ShopInput) => api.post<Shop>('/api/backend/shops', input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['subscriptions', 'me'] });
+    },
+  });
+}
+
+export function useUpdateShop(shopId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: ShopInput) => api.patch<Shop>(`/api/backend/shops/${shopId}`, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+    },
+  });
+}
+
+export function useDeleteShop() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (shopId: string) => api.delete(`/api/backend/shops/${shopId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['subscriptions', 'me'] });
+    },
+  });
+}
+
 export function useProducts(params: { q?: string; categoryId?: string; page?: number; limit?: number } = {}) {
   return useQuery({
     queryKey: inventoryKeys.products(params),
@@ -224,7 +267,7 @@ export type SubscriptionSummary = {
   subscription: { status: string; expiresAt: string | null; plan: SubscriptionPlan };
   readOnly: boolean;
   quotas: {
-    shop: { used: number; allowed: number; remaining: number };
+    shop: { used: number; allowed: number; remaining: number; canCreateShop: boolean };
     product: { allowed: number | null; used: number; remaining: number | null };
     staff: { allowed: number; used: number; remaining: number };
   };
