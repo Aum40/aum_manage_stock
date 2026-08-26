@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 
@@ -17,19 +16,25 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
-import { resolveApiError } from "@/lib/api-error";
+import { ApiError } from "@/lib/api-client";
+import { useSetStaffPermissions, useShops } from "@/lib/hooks/use-inventory";
+import {
+  useAssignStaff,
+  useCreateStaff,
+  useDeleteStaff,
+  useResetStaffPassword,
+  useStaffList,
+  useStaffPermissions,
+  useStaffQuota,
+  useUnassignStaff,
+} from "@/lib/hooks/use-staff";
 import {
   createStaffSchema,
   resetStaffPasswordSchema,
   type CreateStaffInput,
   type ResetStaffPasswordInput,
 } from "@/lib/validations/staff";
-import type {
-  ShopSummary,
-  StaffAccount,
-  StaffPermissions,
-  StaffQuota,
-} from "@/lib/types/staff";
+import type { StaffPermissions } from "@/lib/types/staff";
 
 const content = {
   th: {
@@ -199,36 +204,57 @@ const EMPTY_PERMISSIONS: StaffPermissions = {
 
 const AVATAR_COLORS = ["#5C9A54", "#F5A31C", "#D65745", "#17161A", "#888"];
 
-interface StaffManagerProps {
-  staff: StaffAccount[];
-  quota: StaffQuota;
-  shops: ShopSummary[];
+/** แปลง error ที่ได้จาก api client ให้เป็นข้อความไทยที่แสดงได้ */
+function toMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiError ? error.message : fallback;
 }
 
-export default function StaffManager({
-  staff,
-  quota,
-  shops,
-}: StaffManagerProps) {
-  const router = useRouter();
+export default function StaffManager() {
   const { locale } = useLocale();
   const t = content[locale];
 
-  const [selectedStaffId, setSelectedStaffId] = useState(staff[0]?.id ?? "");
-  const [selectedShopId, setSelectedShopId] = useState(shops[0]?.id ?? "");
-  const [permissions, setPermissions] = useState<StaffPermissions | null>(null);
-  const [isAssigned, setIsAssigned] = useState(false);
-  const [isLoadingPermissions, setIsLoadingPermissions] = useState(false);
+  const staffQuery = useStaffList();
+  const quotaQuery = useStaffQuota();
+  const shopsQuery = useShops();
+
+  const staff = staffQuery.data ?? [];
+  const shops = shopsQuery.data ?? [];
+  const quota = quotaQuery.data ?? { allowed: 0, used: 0, remaining: 0 };
+
+  // ค่าที่เลือกเริ่มเป็น "" แล้วค่อยเติมเมื่อข้อมูลมาถึง — จะตั้งจาก staff[0]
+  // ตอนประกาศ useState ไม่ได้ เพราะรอบแรก hook ยังโหลดไม่เสร็จ array ยังว่างอยู่
+  const [selectedStaffIdState, setSelectedStaffId] = useState("");
+  const [selectedShopIdState, setSelectedShopId] = useState("");
+  const [draftPermissions, setDraftPermissions] =
+    useState<StaffPermissions | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [confirming, setConfirming] = useState<"delete" | "unassign" | null>(
     null,
   );
 
+  const selectedStaffId = selectedStaffIdState || (staff[0]?.id ?? "");
+  const selectedShopId = selectedShopIdState || (shops[0]?.id ?? "");
   const selectedStaff = staff.find((member) => member.id === selectedStaffId);
+
+  const permissionsQuery = useStaffPermissions(selectedShopId, selectedStaffId);
+  const assignStaff = useAssignStaff();
+  const unassignStaff = useUnassignStaff();
+  const setPermissions = useSetStaffPermissions(selectedShopId, selectedStaffId);
+  const createStaff = useCreateStaff();
+  const deleteStaff = useDeleteStaff();
+  const resetStaffPassword = useResetStaffPassword();
+
+  const isLoadingPermissions = permissionsQuery.isPending;
+  // null = ยังไม่สังกัดร้านนี้ (api ตอบ 404) ซึ่งเป็นสถานะปกติ ไม่ใช่ error
+  const isAssigned = permissionsQuery.data != null;
+  const permissions =
+    draftPermissions ??
+    (permissionsQuery.data
+      ? { ...EMPTY_PERMISSIONS, ...permissionsQuery.data }
+      : null);
 
   const {
     register,
@@ -241,138 +267,67 @@ export default function StaffManager({
     resolver: zodResolver(resetStaffPasswordSchema),
   });
 
-  // สิทธิ์ผูกกับคู่ (พนักงาน, ร้าน) ไม่ใช่กับพนักงานอย่างเดียว จึงต้องโหลดใหม่
-  // ทุกครั้งที่เปลี่ยนอย่างใดอย่างหนึ่ง
-  useEffect(() => {
-    if (!selectedStaffId || !selectedShopId) return;
-
-    let cancelled = false;
-
-    void (async () => {
-      setIsLoadingPermissions(true);
-      setActionError(null);
-      setNotice(null);
-
-      const response = await fetch(
-        `/api/shops/${selectedShopId}/staff/${selectedStaffId}/permissions`,
-      );
-      const data = await response.json().catch(() => null);
-
-      if (cancelled) return;
-      setIsLoadingPermissions(false);
-
-      // 404 = ยังไม่ได้สังกัดร้านนี้ ซึ่งเป็นสถานะปกติของงาน ไม่ใช่ความผิดพลาด
-      if (response.status === 404) {
-        setIsAssigned(false);
-        setPermissions({ ...EMPTY_PERMISSIONS });
-        return;
-      }
-
-      if (!response.ok) {
-        setIsAssigned(false);
-        setPermissions(null);
-        setActionError(resolveApiError(data, "โหลดสิทธิ์ไม่สำเร็จ"));
-        return;
-      }
-
-      setIsAssigned(true);
-      setPermissions({ ...EMPTY_PERMISSIONS, ...(data as StaffPermissions) });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedStaffId, selectedShopId]);
 
   const onAssign = async () => {
     setActionError(null);
 
-    const response = await fetch(`/api/staff/${selectedStaffId}/assign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shopId: selectedShopId }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      setActionError(resolveApiError(data, "มอบหมายเข้าร้านไม่สำเร็จ"));
-      return;
+    try {
+      await assignStaff.mutateAsync({
+        staffId: selectedStaffId,
+        shopId: selectedShopId,
+      });
+      setDraftPermissions(null);
+    } catch (error) {
+      setActionError(toMessage(error, "มอบหมายเข้าร้านไม่สำเร็จ"));
     }
-
-    setIsAssigned(true);
-    setPermissions({ ...EMPTY_PERMISSIONS });
-    router.refresh();
   };
 
   const onUnassign = async (): Promise<boolean> => {
     setActionError(null);
 
-    const response = await fetch(
-      `/api/staff/${selectedStaffId}/assign/${selectedShopId}`,
-      { method: "DELETE" },
-    );
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      setActionError(resolveApiError(data, "ถอดออกจากร้านไม่สำเร็จ"));
+    try {
+      await unassignStaff.mutateAsync({
+        staffId: selectedStaffId,
+        shopId: selectedShopId,
+      });
+      setDraftPermissions(null);
+      return true;
+    } catch (error) {
+      setActionError(toMessage(error, "ถอดออกจากร้านไม่สำเร็จ"));
       return false;
     }
-
-    setIsAssigned(false);
-    setPermissions({ ...EMPTY_PERMISSIONS });
-    router.refresh();
-    return true;
   };
 
   const onSavePermissions = async () => {
     if (!permissions) return;
 
-    setIsSaving(true);
     setActionError(null);
     setNotice(null);
 
-    // PUT เขียนทับทั้งชุด ต้องส่งครบทุกฟิลด์ ไม่ใช่เฉพาะตัวที่เปลี่ยน
-    const response = await fetch(
-      `/api/shops/${selectedShopId}/staff/${selectedStaffId}/permissions`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(permissions),
-      },
-    );
-    const data = await response.json().catch(() => null);
-    setIsSaving(false);
-
-    if (!response.ok) {
-      setActionError(resolveApiError(data, "บันทึกสิทธิ์ไม่สำเร็จ"));
-      return;
+    try {
+      // PUT เขียนทับทั้งชุด ต้องส่งครบทุกฟิลด์ ไม่ใช่เฉพาะตัวที่เปลี่ยน
+      await setPermissions.mutateAsync(permissions);
+      setDraftPermissions(null);
+      setNotice(t.saved);
+    } catch (error) {
+      setActionError(toMessage(error, "บันทึกสิทธิ์ไม่สำเร็จ"));
     }
-
-    setNotice(t.saved);
   };
 
   const onCreateStaff = async (values: CreateStaffInput) => {
     setCreateError(null);
 
-    const response = await fetch("/api/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    try {
+      await createStaff.mutateAsync({
         firstName: values.firstName,
         lastName: values.lastName,
         username: values.username,
         password: values.password,
-      }),
-    });
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      setCreateError(resolveApiError(data, "สร้างบัญชีพนักงานไม่สำเร็จ"));
-      return;
+      });
+      reset();
+    } catch (error) {
+      setCreateError(toMessage(error, "สร้างบัญชีพนักงานไม่สำเร็จ"));
     }
-
-    reset();
-    router.refresh();
   };
 
   const onDeleteStaff = async (): Promise<boolean> => {
@@ -380,19 +335,15 @@ export default function StaffManager({
 
     setActionError(null);
 
-    const response = await fetch(`/api/users/${selectedStaff.id}`, {
-      method: "DELETE",
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      setActionError(resolveApiError(data, "ลบบัญชีไม่สำเร็จ"));
+    try {
+      await deleteStaff.mutateAsync(selectedStaff.id);
+      setSelectedStaffId("");
+      setDraftPermissions(null);
+      return true;
+    } catch (error) {
+      setActionError(toMessage(error, "ลบบัญชีไม่สำเร็จ"));
       return false;
     }
-
-    setSelectedStaffId("");
-    router.refresh();
-    return true;
   };
 
   const onResetPassword = async (values: ResetStaffPasswordInput) => {
@@ -401,24 +352,17 @@ export default function StaffManager({
     setActionError(null);
     setNotice(null);
 
-    const response = await fetch(
-      `/api/users/${selectedStaff.id}/reset-password`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newPassword: values.newPassword }),
-      },
-    );
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      setActionError(resolveApiError(data, "รีเซ็ตรหัสผ่านไม่สำเร็จ"));
-      return;
+    try {
+      await resetStaffPassword.mutateAsync({
+        staffId: selectedStaff.id,
+        newPassword: values.newPassword,
+      });
+      resetPasswordForm.reset();
+      setIsResettingPassword(false);
+      setNotice(t.passwordReset);
+    } catch (error) {
+      setActionError(toMessage(error, "รีเซ็ตรหัสผ่านไม่สำเร็จ"));
     }
-
-    resetPasswordForm.reset();
-    setIsResettingPassword(false);
-    setNotice(t.passwordReset);
   };
 
   const isQuotaFull = quota.remaining <= 0;
@@ -565,11 +509,11 @@ export default function StaffManager({
                                   ]
                                 }
                                 onCheckedChange={(value: boolean) =>
-                                  setPermissions((previous) =>
-                                    previous
-                                      ? { ...previous, [permission.key]: value }
-                                      : previous,
-                                  )
+                                  setDraftPermissions((previous) => ({
+                                    ...EMPTY_PERMISSIONS,
+                                    ...(previous ?? permissions),
+                                    [permission.key]: value,
+                                  }))
                                 }
                               />
                             </div>
@@ -580,10 +524,12 @@ export default function StaffManager({
                             <Button
                               variant="dark"
                               size="sm"
-                              disabled={isSaving}
+                              disabled={setPermissions.isPending}
                               onClick={onSavePermissions}
                             >
-                              {isSaving ? t.saving : t.savePermBtn}
+                              {setPermissions.isPending
+                                ? t.saving
+                                : t.savePermBtn}
                             </Button>
                             <Button
                               variant="outline"

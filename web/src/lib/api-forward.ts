@@ -31,6 +31,12 @@ export async function forwardAuthed(
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
   });
 
+  // [อั้ม] 204 ห้ามมี body ถ้าปล่อยไปเข้า NextResponse.json() จะโยน
+  // "Invalid response status code 204" แล้วกลายเป็น 500 ที่ผู้ใช้เห็น
+  // เจอครั้งแรกกับ DELETE /staff/:id/assign/:shopId — endpoint อื่นที่คืน 204
+  // (เช่น DELETE /categories/:id) ก็เจอเหมือนกันทุกตัว
+  if (res.status === 204) return new Response(null, { status: 204 });
+
   const data = await res.json().catch(() => null);
   return NextResponse.json(data, { status: res.status });
 }
