@@ -5,6 +5,7 @@ import QuotaMeter from "@/components/shared/QuotaMeter";
 import { Button } from "@/components/ui/button";
 import { getNavSections } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useShops } from "@/lib/hooks/use-inventory";
 
 // Hardcoded to the "owner on Plus plan" state for this scaffolding pass —
 // every page under (main) shares this one sidebar. Pages that demonstrate a
@@ -40,6 +41,8 @@ export default function MainLayout({
 }) {
   const { locale } = useLocale();
   const t = content[locale];
+  const shopsQuery = useShops();
+  const currentShopName = shopsQuery.data?.[0]?.name ?? t.shopName;
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -51,7 +54,7 @@ export default function MainLayout({
               {t.shopSelectorLabel}
             </div>
             <div className="text-[13px] font-semibold text-white/90">
-              {t.shopName}
+              {currentShopName}
             </div>
           </div>
         }

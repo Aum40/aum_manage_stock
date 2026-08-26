@@ -17,8 +17,10 @@ import {
 } from "@/components/ui/select";
 import Stepper from "@/components/shared/Stepper";
 import Caption from "@/components/shared/Caption";
+import TableState from "@/components/shared/TableState";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useAdjustStock, useShops, useShopProducts } from "@/lib/hooks/use-inventory";
 
 type Status = "success" | "warning" | "error" | "neutral";
 
@@ -72,14 +74,23 @@ const content = {
 export default function ProductsStockPage() {
   const { locale } = useLocale();
   const t = content[locale];
-  const [products, setProducts] = useState(t.products);
+  const [search, setSearch] = useState("");
+  const shopsQuery = useShops();
+  const shopId = shopsQuery.data?.[0]?.id;
+  const shopProductsQuery = useShopProducts(shopId, {
+    q: search || undefined,
+    limit: 100,
+  });
+  const adjustStock = useAdjustStock(shopId);
+  const products = shopProductsQuery.data?.items ?? [];
 
-  const updateQty = (i: number, delta: number) => {
-    setProducts((prev) =>
-      prev.map((p, idx) =>
-        idx === i ? { ...p, qty: Math.max(0, p.qty + delta) } : p
-      )
-    );
+  const updateQty = (shopProductId: string, delta: number) => {
+    if (!shopId || adjustStock.isPending) return;
+    adjustStock.mutate({
+      shopProductId,
+      operation: delta > 0 ? "INCREASE" : "DECREASE",
+      quantity: Math.abs(delta),
+    });
   };
 
   return (
@@ -88,7 +99,12 @@ export default function ProductsStockPage() {
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
           <div className="flex items-center gap-3">
-            <Input placeholder={t.searchPlaceholder} className="flex-1" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t.searchPlaceholder}
+              className="flex-1"
+            />
             <Select defaultValue="all">
               <SelectTrigger>
                 <SelectValue />
@@ -147,35 +163,67 @@ export default function ProductsStockPage() {
                 </tr>
               </thead>
               <tbody>
-                {products.map((p, i) => (
+                <TableState
+                  colSpan={7}
+                  isLoading={shopsQuery.isLoading || shopProductsQuery.isLoading}
+                  error={
+                    (shopsQuery.error ?? shopProductsQuery.error) instanceof Error
+                      ? ((shopsQuery.error ?? shopProductsQuery.error) as Error)
+                      : null
+                  }
+                  isEmpty={Boolean(shopId) && !shopProductsQuery.isLoading && products.length === 0}
+                  loadingLabel="กำลังโหลดข้อมูลสินค้า…"
+                  emptyLabel="ยังไม่มีสินค้าในร้านนี้"
+                />
+                {products.map((p) => {
+                  const stockQty = p.stockQty;
+                  const threshold = p.lowStockThreshold;
+                  const status: Status =
+                    p.status === "INACTIVE"
+                      ? "neutral"
+                      : stockQty <= 0
+                        ? "error"
+                        : stockQty <= threshold
+                          ? "warning"
+                          : "success";
+                  const statusLabel =
+                    p.status === "INACTIVE"
+                      ? t.restoreBtn
+                      : status === "error"
+                        ? "หมด"
+                        : status === "warning"
+                          ? "ใกล้หมด"
+                          : "ปกติ";
+
+                  return (
                   <tr
-                    key={i}
+                    key={p.id}
                     className="border-b border-border last:border-0"
-                    style={{ opacity: p.hidden ? 0.6 : 1 }}
+                    style={{ opacity: p.status === "INACTIVE" ? 0.6 : 1 }}
                   >
-                    <td className="px-5 py-3.5 font-medium">{p.name}</td>
+                    <td className="px-5 py-3.5 font-medium">{p.product.name}</td>
                     <td className="px-5 py-3.5 text-muted-foreground">
-                      {p.category}
+                      {p.product.categoryId ?? "—"}
                     </td>
                     <td className="px-5 py-3.5 font-mono text-[13px] text-foreground/70">
-                      {p.barcode}
+                      {p.product.barcode ?? "—"}
                     </td>
                     <td className="px-5 py-3.5 text-right font-mono text-[13px]">
-                      ฿{p.price}
+                      ฿{Number(p.sellPrice).toFixed(2)}
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <Stepper
-                        value={p.qty}
-                        onInc={() => updateQty(i, 1)}
-                        onDec={() => updateQty(i, -1)}
+                        value={stockQty}
+                        onInc={() => updateQty(p.id, 1)}
+                        onDec={() => updateQty(p.id, -1)}
                         className="justify-end"
                       />
                     </td>
                     <td className="px-5 py-3.5">
-                      <Badge variant={p.status}>{p.statusLabel}</Badge>
+                      <Badge variant={status}>{statusLabel}</Badge>
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap">
-                      {p.hidden ? (
+                      {p.status === "INACTIVE" ? (
                         <button className="text-[13px] font-semibold text-primary">
                           {t.restoreBtn}
                         </button>
@@ -186,7 +234,8 @@ export default function ProductsStockPage() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </Card>

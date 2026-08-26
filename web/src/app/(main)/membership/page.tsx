@@ -1,19 +1,14 @@
 "use client";
 
 import TopBar from "@/components/layout/TopBar";
+import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useMySubscription, usePayments } from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -30,10 +25,10 @@ const content = {
     ],
     activeLabel: "กำลังใช้งาน",
     renewBtn: "ต่ออายุตอนนี้ →",
-    buyExtraHeading: "ซื้อสิทธิ์ร้านเพิ่ม",
-    buyExtraSub: "ซื้อเพิ่มได้ทุกจำนวนร้าน สิทธิ์สะสมหมดอายุตามรอบบิล",
-    qtyLabel: "จำนวนร้านที่ต้องการเพิ่ม",
-    payBtn: "ชำระเงิน →",
+    buyExtraHeading: "เพิ่มโควต้าด้วยการอัปเกรดแพ็กเกจ",
+    buyExtraSub: "ระบบไม่มีการซื้อโควต้าแยก แพ็กเกจที่สูงขึ้นจะเพิ่มสิทธิ์ร้านค้า สินค้า และพนักงานตามแผน",
+    qtyLabel: "เลือกแพ็กเกจที่ต้องการ",
+    payBtn: "ดูแพ็กเกจ →",
     historyHeading: "ประวัติการชำระเงิน",
     columns: ["วันที่", "รายการ", "จำนวน", "ยอด", "สถานะ"],
     paidLabel: "ชำระแล้ว",
@@ -56,10 +51,10 @@ const content = {
     ],
     activeLabel: "Active",
     renewBtn: "Renew Now →",
-    buyExtraHeading: "Buy Extra Shop Slots",
-    buyExtraSub: "Buy any quantity of extra slots; purchased slots expire with your billing cycle.",
-    qtyLabel: "Number of Extra Shops",
-    payBtn: "Pay →",
+    buyExtraHeading: "Increase Quota with a Plan Upgrade",
+    buyExtraSub: "There are no separate quota add-ons. Upgrade your plan to increase shop, product, and staff limits.",
+    qtyLabel: "Choose a plan",
+    payBtn: "View Plans →",
     historyHeading: "Payment History",
     columns: ["Date", "Item", "Qty", "Amount", "Status"],
     paidLabel: "Paid",
@@ -73,6 +68,23 @@ const content = {
 export default function MembershipPage() {
   const { locale } = useLocale();
   const t = content[locale];
+  const subscriptionQuery = useMySubscription();
+  const paymentsQuery = usePayments();
+  const subscription = subscriptionQuery.data;
+  const statusRows = subscription
+    ? [
+        [locale === "th" ? "แพ็กเกจ" : "Plan", subscription.subscription.plan.nameTh],
+        [locale === "th" ? "สถานะ" : "Status", subscription.subscription.status],
+        [
+          locale === "th" ? "วันหมดอายุ" : "Expires",
+          subscription.subscription.expiresAt
+            ? new Date(subscription.subscription.expiresAt).toLocaleDateString(locale === "th" ? "th-TH" : "en-US")
+            : locale === "th" ? "ไม่มีวันหมดอายุ" : "No expiry",
+        ],
+        [locale === "th" ? "สิทธิ์สร้างร้าน" : "Shop Slots", `${subscription.quotas.shop.used} / ${subscription.quotas.shop.allowed}`],
+        [locale === "th" ? "สินค้า" : "Products", `${subscription.quotas.product.used} / ${subscription.quotas.product.allowed ?? "∞"}`],
+      ]
+    : t.statusRows;
 
   return (
     <>
@@ -91,7 +103,7 @@ export default function MembershipPage() {
                 <div className="mb-3 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
                   {t.statusHeading}
                 </div>
-                {t.statusRows.map(([label, value], i) => (
+                {statusRows.map(([label, value], i) => (
                   <div
                     key={label}
                     className={`flex items-center justify-between py-2.75 ${
@@ -122,22 +134,8 @@ export default function MembershipPage() {
                 <p className="mb-4 text-[13px] text-muted-foreground">
                   {t.buyExtraSub}
                 </p>
-                <div className="mb-3.5">
-                  <div className="mb-1.5 text-[11px] font-semibold tracking-[0.08em] text-foreground uppercase">
-                    {t.qtyLabel}
-                  </div>
-                  <Select defaultValue="1">
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">1 — ฿590</SelectItem>
-                      <SelectItem value="2">2 — ฿1,080</SelectItem>
-                      <SelectItem value="3">3 — ฿1,590</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button variant="dark">{t.payBtn}</Button>
+                <div className="mb-3.5 text-[13px] text-muted-foreground">{t.qtyLabel}</div>
+                <Button variant="dark" render={<Link href="/membership/upgrade" />}>{t.payBtn}</Button>
               </div>
             </Card>
           </div>
@@ -163,12 +161,12 @@ export default function MembershipPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {t.payHistory.map((row, i) => (
+                  {(paymentsQuery.data ?? []).map((row, i) => (
                     <tr key={i} className="border-b border-border last:border-0">
-                      <td className="px-5 py-3.5 font-mono text-[13px] text-muted-foreground">{row.date}</td>
-                      <td className="px-5 py-3.5">{row.item}</td>
-                      <td className="px-5 py-3.5 text-right font-mono text-[13px]">{row.qty}</td>
-                      <td className="px-5 py-3.5 text-right font-mono text-[13px] font-semibold">{row.amount}</td>
+                      <td className="px-5 py-3.5 font-mono text-[13px] text-muted-foreground">{new Date(row.createdAt).toLocaleDateString(locale === "th" ? "th-TH" : "en-US")}</td>
+                      <td className="px-5 py-3.5">{row.subscription?.plan?.nameTh ?? row.purpose}</td>
+                      <td className="px-5 py-3.5 text-right font-mono text-[13px]">1</td>
+                      <td className="px-5 py-3.5 text-right font-mono text-[13px] font-semibold">฿{Number(row.amountThb).toLocaleString()}</td>
                       <td className="px-5 py-3.5"><Badge variant="success">{t.paidLabel}</Badge></td>
                     </tr>
                   ))}

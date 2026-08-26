@@ -13,6 +13,11 @@ import {
 } from "@/components/ui/select";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import {
+  useBestSellers,
+  useShops,
+  useShopDashboard,
+} from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -38,11 +43,7 @@ const content = {
       { name: "น้ำดื่มตราสิงห์ 600 มล.", qty: 60, revenue: "฿600" },
     ],
     aiTitle: "คำแนะนำจาก AI",
-    aiTips: [
-      { tag: "RESTOCK", text: "น้ำดื่มตราสิงห์ 600 มล. หมดสต็อก → ควรสั่งเข้าเฉลี่ย 48 ขวดต่อสัปดาห์" },
-      { tag: "RESTOCK", text: "มามาห่มูสับ เหลือ 18 ซอง ขายเฉลี่ย 14/วัน → เพิ่มสต็อกโดยเร็ว" },
-      { tag: "PROMOTION", text: "ลูกอมฮอลล์ มีสต็อก 64 ซอง ขายช้าลง 30% → ลองทำโปรโมชันคู่กับเครื่องดื่ม" },
-    ],
+    aiTips: [] as { tag: string; text: string }[],
   },
   en: {
     title: "Dashboard",
@@ -67,11 +68,7 @@ const content = {
       { name: "Singha Water 600 ml.", qty: 60, revenue: "฿600" },
     ],
     aiTitle: "AI Recommendations",
-    aiTips: [
-      { tag: "RESTOCK", text: "Singha Water 600 ml. is out of stock → average demand is 48 bottles/week" },
-      { tag: "RESTOCK", text: "Mama Pork Noodles has 18 packs left, selling ~14/day → restock soon" },
-      { tag: "PROMOTION", text: "Hall's has 64 packs in stock, sales down 30% → try bundling with drinks" },
-    ],
+    aiTips: [] as { tag: string; text: string }[],
   },
 };
 
@@ -79,6 +76,24 @@ export default function DashboardPage() {
   const { locale } = useLocale();
   const t = content[locale];
   const [period, setPeriod] = useState<"day" | "week" | "month">("day");
+  const [selectedShopId, setSelectedShopId] = useState("");
+  const shopsQuery = useShops();
+  const shopId = selectedShopId || shopsQuery.data?.[0]?.id;
+  const dashboardQuery = useShopDashboard(shopId);
+  const bestSellersQuery = useBestSellers(shopId);
+  const dashboard = dashboardQuery.data;
+  const stats = t.stats.map((stat, index) => ({
+    ...stat,
+    value: dashboard
+      ? [
+          `฿${dashboard.sales.totalAmount.toLocaleString()}`,
+          dashboard.sales.saleCount.toLocaleString(),
+          dashboard.stock.lowStock.toLocaleString(),
+          dashboard.stock.outOfStock.toLocaleString(),
+        ][index]
+      : "—",
+  }));
+  const topItems = bestSellersQuery.data?.items ?? [];
 
   return (
     <>
@@ -86,14 +101,16 @@ export default function DashboardPage() {
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
           <div className="flex items-center gap-3">
-            <Select defaultValue="shop-a">
+            <Select value={shopId ?? ""} onValueChange={(value) => setSelectedShopId(value ?? "")}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{t.allShops}</SelectItem>
-                <SelectItem value="shop-a">{t.shopA}</SelectItem>
-                <SelectItem value="shop-b">{t.shopB}</SelectItem>
+                {shopsQuery.data?.map((shop) => (
+                  <SelectItem key={shop.id} value={shop.id}>
+                    {shop.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <div className="inline-flex gap-0.5 rounded-full bg-secondary p-1">
@@ -114,7 +131,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {t.stats.map((s) => (
+            {stats.map((s) => (
               <Card key={s.label}>
                 <div className="px-4">
                   <div
@@ -156,12 +173,19 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {t.topItems.map((item) => (
-                      <tr key={item.name} className="border-b border-border">
-                        <td className="py-2.5">{item.name}</td>
-                        <td className="py-2.5 text-right font-mono">{item.qty}</td>
+                    {topItems.length === 0 && (
+                      <tr>
+                        <td colSpan={3} className="py-6 text-center text-muted-foreground">
+                          {bestSellersQuery.isLoading ? "กำลังโหลดข้อมูล…" : "ยังไม่มีข้อมูลยอดขาย"}
+                        </td>
+                      </tr>
+                    )}
+                    {topItems.map((item) => (
+                      <tr key={item.shopProductId} className="border-b border-border">
+                        <td className="py-2.5">{item.productName}</td>
+                        <td className="py-2.5 text-right font-mono">{item.quantitySold}</td>
                         <td className="py-2.5 text-right font-mono">
-                          {item.revenue}
+                          ฿{item.totalAmount.toLocaleString()}
                         </td>
                       </tr>
                     ))}

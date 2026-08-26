@@ -8,7 +8,7 @@ export const loginSchema = z.object({
 export type LoginValues = z.infer<typeof loginSchema>;
 
 // สอดคล้องกับ @IsStrongPassword() ฝั่ง api (register.dto.ts)
-const passwordSchema = z
+export const passwordSchema = z
   .string()
   .min(8, 'อย่างน้อย 8 ตัวอักษร')
   .regex(/[a-z]/, 'ต้องมีตัวพิมพ์เล็กอย่างน้อย 1 ตัว')

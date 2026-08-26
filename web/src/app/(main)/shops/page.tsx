@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import Caption from "@/components/shared/Caption";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useShops } from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -58,6 +59,8 @@ const content = {
 export default function MyShopsPage() {
   const { locale } = useLocale();
   const t = content[locale];
+  const shopsQuery = useShops();
+  const shops = shopsQuery.data ?? [];
 
   return (
     <>
@@ -72,15 +75,25 @@ export default function MyShopsPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4.5 sm:grid-cols-2 lg:grid-cols-3">
-            {t.shops.map((s, i) => (
-              <Card key={i}>
+            {shopsQuery.isLoading && (
+              <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                กำลังโหลดข้อมูลร้านค้า…
+              </div>
+            )}
+            {!shopsQuery.isLoading && shops.length === 0 && (
+              <div className="col-span-full py-8 text-center text-sm text-muted-foreground">
+                ยังไม่มีร้านค้า
+              </div>
+            )}
+            {shops.map((s, i) => (
+              <Card key={s.id}>
                 <div className="px-4">
                   <div className="mb-3.5 flex items-start justify-between">
                     <div
                       className="flex size-12 items-center justify-center rounded-2xl font-heading text-xl font-bold text-white"
-                      style={{ backgroundColor: s.avatarBg }}
+                      style={{ backgroundColor: i % 2 === 0 ? "#F5A31C" : "#5C9A54" }}
                     >
-                      {s.initial}
+                      {s.name.charAt(0)}
                     </div>
                     <Badge variant="success">{t.activeLabel}</Badge>
                   </div>
@@ -88,7 +101,7 @@ export default function MyShopsPage() {
                     {s.name}
                   </div>
                   <div className="mb-4 text-[13px] text-muted-foreground">
-                    {s.meta}
+                    {s.address || "ร้านค้าของฉัน"}
                   </div>
                   <div className="flex items-center gap-3 text-sm">
                     <Button variant="dark" size="sm">

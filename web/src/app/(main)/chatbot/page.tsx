@@ -7,26 +7,11 @@ import { Button } from "@/components/ui/button";
 import Caption from "@/components/shared/Caption";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
-
-function BotBtn({
-  variant,
-  children,
-}: {
-  variant: "dark" | "ghost";
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      className={
-        variant === "dark"
-          ? "rounded-full bg-brand-dark px-3.5 py-1.5 text-xs font-semibold text-background"
-          : "rounded-full border border-border px-3.5 py-1.5 text-xs font-semibold text-muted-foreground"
-      }
-    >
-      {children}
-    </button>
-  );
-}
+import {
+  useChatMessages,
+  useSendChatMessage,
+  useShops,
+} from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -81,44 +66,23 @@ export default function ChatbotPage() {
   const { locale } = useLocale();
   const t = content[locale];
   const [input, setInput] = useState("");
+  const shopsQuery = useShops();
+  const shopId = shopsQuery.data?.[0]?.id;
+  const chatQuery = useChatMessages(shopId);
+  const sendMessage = useSendChatMessage(shopId);
 
-  const messages: { role: "user" | "bot"; content: React.ReactNode }[] = [
-    { role: "user", content: t.userMsg1 },
-    {
-      role: "bot",
-      content: (
-        <div>
-          <div className="mb-2">{t.botSummaryLabel}</div>
-          <div className="font-mono text-[13px] leading-loose">
-            • {t.botLine1Name}{" "}
-            <span className="text-status-green">{t.botLine1Change}</span>{" "}
-            {t.botLine1Range}
-            <br />• {t.botLine2Name}{" "}
-            <span className="text-destructive">{t.botLine2Change}</span>{" "}
-            {t.botLine2Range}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <BotBtn variant="dark">{t.confirmBtn}</BotBtn>
-            <BotBtn variant="ghost">{t.editBtn}</BotBtn>
-            <BotBtn variant="ghost">{t.cancelBtn}</BotBtn>
-          </div>
-        </div>
-      ),
-    },
-    { role: "user", content: t.userMsg2 },
-    {
-      role: "bot",
-      content: (
-        <div>
-          <div className="mb-2.5">{t.botNotFound}</div>
-          <div className="flex gap-2">
-            <BotBtn variant="dark">{t.addInsteadBtn}</BotBtn>
-            <BotBtn variant="ghost">{t.noBtn}</BotBtn>
-          </div>
-        </div>
-      ),
-    },
-  ];
+  const messages = chatQuery.data?.length
+    ? [...chatQuery.data].reverse().map((message) => ({
+        role: message.role === "USER" ? ("user" as const) : ("bot" as const),
+        content: message.content,
+      }))
+    : [];
+
+  const onSend = () => {
+    const message = input.trim();
+    if (!message || sendMessage.isPending) return;
+    sendMessage.mutate(message, { onSuccess: () => setInput("") });
+  };
 
   return (
     <>
@@ -150,11 +114,17 @@ export default function ChatbotPage() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onSend();
+                }
+              }}
               placeholder={t.inputPh}
               className="h-10 flex-1 rounded-full border border-border bg-background px-5 text-sm outline-none"
             />
-            <Button variant="dark" onClick={() => setInput("")}>
-              {t.sendBtn}
+            <Button variant="dark" onClick={onSend} disabled={sendMessage.isPending}>
+              {sendMessage.isPending ? "กำลังส่ง…" : t.sendBtn}
             </Button>
           </div>
 
