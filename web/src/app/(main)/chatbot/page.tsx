@@ -13,6 +13,7 @@ import {
   useSendChatMessage,
   useShops,
 } from "@/lib/hooks/use-inventory";
+import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import {
   useApplyChatCommand,
   useSelectChatCandidate,
@@ -68,7 +69,15 @@ export default function ChatbotPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const shopsQuery = useShops();
-  const shopId = shopsQuery.data?.[0]?.id;
+  const shops = shopsQuery.data ?? [];
+  const { selectedShopId } = useSelectedShop();
+  // เดิมล็อกไว้ที่ shops[0] ตายตัว — สลับร้านใน sidebar แล้วแชทยังคุยกับร้านแรก
+  // อยู่ สั่งเพิ่ม/ลดสต็อกผ่านแชทจึงไปลงผิดร้านโดยไม่มีอะไรเตือน
+  // ร้านที่เคยเลือกอาจถูกลบไปแล้ว — ตกกลับไปร้านแรกเหมือนที่ (main)/layout.tsx ทำ
+  const shopId =
+    selectedShopId && shops.some((shop) => shop.id === selectedShopId)
+      ? selectedShopId
+      : shops[0]?.id;
   const chatQuery = useChatMessages(shopId);
   const sendMessage = useSendChatMessage(shopId);
   const applyCommand = useApplyChatCommand(shopId);

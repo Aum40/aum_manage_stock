@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 import {
   Dialog,
@@ -90,11 +90,13 @@ export function ShopFormDialog({ open, onOpenChange, shop }: ShopFormDialogProps
     handleSubmit,
     reset,
     setValue,
-    watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<ShopFormValues>({ resolver: zodResolver(shopFormSchema) });
 
-  const imageUrl = watch("imageUrl");
+  // useWatch แทน watch() — watch() อ่าน state นอกสายตา React Compiler มันเลย
+  // ข้ามการ compile ทั้ง component ทิ้ง (lint เตือน "incompatible library")
+  const imageUrl = useWatch({ control, name: "imageUrl" });
 
   const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
