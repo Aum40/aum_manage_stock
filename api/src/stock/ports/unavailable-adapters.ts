@@ -29,6 +29,12 @@ export class UnavailableStockInventoryAdapter implements StockInventoryPort {
 
 @Injectable()
 export class UnavailableStockAuthorizationAdapter implements StockAuthorizationPort {
+  assertCanViewStock(): Promise<void> {
+    throw new ServiceUnavailableException(
+      'Staff authorization integration is not available yet',
+    );
+  }
+
   assertCanAdjustStock(): Promise<void> {
     // Deliberately fail closed. Replace this adapter when staff-resource is ready.
     throw new ServiceUnavailableException(

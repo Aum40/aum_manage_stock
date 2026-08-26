@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '../database/generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
@@ -67,14 +68,26 @@ export class SalesService {
           data: {
             shopId,
             staffId,
+            saleNo: `S-${randomUUID().replaceAll('-', '').slice(0, 20).toUpperCase()}`,
+            itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
             totalAmount: total,
             note: input.note,
             items: {
               create: items.map(
-                ({ shopProductId, name, unitPrice, quantity, lineTotal }) => ({
+                ({
+                  shopProductId,
+                  name,
+                  barcode,
+                  unitPrice,
+                  costPrice,
+                  quantity,
+                  lineTotal,
+                }) => ({
                   shopProductId,
                   productName: name,
+                  barcode,
                   unitPrice,
+                  costPrice,
                   quantity,
                   lineTotal,
                 }),
@@ -99,6 +112,7 @@ export class SalesService {
             quantityBefore: stock.quantityBefore,
             quantityAfter: stock.quantityAfter,
             source: 'WEB',
+            saleId: sale.id,
             referenceType: 'SALE_ITEM',
             referenceId: sale.items.find(
               (created) => created.shopProductId === item.shopProductId,
@@ -168,6 +182,7 @@ export class SalesService {
             quantityAfter: stock.quantityAfter,
             source: 'WEB',
             note: reason,
+            saleId: sale.id,
             referenceType: 'SALE_VOID_ITEM',
             referenceId: item.id,
           });
