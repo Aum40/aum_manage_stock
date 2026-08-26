@@ -9,6 +9,7 @@ import { useMobileNav } from "@/components/layout/MobileNavContext";
 import { useMarkAllNotificationsRead, useNotifications } from "@/lib/hooks/use-inventory";
 import { useMe } from "@/lib/hooks/use-profile";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import LogoutButton from "@/components/layout/LogoutButton";
 
 interface TopBarProps {
   title: string;
@@ -34,6 +35,7 @@ export default function TopBar({ title, readOnly, notifications = true }: TopBar
     ? `${currentUser.firstName || currentUser.username || "—"}${roleLabel ? ` (${roleLabel})` : ""}`
     : "—";
   const displayInitial = (currentUser?.firstName || currentUser?.username || "—").charAt(0).toUpperCase();
+
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border px-4 lg:h-21 lg:px-9">
@@ -80,6 +82,7 @@ export default function TopBar({ title, readOnly, notifications = true }: TopBar
           </AvatarFallback>
           </Avatar>
         </Link>
+        <LogoutButton label={locale === "th" ? "ออกจากระบบ" : "Log out"} iconOnly />
       </div>
     </header>
   );
