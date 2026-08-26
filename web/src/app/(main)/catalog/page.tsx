@@ -29,6 +29,7 @@ import QuotaStrip from "@/components/shared/QuotaStrip";
 import Caption from "@/components/shared/Caption";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog";
 import { ApiError, api, withQuery } from "@/lib/api-client";
 import {
   inventoryKeys,
@@ -57,6 +58,7 @@ const content = {
     upgradeLink: "อัปเกรดเพื่อเพิ่มโควตา",
     searchPlaceholder: "ค้นหาด้วยชื่อหรือบาร์โค้ด…",
     allCategories: "ทุกหมวดหมู่",
+    manageCategories: "จัดการหมวดหมู่",
     noCategory: "ไม่ระบุหมวดหมู่",
     allShops: "ทุกร้าน",
     addBtn: "เพิ่มสินค้าใหม่ →",
@@ -112,6 +114,7 @@ const content = {
     upgradeLink: "Upgrade to increase quota",
     searchPlaceholder: "Search by name or barcode…",
     allCategories: "All categories",
+    manageCategories: "Manage categories",
     noCategory: "Uncategorised",
     allShops: "All shops",
     addBtn: "Add new product →",
@@ -168,6 +171,7 @@ export default function ProductCatalogPage() {
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [shopFilter, setShopFilter] = useState("all");
   const [editing, setEditing] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState<Product | null>(null);
@@ -332,6 +336,12 @@ export default function ProductCatalogPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              variant="outline"
+              onClick={() => setCategoryManagerOpen(true)}
+            >
+              {t.manageCategories}
+            </Button>
             <Button variant="dark" render={<Link href="/catalog/new" />}>
               {t.addBtn}
             </Button>
@@ -467,6 +477,17 @@ export default function ProductCatalogPage() {
           <Caption>{t.caption}</Caption>
         </div>
       </main>
+
+      <CategoryManagerDialog
+        open={categoryManagerOpen}
+        onClose={() => setCategoryManagerOpen(false)}
+        onCategoryDeleted={(deletedId) => {
+          // ตัวกรองอาจค้างอยู่ที่หมวดที่เพิ่งลบ ตารางจะว่างทั้งที่ยังมีสินค้าอยู่
+          setCategoryFilter((current) =>
+            current === deletedId ? "all" : current,
+          );
+        }}
+      />
 
       <EditCatalogDialog
         key={editing?.id ?? "none"}

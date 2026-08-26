@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog";
 import { ApiError, api } from "@/lib/api-client";
 import {
   inventoryKeys,
@@ -67,7 +68,7 @@ const content = {
     namePh: "เช่น โค้กกระป๋อง 325 มล.",
     category: "หมวดหมู่",
     categoryNone: "ไม่ระบุ",
-    newCategory: "＋ สร้างหมวดหมู่ใหม่",
+    newCategory: "จัดการหมวดหมู่",
     newCategoryPh: "ชื่อหมวดหมู่ เช่น ของสด",
     createCategory: "สร้าง",
     cancelCategory: "ยกเลิก",
@@ -115,7 +116,7 @@ const content = {
     namePh: "e.g. Coke Can 325 ml.",
     category: "Category",
     categoryNone: "None",
-    newCategory: "＋ New category",
+    newCategory: "Manage categories",
     newCategoryPh: "Category name, e.g. Fresh food",
     createCategory: "Create",
     cancelCategory: "Cancel",
@@ -168,8 +169,7 @@ export default function AddProductFullPage() {
   const [unit, setUnit] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const [newCategoryOpen, setNewCategoryOpen] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [rows, setRows] = useState<Record<string, ShopRow>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -204,18 +204,6 @@ export default function AddProductFullPage() {
     return Number(row.sellPrice) - Number(row.costPrice);
   })();
 
-  const createCategory = useMutation({
-    mutationFn: (categoryLabel: string) =>
-      api.post<{ id: string; name: string }>("/api/backend/categories", {
-        name: categoryLabel,
-      }),
-    onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      setCategoryId(created.id);
-      setNewCategoryOpen(false);
-      setNewCategoryName("");
-    },
-  });
 
   const missingPrice = enabledShops.some(
     (shop) => !rowOf(shop.id).sellPrice.trim(),
@@ -326,46 +314,13 @@ export default function AddProductFullPage() {
                         </SelectContent>
                       </Select>
 
-                      {newCategoryOpen ? (
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <Input
-                            value={newCategoryName}
-                            onChange={(event) =>
-                              setNewCategoryName(event.target.value)
-                            }
-                            placeholder={t.newCategoryPh}
-                            className="min-w-36 flex-1"
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            disabled={
-                              !newCategoryName.trim() || createCategory.isPending
-                            }
-                            onClick={() =>
-                              createCategory.mutate(newCategoryName.trim())
-                            }
-                          >
-                            {t.createCategory}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setNewCategoryOpen(false)}
-                          >
-                            {t.cancelCategory}
-                          </Button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setNewCategoryOpen(true)}
-                          className="mt-1 self-start text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                        >
-                          {t.newCategory}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setCategoryManagerOpen(true)}
+                        className="mt-1 self-start text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                      >
+                        {t.newCategory}
+                      </button>
                     </div>
 
                     <div className="flex flex-col gap-1">
@@ -677,6 +632,15 @@ export default function AddProductFullPage() {
           </div>
         </form>
       </main>
+
+      <CategoryManagerDialog
+        open={categoryManagerOpen}
+        onClose={() => setCategoryManagerOpen(false)}
+        onCategoryDeleted={(deletedId) => {
+          // ถ้าหมวดที่เลือกไว้ในฟอร์มถูกลบ ต้องเคลียร์ ไม่งั้นจะส่ง id ที่ไม่มีอยู่ไป api
+          setCategoryId((current) => (current === deletedId ? "" : current));
+        }}
+      />
     </>
   );
 }
