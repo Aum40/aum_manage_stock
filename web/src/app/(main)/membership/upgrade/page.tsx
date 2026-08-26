@@ -4,6 +4,7 @@ import TopBar from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useCreateSubscriptionPayment } from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -71,6 +72,16 @@ function Cell({ val }: { val: string }) {
 export default function UpgradePlanPage() {
   const { locale } = useLocale();
   const t = content[locale];
+  const createPayment = useCreateSubscriptionPayment();
+
+  const startCheckout = (planCode: "PLUS" | "PRO") => {
+    if (createPayment.isPending) return;
+    createPayment.mutate(planCode, {
+      onSuccess: ({ checkoutUrl }) => {
+        window.location.assign(checkoutUrl);
+      },
+    });
+  };
 
   return (
     <>
@@ -151,10 +162,22 @@ export default function UpgradePlanPage() {
                     </Button>
                   </td>
                   <td className="bg-primary/7 px-4 py-5 text-center">
-                    <Button variant="gradient">{t.choosePlusBtn}</Button>
+                    <Button
+                      variant="gradient"
+                      disabled={createPayment.isPending}
+                      onClick={() => startCheckout("PLUS")}
+                    >
+                      {t.choosePlusBtn}
+                    </Button>
                   </td>
                   <td className="px-4 py-5 text-center">
-                    <Button variant="dark">{t.chooseProBtn}</Button>
+                    <Button
+                      variant="dark"
+                      disabled={createPayment.isPending}
+                      onClick={() => startCheckout("PRO")}
+                    >
+                      {t.chooseProBtn}
+                    </Button>
                   </td>
                 </tr>
               </tbody>

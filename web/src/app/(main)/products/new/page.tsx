@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
@@ -16,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useCategories, useCreateProduct } from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -63,13 +66,34 @@ const content = {
 export default function AddProductPage() {
   const { locale } = useLocale();
   const t = content[locale];
+  const router = useRouter();
+  const createProduct = useCreateProduct();
+  const [name, setName] = useState("");
+  const [barcode, setBarcode] = useState("");
+  const [unit, setUnit] = useState("piece");
+  const [categoryId, setCategoryId] = useState("");
+  const categoriesQuery = useCategories();
+
+  const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!name.trim() || createProduct.isPending) return;
+    createProduct.mutate(
+      {
+        name: name.trim(),
+        unit,
+        barcode: barcode.trim() || undefined,
+        categoryId: categoryId || undefined,
+      },
+      { onSuccess: () => router.push("/products") },
+    );
+  };
 
   return (
     <>
       <TopBar title={t.title} user={roleAvatar.owner[locale]} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <Card className="max-w-3xl">
-          <div className="px-6">
+          <form className="px-6" onSubmit={onSubmit}>
             <div className="mb-5 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
               {t.heading}
             </div>
@@ -78,7 +102,7 @@ export default function AddProductPage() {
                 <Label className="text-[11px] font-semibold tracking-[0.08em] uppercase">
                   {t.name}
                 </Label>
-                <Input placeholder={t.namePh} />
+                <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t.namePh} />
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -86,14 +110,16 @@ export default function AddProductPage() {
                   <Label className="text-[11px] font-semibold tracking-[0.08em] uppercase">
                     {t.category}
                   </Label>
-                  <Select defaultValue="drink">
+                  <Select value={categoryId} onValueChange={(value) => setCategoryId(value ?? "")}>
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="drink">{t.categories.drink}</SelectItem>
-                      <SelectItem value="noodle">{t.categories.noodle}</SelectItem>
-                      <SelectItem value="misc">{t.categories.misc}</SelectItem>
+                      {categoriesQuery.data?.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -101,7 +127,7 @@ export default function AddProductPage() {
                   <Label className="text-[11px] font-semibold tracking-[0.08em] uppercase">
                     {t.barcode}
                   </Label>
-                  <Input placeholder={t.barcodePh} className="font-mono" />
+                  <Input value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder={t.barcodePh} className="font-mono" />
                 </div>
 
                 <div className="flex flex-col gap-1">
@@ -114,7 +140,7 @@ export default function AddProductPage() {
                   <Label className="text-[11px] font-semibold tracking-[0.08em] uppercase">
                     {t.unit}
                   </Label>
-                  <Select defaultValue="piece">
+                  <Select value={unit} onValueChange={(value) => setUnit(value ?? "piece")}>
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
@@ -147,13 +173,15 @@ export default function AddProductPage() {
               </div>
 
               <div className="flex items-center gap-3 pt-1">
-                <Button variant="gradient">{t.saveBtn}</Button>
+                <Button type="submit" variant="gradient" disabled={createProduct.isPending || !name.trim()}>
+                  {createProduct.isPending ? "กำลังบันทึก…" : t.saveBtn}
+                </Button>
                 <Button variant="ghost" render={<Link href="/products" />}>
                   {t.cancelBtn}
                 </Button>
               </div>
             </div>
-          </div>
+          </form>
         </Card>
       </main>
     </>

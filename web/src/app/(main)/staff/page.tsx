@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useSetStaffPermissions, useShopStaff, useShops } from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -79,8 +80,27 @@ const content = {
 export default function StaffPage() {
   const { locale } = useLocale();
   const t = content[locale];
-  const [selected, setSelected] = useState(0);
-  const [perms, setPerms] = useState(t.permissions.map((p) => p.on));
+  const shopsQuery = useShops();
+  const shopId = shopsQuery.data?.[0]?.id;
+  const staffQuery = useShopStaff(shopId);
+  const staff = staffQuery.data ?? [];
+  // เก็บเป็น id ไม่ใช่ index — พอรายชื่อ refetch แล้วสั้นลง index เดิมจะชี้ผิดคน
+  // และต้องมี effect คอยรีเซ็ต ส่วน id ตกไปเองถ้าไม่เจอ แล้ว fallback เป็นคนแรก
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedStaff = staff.find((entry) => entry.user.id === selectedId) ?? staff[0];
+  const setPermissions = useSetStaffPermissions(shopId, selectedStaff?.user.id);
+
+  const permissionKeys = ["canManageProduct", "canAdjustStockManual", "canUseChatbot", "canScanSale", "canViewDashboard", "canViewAiInsight"] as const;
+
+  // อ่านสิทธิ์จากข้อมูลจริงตรงๆ ไม่ copy ลง state ผ่าน effect — ระหว่างที่ mutation
+  // ยังไม่เสร็จใช้ค่าที่เพิ่งส่งไปแสดงแทน สวิตช์จะได้ขยับทันทีที่กด
+  const effectivePermission = (setPermissions.isPending ? setPermissions.variables : selectedStaff?.permission) ?? selectedStaff?.permission;
+  const perms = permissionKeys.map((key) => Boolean(effectivePermission?.[key]));
+
+  const togglePermission = (index: number, value: boolean) => {
+    if (!selectedStaff) return;
+    setPermissions.mutate({ ...selectedStaff.permission, [permissionKeys[index]]: value });
+  };
 
   return (
     <>
@@ -93,33 +113,39 @@ export default function StaffPage() {
                 <div className="mb-4 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
                   {t.staffListHeading}
                 </div>
-                {t.staffList.map((s, i) => (
+                {staff.map((entry, i) => {
+                  const s = entry.user;
+                  const name = `${s.firstName} ${s.lastName}`.trim();
+                  const initial = s.firstName?.charAt(0) || "?";
+                  return (
                   <button
-                    key={i}
-                    onClick={() => setSelected(i)}
+                    key={entry.id}
+                    onClick={() => setSelectedId(s.id)}
                     className={`flex w-full items-center gap-3 py-3 text-left ${
-                      i < t.staffList.length - 1 ? "border-b border-border" : ""
+                      i < staff.length - 1 ? "border-b border-border" : ""
                     }`}
                   >
                     <Avatar
-                      className={selected === i ? "ring-2 ring-primary ring-offset-2" : ""}
+                      className={selectedStaff?.user.id === s.id ? "ring-2 ring-primary ring-offset-2" : ""}
                     >
                       <AvatarFallback
                         className="font-heading font-bold text-white"
-                        style={{ backgroundColor: s.avatarBg }}
+                        style={{ backgroundColor: s.status === "ACTIVE" ? "#5C9A54" : "#888" }}
                       >
-                        {s.initial}
+                        {initial}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold">{s.name}</div>
+                      <div className="text-sm font-semibold">{name}</div>
                       <div className="font-mono text-[11px] text-muted-foreground">
-                        {s.username}
+                        {s.username ?? s.email ?? "-"}
                       </div>
                     </div>
-                    <Badge variant={s.lineStatus}>{s.lineLabel}</Badge>
+                    <Badge variant={s.lineUserId ? "success" : "neutral"}>{s.lineUserId ? (locale === "th" ? "ผูก LINE" : "LINE Linked") : (locale === "th" ? "ยังไม่ผูก LINE" : "LINE Not Linked")}</Badge>
                   </button>
-                ))}
+                  );
+                })}
+                {staffQuery.isLoading && <div className="py-4 text-sm text-muted-foreground">Loading...</div>}
                 <div className="mt-3">
                   <Button variant="dark" size="sm">
                     {t.createStaffBtn}
@@ -131,7 +157,7 @@ export default function StaffPage() {
             <Card>
               <div className="px-4">
                 <div className="mb-4 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
-                  {t.permHeading(t.staffList[selected].name)}
+                  {t.permHeading(selectedStaff ? `${selectedStaff.user.firstName} ${selectedStaff.user.lastName}`.trim() : "-")}
                 </div>
                 {t.permissions.map((p, i) => (
                   <div
@@ -148,11 +174,7 @@ export default function StaffPage() {
                     </div>
                     <Switch
                       checked={perms[i]}
-                      onCheckedChange={(v) =>
-                        setPerms((prev) =>
-                          prev.map((x, idx) => (idx === i ? v : x))
-                        )
-                      }
+                      onCheckedChange={(v) => togglePermission(i, v)}
                     />
                   </div>
                 ))}
@@ -182,13 +204,13 @@ export default function StaffPage() {
                   <Label className="text-[11px] font-semibold uppercase">
                     {t.fieldFirstName}
                   </Label>
-                  <Input placeholder={t.staffList[0].name.split(" ")[0]} />
+                    <Input placeholder={staff[0]?.user.firstName ?? ""} />
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label className="text-[11px] font-semibold uppercase">
                     {t.fieldLastName}
                   </Label>
-                  <Input placeholder={t.staffList[0].name.split(" ")[1] ?? ""} />
+                    <Input placeholder={staff[0]?.user.lastName ?? ""} />
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label className="text-[11px] font-semibold uppercase">

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { X } from "lucide-react";
 
 import NavItem from "@/components/layout/NavItem";
@@ -55,14 +56,15 @@ export default function Sidebar({
         )}
       >
         <div className="flex items-center justify-between px-6 pt-7 pb-5">
-          <div className="flex items-baseline gap-1.5">
+          {/* โลโก้กลับหน้าแรกเสมอ ไม่ว่าจะอยู่หน้าไหนของแอป */}
+          <Link href="/" className="flex items-baseline gap-1.5">
             <span className="font-heading text-xl font-bold tracking-[-0.02em] text-brand-orange">
               AumStocks
             </span>
             {wordmarkSuffix && (
               <span className="text-[11px] text-white/40">{wordmarkSuffix}</span>
             )}
-          </div>
+          </Link>
           <button
             type="button"
             onClick={close}

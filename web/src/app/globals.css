@@ -8,6 +8,7 @@
     --font-heading: var(--font-prompt);
     --font-sans: var(--font-sarabun);
     --font-mono: var(--font-ibm-plex-mono);
+    --font-english: var(--font-inter);
 
     /* Brand tokens from the Figma design (aum_stock2) — use these directly
        (bg-brand-orange, text-brand-dark) when a shadcn token doesn't fit. */
@@ -142,4 +143,36 @@
   html {
     @apply font-sans;
     }
+}
+
+.font-english,
+.font-english * {
+  font-family: var(--font-inter), Arial, sans-serif !important;
+}
+
+.font-nav,
+.font-nav * {
+  font-family: var(--font-manrope), var(--font-sarabun), Arial, sans-serif !important;
+}
+
+.font-nav-th,
+.font-nav-th * {
+  font-family: var(--font-noto-thai), var(--font-sarabun), sans-serif !important;
+}
+
+.font-logo,
+.font-logo * {
+  font-family: var(--font-prompt), sans-serif !important;
+}
+
+.font-thai,
+.font-thai .font-heading,
+.font-thai .font-sans {
+  font-family: var(--font-noto-thai), var(--font-sarabun), sans-serif !important;
+}
+
+.font-nav a[href="#features"],
+.font-nav a[href="#pricing"] {
+  text-transform: none !important;
+  letter-spacing: 0.03em !important;
 }
