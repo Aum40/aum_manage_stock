@@ -16,7 +16,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getNavSections, type SidebarRole } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
@@ -24,6 +24,7 @@ import { useMySubscription, useShops } from "@/lib/hooks/use-inventory";
 import { useMe } from "@/lib/hooks/use-profile";
 import type { CurrentUser } from "@/lib/types/user";
 import SessionRefresher from "@/components/auth/SessionRefresher";
+import { ShopOnboardingGate } from "@/components/shared/ShopOnboardingGate";
 
 /**
  * เมนูใน sidebar ขึ้นกับทั้ง "บทบาท" และ "สถานะแพ็กเกจ" — พนักงานเห็นคนละชุดกับ
@@ -71,6 +72,12 @@ const content = {
   },
 };
 
+/**
+ * เส้นทางที่ต้องเข้าได้แม้บัญชียังไม่มีร้าน — ไม่งั้นจะไปสร้างร้านไม่ได้เลย
+ * และจะจัดการแพ็กเกจหรือออกจากระบบก็ไม่ได้ด้วย
+ */
+const ALLOWED_WITHOUT_SHOP = ["/shops", "/membership", "/profile"];
+
 export default function MainLayout({
   children,
 }: {
@@ -87,6 +94,10 @@ function MainLayoutInner({ children }: { children: React.ReactNode }) {
   const { locale } = useLocale();
   const t = content[locale];
   const router = useRouter();
+  // ต้องเรียกตรงนี้ ไม่ใช่ตอนคำนวณ needsShop ด้านล่าง — [แพรว] `if (isAdmin)
+  // return null` คั่นอยู่ hook ที่อยู่ใต้บรรทัดนั้นจะถูกข้ามเมื่อเป็นแอดมิน
+  // จำนวน hook ต่อ render ไม่เท่ากัน React จะจับคู่ state ผิดตัว
+  const pathname = usePathname();
   const meQuery = useMe();
   const shopsQuery = useShops();
   const subscriptionQuery = useMySubscription();
@@ -131,6 +142,21 @@ function MainLayoutInner({ children }: { children: React.ReactNode }) {
   // ถ้าใช้ตรงๆ จะได้ UUID ของร้านโผล่ในไซด์บาร์ จึงเรนเดอร์ชื่อร้านเอง
   const activeShopName =
     shops.find((s) => s.id === activeShopId)?.name ?? t.shopName;
+
+  /**
+   * บัญชีที่ยังไม่มีร้านเปิดหน้าไหนก็เห็นตารางว่างโดยไม่มีอะไรบอกว่าทำไม
+   * (5 จาก 8 หน้าไม่มี empty state) ดักที่นี่ที่เดียวครอบทุกหน้า
+   *
+   * ใช้ isSuccess ไม่ใช่ !isLoading — ถ้า query error ข้อมูลจะเป็น []
+   * เหมือนกัน แล้วผู้ใช้ที่มีร้านอยู่จริงจะโดนเด้งไปหน้า "สร้างร้าน" ผิด ๆ
+   *
+   * ไม่ต้องเช็คแอดมินตรงนี้ — [แพรว] `if (isAdmin) return null` ด้านบน
+   * ตัดแอดมินออกไปก่อนถึงบรรทัดนี้แล้ว เช็คซ้ำก็ไม่มีทางเป็นจริง
+   */
+  const needsShop =
+    shopsQuery.isSuccess &&
+    shops.length === 0 &&
+    !ALLOWED_WITHOUT_SHOP.some((allowed) => pathname.startsWith(allowed));
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -191,7 +217,11 @@ function MainLayoutInner({ children }: { children: React.ReactNode }) {
             </AlertDescription>
           </Alert>
         )}
-        {children}
+        {needsShop ? (
+          <ShopOnboardingGate variant={isStaff ? "staff" : "owner"} />
+        ) : (
+          children
+        )}
       </div>
     </div>
   );

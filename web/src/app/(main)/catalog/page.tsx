@@ -30,6 +30,8 @@ import Caption from "@/components/shared/Caption";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog";
+import { ProductScopeTabs } from "@/components/shared/ProductScopeTabs";
+import { ShopStockDialog } from "@/components/features/catalog/ShopStockDialog";
 import { ApiError, api, withQuery } from "@/lib/api-client";
 import {
   inventoryKeys,
@@ -46,6 +48,7 @@ const COLUMN_ALIGN = [
   "text-left",
   "text-left",
   "text-left",
+  "text-right",
   "text-left",
   "text-right",
 ] as const;
@@ -62,8 +65,9 @@ const content = {
     noCategory: "ไม่ระบุหมวดหมู่",
     allShops: "ทุกร้าน",
     addBtn: "เพิ่มสินค้าใหม่ →",
-    columns: ["สินค้า", "หมวดหมู่", "บาร์โค้ด", "ขายในร้าน", ""],
+    columns: ["สินค้า", "หมวดหมู่", "บาร์โค้ด", "คงเหลือรวม", "ขายในร้าน", ""],
     notSelling: "ยังไม่ได้ลงร้าน",
+    editStockTitle: "แก้สต็อกรายร้าน",
     editBtn: "แก้ไข",
     addToShopBtn: "เพิ่มเข้าร้าน",
     deleteBtn: "ลบ",
@@ -118,8 +122,9 @@ const content = {
     noCategory: "Uncategorised",
     allShops: "All shops",
     addBtn: "Add new product →",
-    columns: ["Product", "Category", "Barcode", "Sold at", ""],
+    columns: ["Product", "Category", "Barcode", "Total stock", "Sold at", ""],
     notSelling: "Not in any shop",
+    editStockTitle: "Edit stock by shop",
     editBtn: "Edit",
     addToShopBtn: "Add to shop",
     deleteBtn: "Delete",
@@ -172,6 +177,11 @@ export default function ProductCatalogPage() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [stockFor, setStockFor] = useState<{
+    id: string;
+    name: string;
+    unit: string;
+  } | null>(null);
   const [shopFilter, setShopFilter] = useState("all");
   const [editing, setEditing] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState<Product | null>(null);
@@ -193,7 +203,9 @@ export default function ProductCatalogPage() {
     queries: shops.map((shop) => ({
       queryKey: ["catalog", "shop-products", shop.id],
       queryFn: () =>
-        api.get<{ items: { productId: string; status: string }[] }>(
+        api.get<{
+          items: { productId: string; status: string; stockQty: number }[];
+        }>(
           withQuery(`/api/backend/shops/${shop.id}/products`, { limit: 100 }),
         ),
     })),
@@ -201,15 +213,19 @@ export default function ProductCatalogPage() {
 
   // คำนวณตรงๆ ไม่ต้อง useMemo — รายการไม่เกิน 100 x จำนวนร้าน และ
   // ผลลัพธ์ของ useQueries เปลี่ยน reference ทุก render อยู่แล้ว memo ไปก็ไม่ช่วย
-  const soldAt = new Map<string, { id: string; name: string }[]>();
+  const soldAt = new Map<
+    string,
+    { id: string; name: string; stockQty: number }[]
+  >();
   shopProductQueries.forEach((query, index) => {
     const shop = shops[index];
     if (!shop || !query.data) return;
     for (const item of query.data.items) {
       if (item.status !== "ACTIVE") continue;
+      // ข้าม INACTIVE ไปแล้วด้านบน ยอดรวมจึงนับเฉพาะร้านที่ยังขายอยู่จริง
       soldAt.set(item.productId, [
         ...(soldAt.get(item.productId) ?? []),
-        { id: shop.id, name: shop.name },
+        { id: shop.id, name: shop.name, stockQty: item.stockQty },
       ]);
     }
   });
@@ -269,6 +285,7 @@ export default function ProductCatalogPage() {
       <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
+          <ProductScopeTabs active="all" />
           <QuotaStrip>
             <div className="flex-1">
               {/* allowed = null คือไม่จำกัด ส่งเป็น 0 จะกลายเป็นแถบเต็มตลอด */}
@@ -353,7 +370,8 @@ export default function ProductCatalogPage() {
                 <col />
                 <col className="w-44" />
                 <col className="w-44" />
-                <col className="w-64" />
+                <col className="w-28" />
+                <col className="w-72" />
                 <col className="w-56" />
               </colgroup>
               <thead>
@@ -372,7 +390,7 @@ export default function ProductCatalogPage() {
                 {productsQuery.isLoading && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-4 py-8 text-center text-muted-foreground"
                     >
                       {t.loading}
@@ -382,7 +400,7 @@ export default function ProductCatalogPage() {
                 {!productsQuery.isLoading && products.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-4 py-8 text-center text-muted-foreground"
                     >
                       {t.empty}
@@ -391,6 +409,10 @@ export default function ProductCatalogPage() {
                 )}
                 {products.map((product) => {
                   const sellingShops = soldAt.get(product.id) ?? [];
+                  const totalStock = sellingShops.reduce(
+                    (sum, shop) => sum + shop.stockQty,
+                    0,
+                  );
                   return (
                     <tr
                       key={product.id}
@@ -430,21 +452,57 @@ export default function ProductCatalogPage() {
                       >
                         {product.barcode ?? "—"}
                       </td>
-                      <td className={`px-4 py-3.5 ${COLUMN_ALIGN[3]}`}>
+                      <td
+                        className={`px-4 py-3.5 whitespace-nowrap ${COLUMN_ALIGN[3]}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setStockFor(product)}
+                          title={t.editStockTitle}
+                          className="rounded-md px-1.5 py-0.5 underline decoration-dotted underline-offset-4 hover:bg-muted"
+                        >
+                          {sellingShops.length === 0 ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <>
+                              <span className="font-mono font-semibold">
+                                {totalStock.toLocaleString()}
+                              </span>
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                {product.unit}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+                      <td className={`px-4 py-3.5 ${COLUMN_ALIGN[4]}`}>
                         {sellingShops.length === 0 ? (
                           <Badge variant="neutral">{t.notSelling}</Badge>
                         ) : (
-                          <span className="flex flex-wrap gap-1">
+                          /* เรียงเป็นแถวเต็มความกว้าง ไม่ใช่ pill ลอย ๆ ต่อกัน
+                             ตัวเลขจะได้ชิดขอบขวาตรงกันทุกแถว กวาดตาเทียบร้านได้ทันที */
+                          <span className="flex flex-col gap-1">
                             {sellingShops.map((shop) => (
-                              <Badge key={shop.id} variant="success">
-                                {shop.name}
+                              <Badge
+                                key={shop.id}
+                                variant="success"
+                                className="h-6 w-full justify-between gap-2"
+                              >
+                                <span className="min-w-0 flex-1 truncate">
+                                  {shop.name}
+                                </span>
+                                {/* min-w คงที่ ไม่ใช่ w-fit — ไม่งั้นเส้นคั่นจะขยับ
+                                    ตามความกว้างของตัวเลข 100 กับ 45 เส้นจะไม่ตรงกัน */}
+                                <span className="min-w-11 shrink-0 border-l border-status-green/30 pl-2 text-right font-mono font-semibold tabular-nums">
+                                  {shop.stockQty.toLocaleString()}
+                                </span>
                               </Badge>
                             ))}
                           </span>
                         )}
                       </td>
                       <td
-                        className={`px-4 py-3.5 whitespace-nowrap ${COLUMN_ALIGN[4]}`}
+                        className={`px-4 py-3.5 whitespace-nowrap ${COLUMN_ALIGN[5]}`}
                       >
                         <button
                           type="button"
@@ -453,12 +511,13 @@ export default function ProductCatalogPage() {
                         >
                           {t.editBtn}
                         </button>
-                        <Link
-                          href="/catalog/add-to-shop"
+                        <button
+                          type="button"
+                          onClick={() => setStockFor(product)}
                           className="mr-3 text-[13px] font-semibold text-primary"
                         >
                           {t.addToShopBtn}
-                        </Link>
+                        </button>
                         <button
                           type="button"
                           onClick={() => setDeleting(product)}
@@ -477,6 +536,12 @@ export default function ProductCatalogPage() {
           <Caption>{t.caption}</Caption>
         </div>
       </main>
+
+      <ShopStockDialog
+        product={stockFor}
+        shops={shops}
+        onClose={() => setStockFor(null)}
+      />
 
       <CategoryManagerDialog
         open={categoryManagerOpen}

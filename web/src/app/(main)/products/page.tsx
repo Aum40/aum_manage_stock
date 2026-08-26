@@ -30,6 +30,7 @@ import TableState from "@/components/shared/TableState";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog";
+import { ProductScopeTabs } from "@/components/shared/ProductScopeTabs";
 import { ApiError, api } from "@/lib/api-client";
 import {
   inventoryKeys,
@@ -315,6 +316,7 @@ export default function ProductsStockPage() {
       <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5">
+          <ProductScopeTabs active="shop" />
           <div className="flex flex-wrap items-center gap-3">
             <Input
               value={search}
@@ -347,7 +349,7 @@ export default function ProductsStockPage() {
             >
               {t.manageCategories}
             </Button>
-            <Button variant="dark" render={<Link href="/products/new" />}>
+            <Button variant="dark" render={<Link href="/catalog/new" />}>
               {t.addBtn}
             </Button>
           </div>

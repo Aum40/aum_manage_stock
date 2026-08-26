@@ -90,7 +90,13 @@ export default function Sidebar({
                 <NavItem
                   key={item.href}
                   item={item}
-                  isActive={pathname === item.href}
+                  isActive={
+                    pathname === item.href ||
+                    (item.matches?.some((prefix) =>
+                      pathname.startsWith(prefix),
+                    ) ??
+                      false)
+                  }
                 />
               ))}
             </div>

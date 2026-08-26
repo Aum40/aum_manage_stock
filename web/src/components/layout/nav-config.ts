@@ -28,6 +28,11 @@ export interface NavItem {
   href: string;
   icon: IconKey;
   locked?: "PLUS" | "PRO";
+  /**
+   * เส้นทางอื่นที่ยังนับว่าอยู่ในเมนูนี้ — Sidebar เทียบด้วย startsWith
+   * เช่น /catalog เป็นอีกมุมมองของเมนู "สินค้า" ไม่ใช่เมนูของตัวเอง
+   */
+  matches?: string[];
 }
 
 export interface NavSection {
@@ -82,7 +87,7 @@ export function getNavSections(role: SidebarRole): NavSection[] {
         label: { th: "เมนูหลัก", en: "Main Menu" },
         items: [
           { label: { th: "แดชบอร์ด", en: "Dashboard" }, href: dashboardHref, icon: "dashboard" },
-          { label: { th: "สินค้าและสต็อก", en: "Products & Stock" }, href: "/products", icon: "package" },
+          { label: { th: "สินค้า", en: "Products" }, href: "/products", icon: "package" },
           { label: { th: "ขายหน้าร้าน (POS)", en: "Point of Sale" }, href: "/pos", icon: "cart" },
           { label: { th: "แชทบอทรับสต็อก", en: "Stock Chatbot" }, href: "/chatbot", icon: "message" },
         ],
@@ -104,7 +109,13 @@ export function getNavSections(role: SidebarRole): NavSection[] {
       label: { th: "เมนูหลัก", en: "Main Menu" },
       items: [
         { label: { th: "แดชบอร์ด", en: "Dashboard" }, href: dashboardHref, icon: "dashboard" },
-        { label: { th: "สินค้าและสต็อก", en: "Products & Stock" }, href: "/products", icon: "package" },
+        {
+          label: { th: "สินค้า", en: "Products" },
+          href: "/products",
+          icon: "package",
+          // /catalog คือมุมมอง "ทุกร้าน" ของเมนูเดียวกัน สลับด้วย ProductScopeTabs
+          matches: ["/catalog"],
+        },
         {
           label: { th: "ขายหน้าร้าน (POS)", en: "Point of Sale" },
           href: "/pos",
@@ -132,7 +143,6 @@ export function getNavSections(role: SidebarRole): NavSection[] {
       label: { th: "การจัดการ", en: "Management" },
       items: [
         { label: { th: "ประวัติสต็อก", en: "Stock History" }, href: "/stock-history", icon: "history" },
-        { label: { th: "แคตตาล็อกสินค้ากลาง", en: "Product Catalog" }, href: "/catalog", icon: "catalog" },
         { label: { th: "ร้านค้าของฉัน", en: "My Shops" }, href: "/shops", icon: "store" },
         {
           label: { th: "สมาชิกและการชำระเงิน", en: "Membership & Billing" },
