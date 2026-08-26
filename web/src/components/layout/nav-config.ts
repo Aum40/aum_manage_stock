@@ -119,7 +119,10 @@ export function getNavSections(role: SidebarRole): NavSection[] {
         },
         {
           label: { th: "พนักงานและสิทธิ์", en: "Staff & Permissions" },
-          href: "/staff/full",
+          // [อั้ม] เดิมชี้ /staff/full ซึ่งเป็นหน้าสถานะ "โควตาเต็ม" ไม่ใช่หน้าหลัก
+          // เมนูอื่นทุกอันชี้หน้าหลักทั้งหมด (/products ไม่ใช่ /products/limit)
+          // ส่วนหน้าสถานะเลือกตอน runtime แบบ dashboardHref ด้านบน
+          href: "/staff",
           icon: "users",
           locked: isFree ? "PLUS" : undefined,
         },
