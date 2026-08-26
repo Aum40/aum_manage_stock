@@ -25,13 +25,17 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   /** เริ่มชำระเงิน — คืน URL ของ Stripe Checkout ยังไม่เปลี่ยนแพ็กเกจตอนนี้ */
+  /** เริ่มชำระเงินด้วย Card Elements — ไม่ redirect ไป Stripe Checkout */
   @Roles(UserRole.SHOP_OWNER)
-  @Post('subscription')
-  async createSubscriptionPayment(
+  @Post('subscription-intent')
+  async createSubscriptionPaymentIntent(
     @CurrentUser('sub') userId: string,
     @Body() dto: CreateSubscriptionPaymentDto,
   ) {
-    return this.paymentsService.createSubscriptionPayment(userId, dto.planCode);
+    return this.paymentsService.createSubscriptionPaymentIntent(
+      userId,
+      dto.planCode,
+    );
   }
 
   // SRS §66/§110 — quota เปลี่ยนได้ทางเดียวคืออัปเกรดแพลน ไม่มีการซื้อร้าน/
@@ -46,12 +50,21 @@ export class PaymentsController {
   }
 
   @Roles(UserRole.SHOP_OWNER)
-  @Post(':id/retry')
-  async retryPayment(
+  @Post(':id/retry-intent')
+  async retryPaymentIntent(
     @CurrentUser('sub') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.paymentsService.retryPayment(userId, id);
+    return this.paymentsService.retryPaymentIntent(userId, id);
+  }
+
+  @Roles(UserRole.SHOP_OWNER)
+  @Post(':id/confirm')
+  async confirmPaymentIntent(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.paymentsService.confirmPaymentIntent(userId, id);
   }
 
   @Roles(UserRole.SHOP_OWNER)

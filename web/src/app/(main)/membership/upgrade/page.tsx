@@ -1,10 +1,14 @@
 "use client";
 
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import TopBar from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
+import CardPaymentDialog from "@/components/features/payment/CardPaymentDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import {
-  useCreateSubscriptionPayment,
+  useCreateSubscriptionPaymentIntent,
   useMySubscription,
   useSubscriptionPlans,
   type SubscriptionPlan,
@@ -80,8 +84,11 @@ function staffCell(plan: SubscriptionPlan | undefined): string {
 
 export default function UpgradePlanPage() {
   const { locale } = useLocale();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const t = content[locale];
-  const createPayment = useCreateSubscriptionPayment();
+  const createPayment = useCreateSubscriptionPaymentIntent();
+  const [payment, setPayment] = useState<{ paymentId: string; clientSecret: string; amount: number } | null>(null);
   const plansQuery = useSubscriptionPlans();
   const subscriptionQuery = useMySubscription();
 
@@ -144,8 +151,11 @@ export default function UpgradePlanPage() {
   const startCheckout = (planCode: "PLUS" | "PRO") => {
     if (createPayment.isPending) return;
     createPayment.mutate(planCode, {
-      onSuccess: ({ checkoutUrl }) => {
-        window.location.assign(checkoutUrl);
+      onSuccess: ({ paymentId, clientSecret }) => {
+        const selectedPlan = planCode === "PLUS" ? plusPlan : proPlan;
+        if (clientSecret && selectedPlan) {
+          setPayment({ paymentId, clientSecret, amount: Number(selectedPlan.priceThb) });
+        }
       },
     });
   };
@@ -153,6 +163,22 @@ export default function UpgradePlanPage() {
   return (
     <>
       <TopBar title={t.title} />
+      {payment && (
+        <CardPaymentDialog
+          clientSecret={payment.clientSecret}
+          paymentId={payment.paymentId}
+          amount={payment.amount}
+          locale={locale}
+          onClose={() => setPayment(null)}
+          onSuccess={() => {
+            // จ่ายเงินสำเร็จแล้วแพ็กเกจ/โควตา/ประวัติเปลี่ยนหมด ล้าง cache
+            // ให้ดึงใหม่แทนการ reload ทั้งหน้า
+            setPayment(null);
+            void queryClient.invalidateQueries();
+            router.push("/membership?status=success");
+          }}
+        />
+      )}
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
         <div className="mx-auto max-w-4xl">
           <div className="mb-8 text-center">
