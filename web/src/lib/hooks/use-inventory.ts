@@ -146,6 +146,7 @@ export function useCreateProduct() {
       unit: string;
       barcode?: string;
       categoryId?: string;
+      imageUrl?: string;
     }) => api.post<Product>('/api/backend/products', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
