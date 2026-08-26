@@ -380,6 +380,8 @@ Table shops {
   image_url varchar(500) [null, note: 'Cloudinary']
   phone varchar(20) [null, note: 'เก็บเป็น string เบอร์ไทยขึ้นต้นด้วย 0']
   address text [null]
+  latitude decimal(9,6) [null, note: 'ปักหมุดตำแหน่งร้านผ่านแผนที่ (OpenStreetMap) — ไม่บังคับ']
+  longitude decimal(9,6) [null]
   status shop_status [not null, default: 'ACTIVE', note: 'SUSPENDED ตั้งโดย Admin เท่านั้น (SRS §185)']
   deleted_at timestamptz [null, note: 'soft delete — คืน quota ให้เจ้าของทันที (ดู Note ของ subscriptions)']
   created_at timestamptz [not null, default: `now()`]
