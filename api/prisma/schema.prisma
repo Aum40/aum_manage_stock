@@ -53,28 +53,34 @@ enum PendingActionStatus {
 }
 
 model StockMovement {
-  id             String              @id @default(uuid()) @db.Uuid
-  shopId         String              @db.Uuid
-  shopProductId  String              @db.Uuid
-  actorId        String?             @db.Uuid
-  movementType   StockMovementType
-  quantityDelta  Int
-  quantityBefore Int
-  quantityAfter  Int
-  source         StockMovementSource
-  note           String?
-  referenceType  String?
-  referenceId    String?
-  createdAt      DateTime            @default(now())
-  shop           Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  shopProduct    ShopProduct         @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
-  actor          User?               @relation("StockMovementActor", fields: [actorId], references: [id], onDelete: Restrict)
+  id              String              @id @default(uuid()) @db.Uuid
+  shopId          String              @db.Uuid
+  shopProductId   String              @db.Uuid
+  actorId         String?             @db.Uuid
+  saleId          String?             @map("sale_id") @db.Uuid
+  pendingActionId String?             @map("pending_action_id") @db.Uuid
+  movementType    StockMovementType
+  quantityDelta   Int
+  quantityBefore  Int
+  quantityAfter   Int
+  source          StockMovementSource
+  note            String?
+  referenceType   String?
+  referenceId     String?
+  createdAt       DateTime            @default(now())
+  shop            Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  shopProduct     ShopProduct         @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
+  actor           User?               @relation("StockMovementActor", fields: [actorId], references: [id], onDelete: Restrict)
+  sale            Sale?               @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  pendingAction   PendingAction?      @relation(fields: [pendingActionId], references: [id], onDelete: Restrict)
 
   @@unique([referenceType, referenceId])
   @@index([shopId, createdAt(sort: Desc)])
   @@index([shopId, shopProductId, createdAt(sort: Desc)])
   @@index([shopId, actorId, createdAt(sort: Desc)])
   @@index([shopId, movementType, createdAt(sort: Desc)])
+  @@index([saleId])
+  @@index([pendingActionId])
 }
 
 model PendingAction {
@@ -90,6 +96,7 @@ model PendingAction {
   quantity        Int
   status          PendingActionStatus @default(PENDING)
   payload         Json?
+  parsedItems     Json?               @map("parsed_items")
   expiresAt       DateTime
   confirmedAt     DateTime?
   cancelledAt     DateTime?
@@ -98,28 +105,33 @@ model PendingAction {
   shop            Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
   shopProduct     ShopProduct?        @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
   actor           User?               @relation("PendingActionActor", fields: [actorId], references: [id], onDelete: Restrict)
+  stockMovements  StockMovement[]
 
   @@index([shopId, status, createdAt(sort: Desc)])
   @@index([expiresAt, status])
 }
 
 model Sale {
-  id          String     @id @default(uuid()) @db.Uuid
-  shopId      String     @db.Uuid
-  staffId     String     @db.Uuid
-  status      SaleStatus @default(COMPLETED)
-  totalAmount Decimal    @db.Decimal(18, 2)
-  note        String?
-  voidedById  String?    @db.Uuid
-  voidReason  String?
-  voidedAt    DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  items       SaleItem[]
-  shop        Shop       @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  staff       User       @relation("SaleStaff", fields: [staffId], references: [id], onDelete: Restrict)
-  voidedBy    User?      @relation("SaleVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  id             String          @id @default(uuid()) @db.Uuid
+  shopId         String          @db.Uuid
+  staffId        String          @db.Uuid
+  saleNo         String          @map("sale_no") @db.VarChar(30)
+  itemCount      Int             @map("item_count")
+  status         SaleStatus      @default(COMPLETED)
+  totalAmount    Decimal         @db.Decimal(18, 2)
+  note           String?
+  voidedById     String?         @db.Uuid
+  voidReason     String?
+  voidedAt       DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  items          SaleItem[]
+  shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  staff          User            @relation("SaleStaff", fields: [staffId], references: [id], onDelete: Restrict)
+  voidedBy       User?           @relation("SaleVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  stockMovements StockMovement[]
 
+  @@unique([shopId, saleNo])
   @@index([shopId, createdAt(sort: Desc)])
   @@index([shopId, status, createdAt(sort: Desc)])
 }
@@ -129,7 +141,9 @@ model SaleItem {
   saleId        String      @db.Uuid
   shopProductId String      @db.Uuid
   productName   String
+  barcode       String?     @db.VarChar(50)
   unitPrice     Decimal     @db.Decimal(18, 2)
+  costPrice     Decimal     @map("cost_price") @db.Decimal(18, 2)
   quantity      Int
   lineTotal     Decimal     @db.Decimal(18, 2)
   createdAt     DateTime    @default(now())
