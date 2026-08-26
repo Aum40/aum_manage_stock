@@ -16,7 +16,7 @@ export class EmailVerificationTokenService {
   }
 
   /** ออกลิงก์ใหม่ = ยกเลิกลิงก์เก่าที่ยังไม่ถูกใช้ทั้งหมดของ user คนนั้น */
-  async issue(userId: string): Promise<string> {
+  async issue(userId: string, pendingEmail?: string): Promise<string> {
     const raw = crypto.randomBytes(32).toString('hex');
     const expiresInSec = this.configService.get(
       'EMAIL_VERIFICATION_TOKEN_EXPIRES_IN',
@@ -30,6 +30,7 @@ export class EmailVerificationTokenService {
       this.prisma.emailVerificationToken.create({
         data: {
           userId,
+          pendingEmail: pendingEmail?.toLowerCase(),
           tokenHash: this.hash(raw),
           expiresAt: new Date(Date.now() + expiresInSec * 1000),
         },

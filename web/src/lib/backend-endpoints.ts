@@ -13,6 +13,7 @@ export const backendEndpointRules = [
   { methods: ["POST"] as const, pattern: /^users\/me\/password\/set$/ },
   { methods: ["POST"] as const, pattern: /^users\/me\/link-(?:line|google)$/ },
   { methods: ["DELETE"] as const, pattern: /^users\/me\/unlink-line$/ },
+  { methods: ["DELETE"] as const, pattern: /^users\/me\/unlink-google$/ },
   { methods: ["GET", "PATCH"] as const, pattern: /^admin\/(?:users|shops)(?:\/[^/]+\/(?:suspend|reactivate))?$/ },
   { methods: ["PATCH"] as const, pattern: /^admin\/admins\/[^/]+\/role$/ },
   { methods: ["GET"] as const, pattern: /^admin\/overview$/ },

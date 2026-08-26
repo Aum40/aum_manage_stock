@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 
 import { FormError } from "@/components/features/auth/form-error";
+import { PasswordInput } from "@/components/features/auth/PasswordInput";
+import { getAuthCopy } from "@/components/features/auth/auth-copy";
+import { useLocale } from "@/components/i18n/LocaleContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +24,8 @@ type LoginResponse =
 const AFTER_LOGIN = "/dashboard";
 
 export default function LoginForm() {
+  const { locale } = useLocale();
+  const text = getAuthCopy(locale).login;
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
@@ -28,6 +33,12 @@ export default function LoginForm() {
     "idle",
   );
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  /**
+   * ล็อกอินผ่าน LINE/Google ที่บัญชีเปิด 2FA ไว้จะถูกเด้งกลับมาที่ ?twofa=1
+   * ตัว challengeToken ไม่ได้ติดมาใน URL ด้วย — มันอยู่ใน httpOnly cookie ที่
+   * route handler ฝั่ง /api/auth/2fa/* หยิบเอง (ดู lib/twofa-challenge.ts)
+   */
+  const awaitingOAuth2fa = useSearchParams().get("twofa") === "1";
   const [otpCode, setOtpCode] = useState("");
   const [otpError, setOtpError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -67,7 +78,7 @@ export default function LoginForm() {
       .catch(() => null);
 
     if (!res.ok) {
-      setFormError(resolveApiError(result, "เข้าสู่ระบบไม่สำเร็จ"));
+      setFormError(resolveApiError(result, locale === "th" ? "เข้าสู่ระบบไม่สำเร็จ" : "Unable to log in"));
       // เสนอปุ่มขอลิงก์ยืนยันใหม่ได้เฉพาะตอนที่ผู้ใช้กรอกอีเมลมา
       // ถ้ากรอก username มาเราไม่รู้ว่าอีเมลไหน ต้องให้ไปขอที่หน้าลืมรหัสผ่าน
       setUnverifiedEmail(
@@ -90,7 +101,7 @@ export default function LoginForm() {
   };
 
   const onVerifyOtp = async () => {
-    if (!challengeToken) return;
+    if (!challengeToken && !awaitingOAuth2fa) return;
     setOtpError(null);
     setIsVerifying(true);
 
@@ -99,9 +110,10 @@ export default function LoginForm() {
     const endpoint = useRecovery
       ? "/api/auth/2fa/recovery"
       : "/api/auth/2fa/verify";
+    // ไม่มี challengeToken ในมือแปลว่ามาจาก LINE/Google — ฝั่ง server อ่านจาก cookie เอง
     const payload = useRecovery
-      ? { challengeToken, recoveryCode: otpCode }
-      : { challengeToken, otpCode };
+      ? { ...(challengeToken ? { challengeToken } : {}), recoveryCode: otpCode }
+      : { ...(challengeToken ? { challengeToken } : {}), otpCode };
 
     const res = await fetch(endpoint, {
       method: "POST",
@@ -115,7 +127,9 @@ export default function LoginForm() {
       setOtpError(
         resolveApiError(
           result,
-          useRecovery ? "รหัสกู้คืนไม่ถูกต้อง" : "รหัสยืนยันไม่ถูกต้อง",
+          useRecovery
+            ? locale === "th" ? "รหัสกู้คืนไม่ถูกต้อง" : "Invalid recovery code"
+            : locale === "th" ? "รหัสยืนยันไม่ถูกต้อง" : "Invalid verification code",
         ),
       );
       return;
@@ -125,20 +139,20 @@ export default function LoginForm() {
     router.refresh();
   };
 
-  if (challengeToken) {
+  if (challengeToken || awaitingOAuth2fa) {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-[13px] text-muted-foreground">
           {useRecovery
-            ? "กรอกรหัสกู้คืนที่ได้รับตอนเปิดใช้งาน 2 ขั้นตอน (ใช้ได้ครั้งเดียวต่อรหัส)"
-            : "กรอกรหัส 6 หลักจากแอป Authenticator ของคุณ"}
+            ? text.recovery
+            : text.otp}
         </p>
         <div className="flex flex-col gap-1">
           <Label
             htmlFor="otpCode"
             className="text-[11px] font-semibold tracking-[0.08em] uppercase"
           >
-            {useRecovery ? "รหัสกู้คืน" : "รหัสยืนยัน 2 ขั้นตอน"}
+            {useRecovery ? text.recoveryLabel : text.otpLabel}
           </Label>
           <Input
             id="otpCode"
@@ -159,7 +173,7 @@ export default function LoginForm() {
           disabled={isVerifying || (useRecovery ? !otpCode : otpCode.length !== 6)}
           onClick={onVerifyOtp}
         >
-          {isVerifying ? "กำลังยืนยัน..." : "ยืนยัน →"}
+          {isVerifying ? text.verifying : text.verify}
         </Button>
 
         <div className="text-center text-[13px] text-muted-foreground">
@@ -173,8 +187,8 @@ export default function LoginForm() {
             }}
           >
             {useRecovery
-              ? "← กลับไปกรอกรหัสจากแอป"
-              : "ใช้แอปยืนยันไม่ได้? ใช้รหัสกู้คืน"}
+              ? text.useOtp
+              : text.useRecovery}
           </button>
         </div>
       </div>
@@ -188,15 +202,15 @@ export default function LoginForm() {
           htmlFor="identifier"
           className="text-[11px] font-semibold tracking-[0.08em] uppercase"
         >
-          อีเมล หรือ Username
+          {text.identifier}
         </Label>
         <Input
           id="identifier"
-          placeholder="aum@example.com หรือ aum.jaingam"
+          placeholder={text.identifierPlaceholder}
           {...register("identifier")}
         />
         <p className="text-xs text-muted-foreground">
-          เข้าด้วย username ได้ถ้าบัญชีนี้ตั้งรหัสผ่านไว้แล้ว
+          {text.identifierHint}
         </p>
         {errors.identifier && (
           <p className="text-xs text-destructive">
@@ -210,13 +224,14 @@ export default function LoginForm() {
           htmlFor="password"
           className="text-[11px] font-semibold tracking-[0.08em] uppercase"
         >
-          รหัสผ่าน
+          {text.password}
         </Label>
-        <Input
+        <PasswordInput
           id="password"
-          type="password"
-          placeholder="••••••••"
+          placeholder={text.passwordPlaceholder}
           {...register("password")}
+          showLabel={locale === "th" ? "แสดงรหัสผ่าน" : "Show password"}
+          hideLabel={locale === "th" ? "ซ่อนรหัสผ่าน" : "Hide password"}
         />
         {errors.password && (
           <p className="text-xs text-destructive">{errors.password.message}</p>
@@ -228,7 +243,7 @@ export default function LoginForm() {
       {unverifiedEmail && (
         <p className="text-[13px] text-muted-foreground">
           {resendState === "sent" ? (
-            "ส่งลิงก์ยืนยันใหม่ไปที่อีเมลของคุณแล้ว"
+            text.resent
           ) : (
             <button
               type="button"
@@ -237,8 +252,8 @@ export default function LoginForm() {
               className="font-bold text-primary underline disabled:opacity-50"
             >
               {resendState === "sending"
-                ? "กำลังส่ง..."
-                : "ส่งลิงก์ยืนยันอีเมลอีกครั้ง"}
+                ? text.resending
+                : text.resend}
             </button>
           )}
         </p>
@@ -250,19 +265,19 @@ export default function LoginForm() {
         className="w-full py-5"
         disabled={isSubmitting}
       >
-        {isSubmitting ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ →"}
+        {isSubmitting ? text.submitting : text.submit}
       </Button>
 
       <SocialButtons mode="login" />
 
       <div className="mt-1 text-center text-[13px] text-muted-foreground">
-        ยังไม่มีบัญชี?{" "}
+        {text.noAccount}{" "}
         <Link href="/register" className="font-bold text-primary">
-          สมัครสมาชิก
+          {text.register}
         </Link>{" "}
         ·{" "}
         <Link href="/forgot-password" className="font-bold text-primary">
-          ลืมรหัสผ่าน?
+          {text.forgot}
         </Link>
       </div>
     </form>

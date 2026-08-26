@@ -10,6 +10,7 @@ import { TwoFactorDisableDto } from '@/auth/dto/two-factor-disable.dto';
 import { VerifyEmailDto } from '@/auth/dto/verify-email.dto';
 import { TwoFactorRecoveryDto } from '@/auth/dto/two-factor-recovery.dto';
 import { TwoFactorVerifyDto } from '@/auth/dto/two-factor-verify.dto';
+import { RequestEmailChangeDto } from '@/users/dto/request-email-change.dto';
 import { CurrentUser } from '@/common/decorator/current-user.decorator';
 import { Protected, Public } from '@/common/decorator/public.decorator';
 import {
@@ -94,6 +95,21 @@ export class AuthController {
       message:
         'If the email exists and is unverified, a new link has been sent',
     };
+  }
+
+  @Protected()
+  @HttpCode(HttpStatus.OK)
+  @Post('email-change')
+  async requestEmailChange(
+    @CurrentUser('sub') userId: string,
+    @Body() dto: RequestEmailChangeDto,
+  ) {
+    await this.authService.requestEmailChange(
+      userId,
+      dto.email,
+      dto.currentPassword ?? '',
+    );
+    return { message: 'Verification email sent' };
   }
 
   @Protected()

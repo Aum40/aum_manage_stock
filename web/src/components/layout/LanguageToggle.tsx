@@ -13,7 +13,7 @@ export default function LanguageToggle({ onDark = true }: { onDark?: boolean }) 
           key={l}
           onClick={() => setLocale(l)}
           className={cn(
-            "flex w-full items-center justify-center rounded-none py-0 text-[10px] leading-none font-bold tracking-wide transition-all",
+            "font-language-toggle h-full min-w-0 appearance-none rounded-none border-0 p-0 text-center text-[10px] font-semibold leading-none tracking-wide transition-all",
             l === locale
               ? onDark ? "bg-primary text-brand-dark" : "bg-brand-dark text-white"
                 : onDark

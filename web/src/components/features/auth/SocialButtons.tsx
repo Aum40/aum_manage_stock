@@ -1,3 +1,5 @@
+import { useLocale } from "@/components/i18n/LocaleContext";
+
 interface SocialButtonsProps {
   mode: "login" | "register";
 }
@@ -11,14 +13,18 @@ interface SocialButtonsProps {
  * ไม่ใช่ route ของ App Router ที่ prefetch ได้
  */
 export default function SocialButtons({ mode }: SocialButtonsProps) {
-  const prefix = mode === "login" ? "เข้าสู่ระบบด้วย" : "สมัครด้วย";
+  const { locale } = useLocale();
+  const prefix = locale === "th"
+    ? mode === "login" ? "เข้าสู่ระบบด้วย" : "สมัครด้วย"
+    : mode === "login" ? "Continue with" : "Sign up with";
+  const or = locale === "th" ? "หรือ" : "or";
 
   return (
     <>
       <div className="my-5 flex items-center gap-3">
         <div className="h-px flex-1 bg-border" />
         <span className="text-xs text-muted-foreground">
-          หรือ{mode === "login" ? "เข้าสู่ระบบด้วย" : "สมัครด้วย"}
+          {or} {prefix}
         </span>
         <div className="h-px flex-1 bg-border" />
       </div>

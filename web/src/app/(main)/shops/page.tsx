@@ -8,6 +8,7 @@ import Caption from "@/components/shared/Caption";
 import { roleAvatar } from "@/components/layout/nav-config";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useShops } from "@/lib/hooks/use-inventory";
+import { useMySubscription } from "@/lib/hooks/use-inventory";
 
 const content = {
   th: {
@@ -18,12 +19,11 @@ const content = {
         ตามแพ็กเกจปัจจุบัน
       </>
     ),
-    buyMoreBtn: "ซื้อสิทธิ์ร้านเพิ่ม",
     viewShopBtn: "เข้าดูร้าน →",
     editBtn: "แก้ไข",
     deleteBtn: "ลบ",
     createNew: "สร้างร้านใหม่",
-    remainingSlot: "เหลือสิทธิ์อีก 1 ร้าน",
+    remainingSlot: (n: number) => `เหลือสิทธิ์อีก ${n} ร้าน`,
     caption:
       "การสร้าง แก้ไข ลบ และการจัดการบัญชีพนักงานเข้าถึงสิทธิ์ เฉพาะเจ้าของร้านเท่านั้น การลบร้านจะยังคงสิทธิ์ quota ให้กับบัญชี",
     shops: [
@@ -40,12 +40,11 @@ const content = {
         on your current plan.
       </>
     ),
-    buyMoreBtn: "Buy More Shop Slots",
     viewShopBtn: "Open Shop →",
     editBtn: "Edit",
     deleteBtn: "Delete",
     createNew: "Create New Shop",
-    remainingSlot: "1 shop slot remaining",
+    remainingSlot: (n: number) => `${n} shop slots remaining`,
     caption:
       "Creating, editing, deleting shops, and managing staff access are all owner-only. Deleting a shop still keeps its quota slot on your account.",
     shops: [
@@ -60,7 +59,9 @@ export default function MyShopsPage() {
   const { locale } = useLocale();
   const t = content[locale];
   const shopsQuery = useShops();
+  const subscriptionQuery = useMySubscription();
   const shops = shopsQuery.data ?? [];
+  const quota = subscriptionQuery.data?.quotas.shop;
 
   return (
     <>
@@ -69,9 +70,8 @@ export default function MyShopsPage() {
         <div className="flex flex-col gap-5">
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              {t.quotaText(2, 3)}
+              {t.quotaText(quota?.used ?? 0, quota?.allowed ?? 0)}
             </span>
-            <Button variant="outline">{t.buyMoreBtn}</Button>
           </div>
 
           <div className="grid grid-cols-1 gap-4.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -126,7 +126,7 @@ export default function MyShopsPage() {
                 {t.createNew}
               </div>
               <div className="text-[13px] text-muted-foreground">
-                {t.remainingSlot}
+                {t.remainingSlot(quota?.remaining ?? 0)}
               </div>
             </div>
           </div>

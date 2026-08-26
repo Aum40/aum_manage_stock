@@ -19,7 +19,7 @@ export class CreateStaffDto {
   lastName: string;
 
   @IsString()
-  @Length(3, 50)
+  @Length(6, 50)
   @Matches(/^[a-zA-Z0-9._-]+$/, {
     message: 'username ใช้ได้เฉพาะ a-z, 0-9, จุด, ขีดล่าง และขีดกลาง',
   })

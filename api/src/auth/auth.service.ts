@@ -129,6 +129,12 @@ export class AuthService {
         displayName: profile.displayName,
         email: profile.email,
       });
+    } else if (!user.username) {
+      user =
+        (await this.userService.ensureUsername(
+          user.id,
+          profile.email ?? profile.displayName,
+        )) ?? user;
     }
 
     return this.completeLogin(user);
@@ -206,7 +212,14 @@ export class AuthService {
     }
 
     await this.emailVerificationTokenService.markUsed(record.id);
-    await this.userService.markEmailVerified(record.userId);
+    if (record.pendingEmail) {
+      await this.userService.completeEmailChange(
+        record.userId,
+        record.pendingEmail,
+      );
+    } else {
+      await this.userService.markEmailVerified(record.userId);
+    }
   }
 
   /** ตอบ 200 เสมอไม่ว่าอีเมลจะมีจริงไหม กันการไล่เดาว่าอีเมลไหนสมัครไว้แล้ว */
@@ -216,6 +229,46 @@ export class AuthService {
       return;
     }
     await this.sendVerificationEmail(user.id, user.email);
+  }
+
+  async requestEmailChange(
+    userId: string,
+    email: string,
+    currentPassword: string,
+  ) {
+    const user = await this.userService.findById(userId);
+    if (!user?.password) {
+      throw new BadRequestException(
+        'Set a password before changing your email',
+      );
+    }
+    const passwordMatches = await this.bcryptService.compare(
+      currentPassword,
+      user.password,
+    );
+    if (!passwordMatches) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const normalized = email.trim().toLowerCase();
+    const existing = await this.userService.findByIdentifier(normalized);
+    if (existing && existing.id !== userId) {
+      throw new ConflictException('Email already registered');
+    }
+
+    const token = await this.emailVerificationTokenService.issue(
+      userId,
+      normalized,
+    );
+    try {
+      await this.mailService.sendEmailChangeVerification(normalized, token);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send email change verification to ${normalized}`,
+        error,
+      );
+      throw new BadRequestException('Could not send email verification');
+    }
   }
 
   async resetPassword(token: string, newPassword: string) {
