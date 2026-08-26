@@ -794,3 +794,12 @@ TableGroup ai_platform {
   ai_recommendations
   notifications
 }
+
+// [แพรว] ledger ของ SqlScriptsRunner — บันทึกว่าไฟล์ไหนใน prisma/sql/ รันไปแล้ว
+// ไม่ใช่ข้อมูลธุรกิจ ไม่มีความสัมพันธ์กับตารางอื่น แต่ต้องมีใน schema ไม่งั้น
+// `prisma db push` จะขอลบทิ้งทุกครั้ง
+Table _sql_scripts {
+  filename   text [pk]
+  checksum   text [not null]
+  applied_at timestamptz [not null, default: `now()`]
+}
