@@ -8,6 +8,7 @@
 /** ข้อความจาก api เป็นอังกฤษทั้งหมด แปลตรงนี้ทีเดียวแทนที่จะกระจายในแต่ละฟอร์ม */
 const MESSAGE_TH: Record<string, string> = {
   'Email or username already registered': 'อีเมลนี้ถูกใช้งานแล้ว',
+  'Email already registered': 'อีเมลนี้ถูกใช้งานแล้ว',
   'Username already taken': 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว',
   'Invalid credentials': 'อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง',
   'Email not verified':
@@ -23,6 +24,7 @@ const MESSAGE_TH: Record<string, string> = {
   'Invalid or expired reset token':
     'ลิงก์รีเซ็ตรหัสผ่านหมดอายุ กรุณาขอลิงก์ใหม่',
   'Current password is incorrect': 'รหัสผ่านปัจจุบันไม่ถูกต้อง',
+  'Set a password before changing your email': 'กรุณากำหนดรหัสผ่านก่อนเปลี่ยนอีเมล',
 };
 
 type ApiErrorBody = { message?: string | string[] } | null | undefined;

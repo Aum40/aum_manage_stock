@@ -195,7 +195,7 @@ export default function DashboardPage() {
               </div>
             </Card>
 
-            <div className="rounded-3xl bg-brand-dark p-6">
+            {t.aiTips.length > 0 && <div className="rounded-3xl bg-brand-dark p-6">
               <div className="mb-4 font-heading text-xs font-bold tracking-[0.12em] text-primary uppercase">
                 {t.aiTitle}
               </div>
@@ -220,7 +220,7 @@ export default function DashboardPage() {
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
         </div>
       </main>

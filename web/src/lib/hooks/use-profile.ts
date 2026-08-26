@@ -41,6 +41,13 @@ export function useChangePassword() {
   });
 }
 
+export function useSetEmailChange() {
+  return useMutation({
+    mutationFn: (values: { email: string; currentPassword: string }) =>
+      api.post<{ message: string }>('/api/auth/email-change', values),
+  });
+}
+
 /** บัญชีที่ยังไม่เคยมีรหัสผ่าน (สมัครผ่าน LINE/Google) ตั้งครั้งแรกด้วยเส้นนี้ */
 export function useSetFirstPassword() {
   const queryClient = useQueryClient();
@@ -58,6 +65,16 @@ export function useUnlinkLine() {
 
   return useMutation({
     mutationFn: () => api.delete<{ message: string }>('/api/users/me/unlink-line'),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: profileKeys.me }),
+  });
+}
+
+export function useUnlinkGoogle() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.delete<{ message: string }>('/api/users/me/unlink-google'),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: profileKeys.me }),
   });

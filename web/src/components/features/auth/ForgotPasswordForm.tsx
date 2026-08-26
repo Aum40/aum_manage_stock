@@ -6,6 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 
 import { FormError } from "@/components/features/auth/form-error";
+import { getAuthCopy } from "@/components/features/auth/auth-copy";
+import { useLocale } from "@/components/i18n/LocaleContext";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +19,8 @@ import {
 } from "@/lib/validations/auth";
 
 export default function ForgotPasswordForm() {
+  const { locale } = useLocale();
+  const text = getAuthCopy(locale).forgot;
   const [formError, setFormError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
@@ -39,7 +43,7 @@ export default function ForgotPasswordForm() {
 
     if (!res.ok) {
       const result = await res.json().catch(() => null);
-      setFormError(resolveApiError(result, "ส่งลิงก์ไม่สำเร็จ"));
+      setFormError(resolveApiError(result, locale === "th" ? "ส่งลิงก์ไม่สำเร็จ" : "Unable to send the reset link"));
       return;
     }
 
@@ -53,14 +57,13 @@ export default function ForgotPasswordForm() {
       <div className="flex flex-col gap-4">
         <Alert variant="info">
           <AlertDescription className="text-foreground/80">
-            ถ้าอีเมลนี้มีอยู่ในระบบ เราได้ส่งลิงก์รีเซ็ตรหัสผ่านไปให้แล้ว
-            กรุณาตรวจสอบกล่องจดหมาย (รวมถึงจดหมายขยะ)
+            {text.sent}
           </AlertDescription>
         </Alert>
 
         <div className="text-center">
           <Link href="/login" className="text-[13px] font-bold text-primary">
-            ← กลับไปเข้าสู่ระบบ
+          {text.back}
           </Link>
         </div>
       </div>
@@ -75,8 +78,7 @@ export default function ForgotPasswordForm() {
     >
       <Alert variant="info">
         <AlertDescription className="text-foreground/80">
-          การรีเซ็ตรหัสผ่านจะใช้ได้เฉพาะบัญชีที่มีอีเมลผูกไว้เท่านั้น —
-          บัญชีที่ให้เข้าสู่ระบบด้วยอีเมลของเจ้าของร้านเท่านั้น
+          {text.hint}
         </AlertDescription>
       </Alert>
 
@@ -85,12 +87,12 @@ export default function ForgotPasswordForm() {
           htmlFor="email"
           className="text-[11px] font-semibold tracking-[0.08em] uppercase"
         >
-          อีเมลที่ลงทะเบียนไว้
+          {text.email}
         </Label>
         <Input
           id="email"
           type="email"
-          placeholder="you@example.com"
+          placeholder={text.emailPlaceholder}
           {...register("email")}
         />
         {errors.email && (
@@ -106,12 +108,12 @@ export default function ForgotPasswordForm() {
         className="w-full py-5"
         disabled={isSubmitting}
       >
-        {isSubmitting ? "กำลังส่ง..." : "ส่งลิงก์รีเซ็ตรหัสผ่าน →"}
+        {isSubmitting ? text.submitting : text.submit}
       </Button>
 
       <div className="text-center">
         <Link href="/login" className="text-[13px] font-bold text-primary">
-          ← กลับไปเข้าสู่ระบบ
+          {text.back}
         </Link>
       </div>
     </form>

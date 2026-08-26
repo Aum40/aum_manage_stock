@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { MessageCircle, Monitor, ScanBarcode, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { useMe } from "@/lib/hooks/use-profile";
+import { useMySubscription } from "@/lib/hooks/use-inventory";
 
 type PlanCode = "FREE" | "PLUS" | "PRO";
 
@@ -17,6 +20,7 @@ const copy = {
 } as const;
 
 type LandingCopy = (typeof copy)[keyof typeof copy];
+const featureIcons: LucideIcon[] = [Monitor, MessageCircle, ScanBarcode];
 
 function PricingAction({ plan, currentPlan, loggedIn, variant, t }: { plan: PlanCode; currentPlan: PlanCode | null; loggedIn: boolean; variant: "outline" | "gradient" | "dark"; t: LandingCopy }) {
   if (!loggedIn) return <Button variant={variant} className="mt-5.5 w-full" render={<Link href="/register" />}>{t.signup}</Button>;
@@ -27,12 +31,18 @@ function PricingAction({ plan, currentPlan, loggedIn, variant, t }: { plan: Plan
   return <Button variant={variant} className="mt-5.5 w-full" render={<Link href={`/membership/upgrade?plan=${plan}`} />}>{t.upgrade(plan)}</Button>;
 }
 
-export default function LandingPageContent({ loggedIn, plan }: { loggedIn: boolean; plan: PlanCode | null }) {
+export default function LandingPageContent() {
   const { locale } = useLocale();
   const t = copy[locale];
+  const me = useMe();
+  const loggedIn = Boolean(me.data);
+  // บัญชีที่ล็อกอินแล้วแต่ยังไม่มี subscription นับเป็น Free
+  const subscription = useMySubscription();
+  const code = subscription.data?.subscription.plan.code;
+  const plan: PlanCode | null = !loggedIn ? null : code === "PLUS" || code === "PRO" ? code : "FREE";
   return <div className={locale === "en" ? "font-english" : "font-thai"}>
     <section className="px-6 pt-12 pb-4 text-center sm:pt-14"><div className="mb-5 text-[11px] font-bold tracking-[0.18em] text-primary uppercase">{t.eyebrow}</div><h1 className="mx-auto mb-6 max-w-3xl font-heading text-4xl leading-[1.15] font-bold text-foreground sm:text-5xl">{t.hero}</h1><p className="mx-auto mb-9 max-w-2xl text-base leading-loose text-muted-foreground">{t.intro}</p><div className="mb-8 flex justify-center"><Button variant="gradient" size="lg" render={<Link href={loggedIn ? "/dashboard" : "/register"} />}>{loggedIn ? t.dashboard : t.start}</Button></div></section>
-    <section id="features" className="px-6 pt-10 pb-14 text-center sm:pt-12"><div className="mb-3.5 text-[11px] font-bold tracking-[0.18em] text-primary uppercase">{t.channels}</div><h2 className="mb-3 font-heading text-3xl font-bold text-foreground sm:text-4xl">{t.featureTitle}</h2><p className="mx-auto mb-10 max-w-xl text-[15px] leading-relaxed text-muted-foreground">{t.featureIntro}</p><div className="mx-auto grid max-w-4xl grid-cols-1 gap-5 sm:grid-cols-3">{t.features.map(([icon, title, desc]) => <div key={title} className="rounded-3xl bg-secondary p-8"><div className="mx-auto mb-5 flex size-16 items-center justify-center rounded-full bg-primary text-3xl">{icon}</div><div className="mb-2.5 font-heading text-base font-bold tracking-[0.05em] text-foreground uppercase">{title}</div><p className="text-sm leading-relaxed text-muted-foreground">{desc}</p></div>)}</div></section>
+    <section id="features" className="px-6 pt-10 pb-14 text-center sm:pt-12"><div className="mb-3.5 text-[11px] font-bold tracking-[0.18em] text-primary uppercase">{t.channels}</div><h2 className="mb-3 font-heading text-3xl font-bold text-foreground sm:text-4xl">{t.featureTitle}</h2><p className="mx-auto mb-10 max-w-xl text-[15px] leading-relaxed text-muted-foreground">{t.featureIntro}</p><div className="mx-auto grid max-w-4xl grid-cols-1 gap-5 sm:grid-cols-3">{t.features.map(([, title, desc], index) => { const Icon = featureIcons[index]; return <div key={title} className="rounded-3xl bg-secondary p-8"><div className="mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-primary text-brand-dark shadow-[0_8px_20px_rgba(245,163,28,0.25)]"><Icon className="size-8" strokeWidth={1.8} /></div><div className="mb-2.5 font-heading text-base font-bold tracking-[0.05em] text-foreground">{title}</div><p className="text-sm leading-relaxed text-muted-foreground">{desc}</p></div>; })}</div></section>
     <section id="pricing" className="mx-6 rounded-3xl bg-[#FAF8F4] px-6 py-14 text-center"><div className="mb-3.5 text-[11px] font-bold tracking-[0.08em] text-primary">Pricing</div><h2 className="mb-3 font-heading text-3xl font-bold text-foreground sm:text-4xl">{t.pricing}</h2><p className="mb-10 text-sm text-muted-foreground">{t.pricingIntro}</p><div className="mx-auto grid max-w-4xl grid-cols-1 items-stretch gap-5 sm:grid-cols-3"><PlanCard name="FREE" price="฿0" features={t.free} included={5} subtitle={t.freeTime}><PricingAction plan="FREE" currentPlan={plan} loggedIn={loggedIn} variant="outline" t={t} /></PlanCard><PlanCard name="PLUS" price="฿2,499" features={t.plus} included={t.plus.length} subtitle={t.perYear} recommended={t.recommended}><PricingAction plan="PLUS" currentPlan={plan} loggedIn={loggedIn} variant="gradient" t={t} /></PlanCard><PlanCard name="PRO" price="฿3,499" features={t.pro} included={t.pro.length} subtitle={t.perYear}><PricingAction plan="PRO" currentPlan={plan} loggedIn={loggedIn} variant="dark" t={t} /></PlanCard></div></section>
     <footer className="border-t border-border px-6 py-8 text-center"><div className="text-xs text-muted-foreground">{t.footer}</div></footer>
   </div>;

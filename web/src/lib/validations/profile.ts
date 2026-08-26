@@ -6,9 +6,11 @@ import { passwordSchema } from '@/lib/validations/auth';
 export const profileSchema = z.object({
   firstName: z.string().min(1, 'กรุณากรอกชื่อ'),
   lastName: z.string().min(1, 'กรุณากรอกนามสกุล'),
+  email: z.string().email('อีเมลไม่ถูกต้อง'),
+  currentPassword: z.string().optional(),
   username: z
     .string()
-    .min(3, 'อย่างน้อย 3 ตัวอักษร')
+    .min(6, 'อย่างน้อย 6 ตัวอักษร')
     .max(50, 'ยาวได้ไม่เกิน 50 ตัวอักษร')
     .regex(
       /^[a-zA-Z0-9._-]+$/,

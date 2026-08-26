@@ -96,6 +96,13 @@ export class UsersController {
     return { message: 'LINE account unlinked successfully' };
   }
 
+  @HttpCode(HttpStatus.OK)
+  @Delete('me/unlink-google')
+  async unlinkGoogle(@CurrentUser('sub') userId: string) {
+    await this.usersService.unlinkGoogle(userId);
+    return { message: 'Google account unlinked successfully' };
+  }
+
   // ---- Staff accounts (เจ้าของร้านเท่านั้น) ----
 
   @Roles(UserRole.SHOP_OWNER)

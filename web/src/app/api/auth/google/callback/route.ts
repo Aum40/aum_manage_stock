@@ -1,28 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setSessionCookies } from '@/lib/session-cookies';
 import { isValidOAuthState, oauthStateCookieName } from '@/lib/oauth-state';
+import { linkStateCookieName } from '@/lib/oauth-link-state';
+import { forwardAuthed } from '@/lib/api-forward';
 
 const API_URL = process.env.API_URL;
 const STATE_COOKIE = oauthStateCookieName('google');
+const LINK_STATE_COOKIE = linkStateCookieName('google');
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
+  const receivedState = searchParams.get('state');
+
+  /**
+   * callback เส้นนี้รับสองงาน: เข้าสู่ระบบ กับผูกบัญชีเข้ากับบัญชีที่ล็อกอินอยู่
+   * แยกด้วย cookie ของ state ว่าใบไหนตรงกับที่ผู้ให้บริการส่งกลับมา
+   * (ใช้ callback ร่วมกันเพราะ redirect_uri ต้องลงทะเบียนใน console ก่อนใช้งาน
+   * ดู app/api/users/link-google/start/route.ts)
+   */
+  const isLinkFlow = isValidOAuthState(
+    request.cookies.get(LINK_STATE_COOKIE)?.value,
+    receivedState,
+  );
 
   // state ใช้ได้ครั้งเดียว ล้างทิ้งทุกเส้นทางออกไม่ว่าจะสำเร็จหรือไม่
-  const expectedState = request.cookies.get(STATE_COOKIE)?.value;
-  const fail = (error: string) => {
-    const response = NextResponse.redirect(`${origin}/login?error=${error}`);
+  const done = (path: string) => {
+    const response = NextResponse.redirect(`${origin}${path}`);
     response.cookies.delete(STATE_COOKIE);
+    response.cookies.delete(LINK_STATE_COOKIE);
     return response;
   };
 
-  if (!isValidOAuthState(expectedState, searchParams.get('state'))) {
-    return fail('invalid_state');
+  if (isLinkFlow) {
+    if (!code) {
+      return done('/profile?connection=google&status=missing_code');
+    }
+
+    const result = await forwardAuthed('/users/me/link-google', {
+      method: 'POST',
+      body: { code },
+    });
+    const linked = result.status >= 200 && result.status < 300;
+    return done(
+      `/profile?connection=google&status=${linked ? 'linked' : 'failed'}`,
+    );
+  }
+
+  if (!isValidOAuthState(request.cookies.get(STATE_COOKIE)?.value, receivedState)) {
+    return done('/login?error=invalid_state');
   }
 
   if (!code) {
-    return fail('missing_code');
+    return done('/login?error=missing_code');
   }
 
   const res = await fetch(
@@ -31,11 +61,9 @@ export async function GET(request: NextRequest) {
   const data = await res.json().catch(() => null);
 
   if (!res.ok || !data?.accessToken) {
-    return fail('google_login_failed');
+    return done('/login?error=google_login_failed');
   }
 
   await setSessionCookies(data.accessToken, data.refreshToken);
-  const response = NextResponse.redirect(`${origin}/`);
-  response.cookies.delete(STATE_COOKIE);
-  return response;
+  return done('/');
 }

@@ -1,10 +1,10 @@
-import { Trim } from '@/common/decorator/trim.decorator';
+import { NormalizeEmail } from '@/common/decorator/normalize-email.decorator';
 import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
 export class ForgotPasswordDto {
   @IsEmail()
   @IsString()
   @IsNotEmpty()
-  @Trim()
+  @NormalizeEmail()
   email: string;
 }

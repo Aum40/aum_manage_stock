@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChartNoAxesColumnIncreasing, History, Package, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,7 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import LogoutButton from "@/components/layout/LogoutButton";
 import LanguageToggle from "@/components/layout/LanguageToggle";
 import { useLocale } from "@/components/i18n/LocaleContext";
-import type { CurrentUser } from "@/lib/types/user";
+import { useMe } from "@/lib/hooks/use-profile";
 import { cn } from "@/lib/utils";
 
 const labels = {
@@ -19,20 +18,15 @@ const labels = {
 export default function LandingNav() {
   const { locale } = useLocale();
   const t = labels[locale];
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [resolved, setResolved] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/users/me", { cache: "no-store" })
-      .then(async (response) => response.ok ? response.json() as Promise<CurrentUser> : null)
-      .then((currentUser) => setUser(currentUser))
-      .catch(() => setUser(null))
-      .finally(() => setResolved(true));
-  }, []);
+  // ใช้ useMe() ตัวเดียวกับที่ทั้งแอปใช้ จะได้แชร์ cache กับ LandingPageContent
+  // ไม่ยิง /api/users/me ซ้ำสองรอบในหน้าเดียว
+  const { data, isPending } = useMe();
+  const user = data ?? null;
+  const resolved = !isPending;
 
   const userInitial = (user?.firstName || user?.username || "A").charAt(0).toUpperCase();
 
   return <div className="sticky top-0 z-40 flex justify-center px-6 py-4"><nav className={cn("flex w-full max-w-5xl items-center gap-4 rounded-full bg-background px-5 py-3 shadow-[0_4px_24px_rgba(0,0,0,0.10)] sm:px-7", locale === "th" ? "font-nav-th" : "font-nav")}><Link href="/" aria-label="AumStocks" className="font-logo shrink-0 text-lg font-bold tracking-[-0.01em]"><span className="text-foreground">Aum</span><span className="text-primary">Stocks</span></Link>
-    {!resolved ? <div className="ml-auto h-8 w-20" /> : user ? <><div className="mr-auto hidden items-center gap-1 md:flex"><Link href="/dashboard" className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><ChartNoAxesColumnIncreasing className="size-4" />{t.dashboard}</Link><Link href="/products" className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><Package className="size-4" />{t.products}</Link><Link href="/stock-history" className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><History className="size-4" />{t.stock}</Link><Link href="/shops" className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><Store className="size-4" />{t.shops}</Link></div><div className="flex items-center gap-2"><Link href="/profile" aria-label={t.profile} title={t.profile} className="rounded-full outline-none ring-offset-2 transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-primary"><Avatar size="sm"><AvatarFallback className="bg-primary font-heading font-bold text-primary-foreground">{userInitial}</AvatarFallback></Avatar></Link><LogoutButton label={t.logout} /></div><LanguageToggle onDark={false} /></> : <div className="ml-auto flex items-center gap-2.5"><a href="#features" className="hidden self-center text-[13px] font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:inline">{t.features}</a><a href="#pricing" className="hidden self-center text-[13px] font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:inline">{t.pricing}</a><Button variant="outline" size="sm" render={<Link href="/login" />}>{t.login}</Button><Button variant="gradient" size="sm" render={<Link href="/register" />}>{t.register}</Button><LanguageToggle onDark={false} /></div>}
+    {!resolved ? <div className="ml-auto h-8 w-20" /> : user ? <><div className="mr-auto hidden items-center gap-1 md:flex"><Link href="/dashboard" className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><ChartNoAxesColumnIncreasing className="size-4" />{t.dashboard}</Link><Link href="/products" className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><Package className="size-4" />{t.products}</Link><Link href="/stock-history" className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><History className="size-4" />{t.stock}</Link><Link href="/shops" className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"><Store className="size-4" />{t.shops}</Link></div><div className="flex items-center gap-2"><Link href="/profile" aria-label={t.profile} title={t.profile} className="rounded-full outline-none ring-offset-2 transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-primary"><Avatar size="sm"><AvatarFallback className="bg-primary font-heading font-bold text-primary-foreground">{userInitial}</AvatarFallback></Avatar></Link><LogoutButton label={t.logout} /></div><LanguageToggle onDark={false} /></> : <><div className="ml-4 mr-auto hidden items-center gap-5 md:flex"><a href="#features" className="text-[13px] font-semibold tracking-[0.08em] text-muted-foreground transition-colors hover:text-foreground">{t.features}</a><a href="#pricing" className="text-[13px] font-semibold tracking-[0.08em] text-muted-foreground transition-colors hover:text-foreground">{t.pricing}</a></div><div className="flex items-center gap-2.5"><Button variant="outline" size="sm" render={<Link href="/login" />}>{t.login}</Button><Button variant="gradient" size="sm" render={<Link href="/register" />}>{t.register}</Button><LanguageToggle onDark={false} /></div></>}
   </nav></div>;
 }
