@@ -70,6 +70,7 @@ Toolchain: **Node 24.x**, **pnpm 11.8.0** — pinned in `.nvmrc`, in the `engine
 | `@tanstack/react-query` | `^5.101.4` | data fetching / cache |
 | `socket.io-client` | `^4.8.3` | realtime |
 | `html5-qrcode` | `^2.3.8` | barcode scanning (QR + EAN-13) |
+| `leaflet` (+ `@types/leaflet` dev) | `^1.9.4` | shop location picker (OpenStreetMap tiles, no API key) — used directly, not through `react-leaflet` (unresolved StrictMode double-mount bug upstream) |
 | `shadcn` (CLI) + `@base-ui/react`, `class-variance-authority`, `clsx`, `tailwind-merge`, `tw-animate-css` | see lockfile | UI components — installed by `shadcn init` |
 | `tailwindcss` / `@tailwindcss/postcss` | `^4` | styling (Tailwind v4 — CSS-first config, no `tailwind.config.js`) |
 | `typescript` | `^5` | — |

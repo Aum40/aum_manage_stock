@@ -11,6 +11,8 @@ export type Shop = {
   imageUrl?: string | null;
   phone?: string | null;
   address?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
 
 export type Product = {
@@ -93,6 +95,8 @@ export type ShopInput = {
   imageUrl?: string;
   phone?: string;
   address?: string;
+  latitude?: number;
+  longitude?: number;
 };
 
 export function useCreateShop() {
