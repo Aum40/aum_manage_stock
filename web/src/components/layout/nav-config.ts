@@ -11,6 +11,7 @@ export type IconKey =
   | "message"
   | "users"
   | "history"
+  | "sparkles"
   | "catalog"
   | "store"
   | "card"
@@ -90,6 +91,7 @@ export function getNavSections(role: SidebarRole): NavSection[] {
           { label: { th: "สินค้า", en: "Products" }, href: "/products", icon: "package" },
           { label: { th: "ขายหน้าร้าน (POS)", en: "Point of Sale" }, href: "/pos", icon: "cart" },
           { label: { th: "แชทบอทรับสต็อก", en: "Stock Chatbot" }, href: "/chatbot", icon: "message" },
+          { label: { th: "คำแนะนำจาก AI", en: "AI Recommendations" }, href: "/insights", icon: "sparkles" },
         ],
       },
       {
@@ -127,6 +129,21 @@ export function getNavSections(role: SidebarRole): NavSection[] {
           href: isFree ? "/chatbot/locked" : "/chatbot",
           icon: "message",
           locked: isFree ? "PLUS" : undefined,
+        },
+        {
+          /**
+           * [อั้ม] AI Recommendations เป็น PRO เท่านั้น ไม่ใช่ PLUS เหมือนแชทบอท
+           * (SRS §179/§181) — สองอันนี้คนละ gate อย่าเผลอรวมเป็นอันเดียว
+           *
+           * ติดข้อจำกัดของ resolveSidebarRole ที่ยุบ PLUS กับ PRO เป็น "owner"
+           * เหมือนกัน เมนูจึงแยกไม่ออก — คน Plus จะเห็นเมนูนี้กดได้ แล้วไปเจอ
+           * หน้าเสนออัปเกรดที่ /insights แทน (หน้านั้นเช็ค aiRecommendationEnabled
+           * จาก /subscriptions/me จริง) ตรงกับ TODO ที่หัวไฟล์นี้
+           */
+          label: { th: "คำแนะนำจาก AI", en: "AI Recommendations" },
+          href: "/insights",
+          icon: "sparkles",
+          locked: isFree ? "PRO" : undefined,
         },
         {
           label: { th: "พนักงานและสิทธิ์", en: "Staff & Permissions" },
