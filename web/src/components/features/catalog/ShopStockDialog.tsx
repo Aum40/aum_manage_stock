@@ -15,7 +15,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
-import { ApiError, api, withQuery } from "@/lib/api-client";
+import {
+  ApiErrorNotice,
+  toApiFailure,
+  type ApiFailure,
+} from "@/components/shared/ApiErrorNotice";
+import { api, withQuery } from "@/lib/api-client";
 import { inventoryKeys, type Shop } from "@/lib/hooks/use-inventory";
 
 /**
@@ -166,7 +171,7 @@ export function ShopStockDialog({
   const [intents, setIntents] = useState<Record<string, Intent>>({});
   const [listings, setListings] = useState<Record<string, NewListing>>({});
   const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiFailure | null>(null);
   const [saving, setSaving] = useState(false);
 
   const shopProductQueries = useQueries({
@@ -317,11 +322,7 @@ export function ShopStockDialog({
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       closeAll();
     } catch (caught) {
-      setError(
-        caught instanceof ApiError || caught instanceof Error
-          ? caught.message
-          : String(caught),
-      );
+      setError(toApiFailure(caught));
       setSaving(false);
     }
   };
@@ -548,11 +549,7 @@ export function ShopStockDialog({
           </span>
         </div>
 
-        {error && (
-          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ApiErrorNotice error={error} />}
 
         <DialogFooter>
           <span className="mr-auto self-center text-xs text-muted-foreground">

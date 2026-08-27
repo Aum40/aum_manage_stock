@@ -25,6 +25,12 @@ const MESSAGE_TH: Record<string, string> = {
     'ลิงก์รีเซ็ตรหัสผ่านหมดอายุ กรุณาขอลิงก์ใหม่',
   'Current password is incorrect': 'รหัสผ่านปัจจุบันไม่ถูกต้อง',
   'Set a password before changing your email': 'กรุณากำหนดรหัสผ่านก่อนเปลี่ยนอีเมล',
+  // [เซิ่น] ร้านที่เจ้าของกดพักไว้ — api ตอบ 403 code SHOP_PAUSED
+  // ข้อความต่างกันตามโมดูลที่ปฏิเสธ (stock กับ sales) จึงต้อง map ทั้งสองอัน
+  'This shop is paused by its owner. Resume it before adjusting stock.':
+    'ร้านนี้ถูกพักอยู่ ต้องกดเปิดร้านก่อนถึงจะปรับสต็อกได้',
+  'This shop is paused by its owner. Resume it before managing sales.':
+    'ร้านนี้ถูกพักอยู่ ต้องกดเปิดร้านก่อนถึงจะขายได้',
 };
 
 type ApiErrorBody = { message?: string | string[] } | null | undefined;
