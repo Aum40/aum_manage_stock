@@ -17,6 +17,7 @@ import { useLocale } from "@/components/i18n/LocaleContext";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import { ApiError, api, withQuery } from "@/lib/api-client";
 import { useShops } from "@/lib/hooks/use-inventory";
+import { LowStockByShopCard } from "@/components/features/dashboard/LowStockByShopCard";
 
 /**
  * ทุก query ในหน้านี้ใช้ "ช่วงเวลาเดียวกัน" ที่มาจากปุ่ม รายวัน/รายสัปดาห์/รายเดือน
@@ -471,6 +472,10 @@ export default function DashboardPage() {
                   </Card>
                 ))}
               </div>
+
+              {/* การ์ดตัวเลขด้านบนบอกได้แค่ "มีกี่รายการ" ของร้านที่เลือกอยู่
+                  ตัวนี้บอกว่าตัวไหน สาขาไหน เหลือเท่าไหร่ ครบทุกสาขาในที่เดียว */}
+              <LowStockByShopCard shops={shops} />
 
               {/* กราฟแนวโน้ม — วางบนพื้นเข้มเพราะสีส้มแบรนด์บนพื้นครีมคอนทราสต์ไม่ผ่าน */}
               <Card className="bg-brand-dark text-white">

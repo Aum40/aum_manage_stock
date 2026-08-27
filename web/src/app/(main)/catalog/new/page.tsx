@@ -483,7 +483,7 @@ export default function AddProductFullPage() {
                     </div>
                   ) : (
                     <div className="flex flex-col">
-                      <div className="hidden gap-2 pb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:grid sm:grid-cols-[1fr_repeat(4,5.5rem)]">
+                      <div className="hidden gap-2 pb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:grid sm:grid-cols-[1fr_repeat(4,7rem)]">
                         <span />
                         <span className="text-right">{t.priceLabel}</span>
                         <span className="text-right">{t.costLabel}</span>
@@ -496,7 +496,7 @@ export default function AddProductFullPage() {
                         return (
                           <div
                             key={shop.id}
-                            className={`grid grid-cols-1 items-center gap-2 py-3 sm:grid-cols-[1fr_repeat(4,5.5rem)] ${
+                            className={`grid grid-cols-1 items-center gap-2 py-3 sm:grid-cols-[1fr_repeat(4,7rem)] ${
                               index < shops.length - 1
                                 ? "border-b border-border"
                                 : ""
@@ -524,6 +524,7 @@ export default function AddProductFullPage() {
                             ).map(([field, label]) => (
                               <Input
                                 key={field}
+                                aria-label={label}
                                 type="number"
                                 min={0}
                                 step={field === "sellPrice" || field === "costPrice" ? "0.01" : "1"}
@@ -531,8 +532,9 @@ export default function AddProductFullPage() {
                                 onChange={(event) =>
                                   patchRow(shop.id, { [field]: event.target.value })
                                 }
-                                placeholder={label}
+                                placeholder="0"
                                 disabled={!row.enabled}
+                                title={label}
                                 className="text-right font-mono disabled:opacity-40"
                               />
                             ))}
