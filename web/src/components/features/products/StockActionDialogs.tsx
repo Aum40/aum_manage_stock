@@ -20,7 +20,12 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { useLocale } from "@/components/i18n/LocaleContext";
-import { ApiError, api, withQuery } from "@/lib/api-client";
+import {
+  ApiErrorNotice,
+  toApiFailure,
+  type ApiFailure,
+} from "@/components/shared/ApiErrorNotice";
+import { api, withQuery } from "@/lib/api-client";
 import { inventoryKeys, type Shop, type ShopProduct } from "@/lib/hooks/use-inventory";
 
 /**
@@ -132,11 +137,6 @@ const content = {
   },
 };
 
-function readError(caught: unknown): string {
-  return caught instanceof ApiError || caught instanceof Error
-    ? caught.message
-    : String(caught);
-}
 
 /* ------------------------------------------------------------------ ขายออก */
 
@@ -154,7 +154,7 @@ export function SellStockDialog({
   const queryClient = useQueryClient();
 
   const [qty, setQty] = useState("1");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiFailure | null>(null);
   const [saving, setSaving] = useState(false);
 
   const amount = row ? Number(qty || 0) * Number(row.sellPrice) : 0;
@@ -184,7 +184,7 @@ export function SellStockDialog({
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       close();
     } catch (caught) {
-      setError(readError(caught));
+      setError(toApiFailure(caught));
       setSaving(false);
     }
   };
@@ -237,9 +237,7 @@ export function SellStockDialog({
         </div>
 
         {(tooMany || error) && (
-          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error ?? t.tooMany}
-          </p>
+          <ApiErrorNotice error={error} fallback={t.tooMany} />
         )}
 
         <DialogFooter>
@@ -278,7 +276,7 @@ export function AdjustStockDialog({
   const [direction, setDirection] = useState<"INCREASE" | "DECREASE">("INCREASE");
   const [qty, setQty] = useState("1");
   const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiFailure | null>(null);
   const [saving, setSaving] = useState(false);
 
   const quantity = Number(qty || 0);
@@ -313,7 +311,7 @@ export function AdjustStockDialog({
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       close();
     } catch (caught) {
-      setError(readError(caught));
+      setError(toApiFailure(caught));
       setSaving(false);
     }
   };
@@ -388,9 +386,7 @@ export function AdjustStockDialog({
         </div>
 
         {(negative || error) && (
-          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error ?? t.negative}
-          </p>
+          <ApiErrorNotice error={error} fallback={t.negative} />
         )}
 
         <DialogFooter>
@@ -430,7 +426,7 @@ export function TransferStockDialog({
 
   const [qty, setQty] = useState("1");
   const [destination, setDestination] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiFailure | null>(null);
   const [saving, setSaving] = useState(false);
 
   const others = useMemo(
@@ -515,7 +511,7 @@ export function TransferStockDialog({
             quantity,
             note: t.transferIn(picked.shop.name),
           });
-          throw new Error(`${t.rollbackDone} (${readError(inbound)})`);
+          throw new Error(`${t.rollbackDone} (${toApiFailure(inbound).message})`);
         } catch {
           throw new Error(t.rollbackFailed(quantity, sourceName));
         }
@@ -525,7 +521,7 @@ export function TransferStockDialog({
       queryClient.invalidateQueries({ queryKey: ["catalog"] });
       close();
     } catch (caught) {
-      setError(readError(caught));
+      setError(toApiFailure(caught));
       setSaving(false);
     }
   };
@@ -599,9 +595,7 @@ export function TransferStockDialog({
         )}
 
         {(tooMany || error) && (
-          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error ?? t.tooMany}
-          </p>
+          <ApiErrorNotice error={error} fallback={t.tooMany} />
         )}
 
         <DialogFooter>
