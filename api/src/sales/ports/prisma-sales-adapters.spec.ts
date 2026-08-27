@@ -50,6 +50,33 @@ describe('Prisma sales adapters', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it('blocks sales management for a paused shop, even for the owner', async () => {
+    const tx = {
+      shop: {
+        findFirst: jest.fn().mockResolvedValue({
+          ownerId: 'owner',
+          pausedAt: new Date('2026-08-27T00:00:00.000Z'),
+        }),
+      },
+      shopStaff: { findFirst: jest.fn() },
+    };
+    const adapter = new PrismaSalesStaffAdapter();
+
+    await expect(
+      adapter.assertCanManageSales(tx as never, {
+        shopId: 'shop',
+        staffId: 'owner',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      adapter.assertCanManageSales(tx as never, {
+        shopId: 'shop',
+        staffId: 'staff',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.shopStaff.findFirst).not.toHaveBeenCalled();
+  });
+
   it('uses server-side product snapshot values', async () => {
     const tx = {
       shopProduct: {
