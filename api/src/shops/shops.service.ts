@@ -1,9 +1,11 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 
+import { UserRole } from '../database/generated/prisma/enums';
 import { PrismaService } from '../database/prisma.service';
 import {
   calculateShopQuota,
@@ -60,7 +62,7 @@ export class ShopsService {
 
     if (!quota.canCreateShop) {
       throw new ForbiddenException(
-        'Cannot create a new shop: shop quota is used up or the subscription is not active. Buy extra quota or upgrade your plan.',
+        'Cannot create a new shop: shop quota is used up or the subscription is not active. Upgrade your plan to get more quota.',
       );
     }
 
@@ -93,6 +95,63 @@ export class ShopsService {
       where: { id: shopId },
       data: { deletedAt: new Date() },
     });
+  }
+
+  /**
+   * เจ้าของร้าน "พักร้านชั่วคราวเอง" — คนละความหมายกับ status=SUSPENDED ที่
+   * Admin เป็นคนตั้งเท่านั้น (SRS §185) ถ้าร้านถูก Admin ระงับอยู่แล้ว
+   * เจ้าของแตะปุ่มนี้ไม่ได้เลย กันไม่ให้ปลดล็อกการระงับของ Admin ผ่านทางอ้อม
+   *
+   * พนักงาน resolve ownerId ได้เหมือนเจ้าของ (ดู @OwnerId()) แต่ต้องเช็ค role
+   * แยกตรงนี้เพราะ "เจ้าของเท่านั้น" ไม่ใช่แค่ "เป็นเจ้าของข้อมูล"
+   */
+  async pause(userId: string, role: UserRole, shopId: string) {
+    this.assertIsOwnerRole(role);
+    await this.assertNotReadOnly(userId);
+    const shop = await this.findOwnedShopOrThrow(userId, shopId);
+
+    if (shop.status !== 'ACTIVE') {
+      throw new ForbiddenException(
+        'This shop is suspended by an administrator and cannot be controlled by the owner.',
+      );
+    }
+    if (shop.pausedAt) {
+      throw new ConflictException('This shop is already paused');
+    }
+
+    return this.prisma.shop.update({
+      where: { id: shopId },
+      data: { pausedAt: new Date() },
+    });
+  }
+
+  async resume(userId: string, role: UserRole, shopId: string) {
+    this.assertIsOwnerRole(role);
+    await this.assertNotReadOnly(userId);
+    const shop = await this.findOwnedShopOrThrow(userId, shopId);
+
+    if (shop.status !== 'ACTIVE') {
+      throw new ForbiddenException(
+        'This shop is suspended by an administrator and cannot be controlled by the owner.',
+      );
+    }
+    if (!shop.pausedAt) {
+      throw new ConflictException('This shop is not paused');
+    }
+
+    return this.prisma.shop.update({
+      where: { id: shopId },
+      data: { pausedAt: null },
+    });
+  }
+
+  private assertIsOwnerRole(role: UserRole) {
+    if (role !== UserRole.SHOP_OWNER) {
+      throw new ForbiddenException({
+        message: 'Only the shop owner can pause or resume a shop, not staff.',
+        code: 'OWNER_ONLY',
+      });
+    }
   }
 
   private async findOwnedShopOrThrow(userId: string, shopId: string) {
