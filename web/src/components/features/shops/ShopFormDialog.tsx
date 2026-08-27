@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 
@@ -20,10 +21,21 @@ import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import { useCreateShop, useUpdateShop, type Shop } from "@/lib/hooks/use-inventory";
 import { useUploadImage } from "@/lib/hooks/use-uploads";
-import { ShopLocationPicker } from "@/components/features/shops/ShopLocationPicker";
 import { shopFormSchema, type ShopFormValues } from "@/lib/validations/shops";
 
 const ACCEPTED_IMAGE_TYPES = "image/jpeg,image/png,image/webp";
+
+// leaflet แตะ window ตั้งแต่ตอนโหลด module เลย (ไม่ใช่แค่ตอนใช้งานจริง) —
+// ต่อให้ ShopFormDialog เป็น client component, Next.js ก็ยัง evaluate import
+// นี้ตอน SSR pass แรกอยู่ดี พังด้วย "window is not defined" ทันทีถ้าไม่กัน
+// ตรงนี้ (ปัญหาคนละจุดกับบั๊ก MapContainer ของ react-leaflet ที่แก้ไปก่อนหน้า
+// — ตอนนั้นถอด ssr:false ออกเพื่อเลี่ยงบั๊ก Suspense ของ react-leaflet
+// โดยเฉพาะ แต่พอเปลี่ยนมาใช้ vanilla leaflet แล้วไม่มีบั๊กนั้นอีก ใส่ ssr:false
+// กลับมาได้อย่างปลอดภัย)
+const ShopLocationPicker = dynamic(
+  () => import("./ShopLocationPicker").then((m) => m.ShopLocationPicker),
+  { ssr: false, loading: () => <div className="h-56 w-full animate-pulse rounded-xl bg-muted" /> },
+);
 
 function toNumber(value: number | string | null | undefined): number | undefined {
   if (value === null || value === undefined) return undefined;

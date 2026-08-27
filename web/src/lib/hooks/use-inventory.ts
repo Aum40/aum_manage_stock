@@ -13,6 +13,8 @@ export type Shop = {
   address?: string | null;
   latitude?: number | string | null;
   longitude?: number | string | null;
+  status: "ACTIVE" | "SUSPENDED";
+  pausedAt?: string | null;
 };
 
 export type Product = {
@@ -131,6 +133,26 @@ export function useDeleteShop() {
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
       queryClient.invalidateQueries({ queryKey: ['subscriptions', 'me'] });
     },
+  });
+}
+
+// เจ้าของพักร้านชั่วคราวเอง — คนละความหมายกับ status=SUSPENDED ที่ Admin
+// เป็นคนตั้งเท่านั้น (ดู shops.service.ts) เอนด์พอยต์นี้ปฏิเสธพนักงานเสมอ
+export function usePauseShop() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (shopId: string) => api.patch<Shop>(`/api/backend/shops/${shopId}/pause`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: inventoryKeys.all }),
+  });
+}
+
+export function useResumeShop() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (shopId: string) => api.patch<Shop>(`/api/backend/shops/${shopId}/resume`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: inventoryKeys.all }),
   });
 }
 

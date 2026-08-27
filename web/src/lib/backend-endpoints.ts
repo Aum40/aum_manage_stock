@@ -22,7 +22,7 @@ export const backendEndpointRules = [
   { methods: ["POST"] as const, pattern: /^payments\/[^/]+\/retry-intent$/ },
   { methods: ["POST"] as const, pattern: /^payments\/[^/]+\/confirm$/ },
   { methods: ["GET"] as const, pattern: /^(?:subscription-plans|subscriptions\/me)$/ },
-  { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^shops(?:\/[^/]+)?$/ },
+  { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^shops(?:\/[^/]+(?:\/(?:pause|resume))?)?$/ },
   { methods: ["GET", "POST", "PATCH", "PUT", "DELETE"] as const, pattern: /^shops\/[^/]+\/(?:staff(?:\/[^/]+\/permissions)?|products(?:\/[^/]+)?|stock(?:\/adjust|\/recent|\/movements|\/chat-command(?:\/[^/]+(?:\/confirm)?)?)?|sales(?:\/scan|\/[^/]+(?:\/void)?)?|chat\/messages|ai\/recommendations(?:\/generate)?|dashboard(?:\/best-sellers|\/dead-stock|\/reports\/(?:sales-trend|by-category))?)$/ },
   { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^staff(?:\/quota|\/[^/]+(?:\/assign(?:\/[^/]+)?|\/shops)?)?$/ },
   { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^categories(?:\/[^/]+)?$/ },

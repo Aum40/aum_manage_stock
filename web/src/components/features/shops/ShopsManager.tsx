@@ -7,15 +7,19 @@ import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import Caption from "@/components/shared/Caption";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { ShopFormDialog } from "@/components/features/shops/ShopFormDialog";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
+import { useMe } from "@/lib/hooks/use-profile";
 import {
   useDeleteShop,
   useMySubscription,
+  usePauseShop,
+  useResumeShop,
   useShops,
   type Shop,
 } from "@/lib/hooks/use-inventory";
@@ -39,6 +43,12 @@ const content = {
     caption:
       "การสร้าง แก้ไข ลบ และการจัดการบัญชีพนักงานเข้าถึงสิทธิ์ เฉพาะเจ้าของร้านเท่านั้น การลบร้านจะยังคงสิทธิ์ quota ให้กับบัญชี",
     activeLabel: "เปิดใช้งาน",
+    pausedLabel: "พักชั่วคราว",
+    suspendedLabel: "ระงับโดยแอดมิน",
+    pauseShop: "พักร้านชั่วคราว",
+    resumeShop: "เปิดร้านใช้งาน",
+    readOnlyPauseNote: "แพ็กเกจหมดอายุ — เปลี่ยนสถานะร้านไม่ได้จนกว่าจะต่ออายุ",
+    suspendedPauseNote: "ร้านนี้ถูกระงับโดยผู้ดูแลระบบ เจ้าของจึงเปลี่ยนสถานะไม่ได้",
     loading: "กำลังโหลดข้อมูลร้านค้า…",
     empty: "ยังไม่มีร้านค้า",
     noAddress: "ร้านค้าของฉัน",
@@ -49,6 +59,7 @@ const content = {
     confirmDeleting: "กำลังลบ…",
     confirmDeleted: "ลบสำเร็จ",
     deleteError: "ลบร้านไม่สำเร็จ",
+    statusError: "เปลี่ยนสถานะร้านไม่สำเร็จ",
   },
   en: {
     title: "My Shops",
@@ -68,6 +79,12 @@ const content = {
     caption:
       "Creating, editing, deleting shops, and managing staff access are all owner-only. Deleting a shop still keeps its quota slot on your account.",
     activeLabel: "Active",
+    pausedLabel: "Paused",
+    suspendedLabel: "Suspended by admin",
+    pauseShop: "Pause shop temporarily",
+    resumeShop: "Resume shop",
+    readOnlyPauseNote: "Subscription expired — shop status cannot be changed until you renew.",
+    suspendedPauseNote: "This shop was suspended by an administrator, so its owner cannot change its status.",
     loading: "Loading shops…",
     empty: "No shops yet",
     noAddress: "My shop",
@@ -78,6 +95,7 @@ const content = {
     confirmDeleting: "Deleting…",
     confirmDeleted: "Deleted",
     deleteError: "Failed to delete the shop",
+    statusError: "Failed to change the shop status",
   },
 };
 
@@ -89,8 +107,11 @@ export default function ShopsManager() {
   const { locale } = useLocale();
   const t = content[locale];
   const shopsQuery = useShops();
+  const meQuery = useMe();
   const subscriptionQuery = useMySubscription();
   const deleteShop = useDeleteShop();
+  const pauseShop = usePauseShop();
+  const resumeShop = useResumeShop();
   const { setSelectedShopId } = useSelectedShop();
 
   const [formState, setFormState] = useState<{ open: boolean; shop: Shop | null }>({
@@ -99,14 +120,31 @@ export default function ShopsManager() {
   });
   const [shopPendingDelete, setShopPendingDelete] = useState<Shop | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   const shops = shopsQuery.data ?? [];
   const quota = subscriptionQuery.data?.quotas.shop;
   const readOnly = subscriptionQuery.data?.readOnly ?? false;
   const canCreate = (quota?.canCreateShop ?? true) && !readOnly;
+  const isOwner = meQuery.data?.role === "SHOP_OWNER";
 
   const openCreate = () => setFormState({ open: true, shop: null });
   const openEdit = (shop: Shop) => setFormState({ open: true, shop });
+
+  const onShopStatusChange = async (shop: Shop, active: boolean) => {
+    if (!isOwner || readOnly || shop.status !== "ACTIVE") return;
+    setStatusError(null);
+
+    try {
+      if (active) {
+        await resumeShop.mutateAsync(shop.id);
+      } else {
+        await pauseShop.mutateAsync(shop.id);
+      }
+    } catch (error) {
+      setStatusError(toMessage(error, t.statusError));
+    }
+  };
 
   const onConfirmDelete = async (): Promise<boolean> => {
     if (!shopPendingDelete) return false;
@@ -134,6 +172,10 @@ export default function ShopsManager() {
 
           {deleteError && (
             <p className="text-sm text-destructive">{deleteError}</p>
+          )}
+
+          {statusError && (
+            <p className="text-sm text-destructive">{statusError}</p>
           )}
 
           {shopsQuery.isLoading && (
@@ -185,7 +227,34 @@ export default function ShopsManager() {
                         {s.name.charAt(0)}
                       </div>
                     )}
-                    <Badge variant="success">{t.activeLabel}</Badge>
+                    {s.status === "SUSPENDED" ? (
+                      <span title={t.suspendedPauseNote}>
+                        <Badge variant="error">{t.suspendedLabel}</Badge>
+                      </span>
+                    ) : isOwner ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {s.pausedAt ? t.pausedLabel : t.activeLabel}
+                        </span>
+                        <Switch
+                          checked={!s.pausedAt}
+                          disabled={
+                            readOnly ||
+                            pauseShop.isPending ||
+                            resumeShop.isPending
+                          }
+                          onCheckedChange={(active: boolean) =>
+                            void onShopStatusChange(s, active)
+                          }
+                          aria-label={s.pausedAt ? t.resumeShop : t.pauseShop}
+                          title={readOnly ? t.readOnlyPauseNote : undefined}
+                        />
+                      </div>
+                    ) : (
+                      <Badge variant={s.pausedAt ? "neutral" : "success"}>
+                        {s.pausedAt ? t.pausedLabel : t.activeLabel}
+                      </Badge>
+                    )}
                   </div>
                   <div className="mb-1 font-heading text-base font-bold text-foreground">
                     {s.name}

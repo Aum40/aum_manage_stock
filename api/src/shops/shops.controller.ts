@@ -10,7 +10,10 @@ import {
 } from '@nestjs/common';
 import { ZodValidationPipe } from 'nestjs-zod';
 
+import { CurrentUser } from '../common/decorator/current-user.decorator';
 import { OwnerId } from '../common/decorator/owner-id.decorator';
+import { Roles } from '../common/decorator/roles.decorator';
+import { UserRole } from '../database/generated/prisma/enums';
 import {
   type CreateShopDto,
   createShopSchema,
@@ -53,5 +56,25 @@ export class ShopsController {
   @Delete(':id')
   remove(@OwnerId() ownerId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.shopsService.remove(ownerId, id);
+  }
+
+  @Patch(':id/pause')
+  @Roles(UserRole.SHOP_OWNER)
+  pause(
+    @OwnerId() ownerId: string,
+    @CurrentUser('role') role: UserRole,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.shopsService.pause(ownerId, role, id);
+  }
+
+  @Patch(':id/resume')
+  @Roles(UserRole.SHOP_OWNER)
+  resume(
+    @OwnerId() ownerId: string,
+    @CurrentUser('role') role: UserRole,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.shopsService.resume(ownerId, role, id);
   }
 }
