@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 
 import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import Caption from "@/components/shared/Caption";
 import BarcodeScanner from "@/components/features/barcode/BarcodeScanner";
@@ -24,15 +23,13 @@ import {
 /**
  * [อั้ม] รับสินค้าเข้าด้วยการยิงบาร์โค้ด
  *
- * วิธีใช้ที่ตกลงกันไว้ — เลือกสินค้าปลายทางไว้ก่อน แล้วยิงรัวได้เลย ยิงหนึ่งครั้ง
- * คือ +1 ของสินค้าตัวนั้น ยิงไปเรื่อย ๆ จนกว่าจะเปลี่ยนสินค้าปลายทาง
+ * บาร์โค้ดที่ยิงต้อง **ตรงกับเลขที่บันทึกไว้ตอนเพิ่มสินค้า** เท่านั้น ยิงแล้ว
+ * ระบบหาสินค้าเจอ = +1 หาไม่เจอ = แจ้งเตือน ไม่เดาว่าน่าจะเป็นสินค้าตัวไหน
  *
- * สองอย่างที่ทำให้มันไม่ใช่แค่ที่นับเลข:
- *
- * 1. ถ้าบาร์โค้ดที่ยิงตรงกับสินค้าที่ผูกไว้แล้ว จะสลับปลายทางไปตัวนั้นให้เอง
- *    ไม่ต้องเลือกเองทีละตัว — รับของเข้าทีเดียวหลายชนิดได้
- * 2. ถ้ายังไม่มีสินค้าไหนผูกบาร์โค้ดนี้ไว้ จะจำไว้แล้วผูกให้สินค้าปลายทาง
- *    ตอนกดบันทึก ยิงครั้งหน้าถึงจะเข้าข้อ 1 ได้เอง
+ * เคยทำเป็นแบบ "เลือกสินค้าปลายทางไว้ก่อน แล้วบาร์โค้ดที่ไม่รู้จักให้บวกเข้า
+ * ตัวนั้นพร้อมจำเลขไว้ให้" แต่เปลี่ยนมาเป็นแบบเข้มงวดเพราะแบบเดิมยิงผิดตัวแล้ว
+ * ไม่มีอะไรเตือนเลย ของเข้าผิดสินค้าโดยที่คนยิงไม่รู้ตัว — ของเข้าคลังผิดตัว
+ * แก้ทีหลังยากกว่าการเสียเวลาไปผูกบาร์โค้ดให้ถูกตั้งแต่แรกมาก
  *
  * ตัวเลขที่นับไว้เขียนลงฐานข้อมูลครั้งเดียวตอนกดบันทึก ไม่ใช่ยิงทีละครั้ง
  * เพราะ stock_movements เป็น ledger เขียนแล้วลบไม่ได้ — ยิง 12 ครั้งไม่ควร
@@ -43,24 +40,18 @@ type Line = {
   shopProductId: string;
   name: string;
   unit: string;
+  barcode: string;
   qty: number;
-  /** บาร์โค้ดที่เพิ่งเรียนรู้มา — ผูกให้สินค้าตอนบันทึก (null = มีอยู่แล้ว) */
-  learnedBarcode: string | null;
 };
 
 const content = {
   th: {
     title: "รับสินค้าเข้า (สแกน)",
     scanHeading: "สแกนบาร์โค้ด",
-    targetLabel: "สินค้าที่กำลังรับเข้า",
-    targetPh: "พิมพ์ชื่อสินค้าเพื่อค้นหา",
-    targetNone: "ยังไม่ได้เลือก",
-    targetHint:
-      "เลือกไว้ตัวหนึ่งแล้วยิงได้รัว ๆ ยิงหนึ่งครั้ง = +1 จนกว่าจะเปลี่ยนสินค้า",
+    scanHint: "ยิงหนึ่งครั้ง = +1 ยิงรัวได้เลย ระบบจะแยกสินค้าให้เองจากบาร์โค้ด",
     manualPh: "หรือพิมพ์บาร์โค้ดเอง แล้วกด Enter",
     listHeading: "รายการที่นับได้",
-    listEmpty: "ยังไม่มีรายการ — เลือกสินค้าแล้วเริ่มยิงบาร์โค้ดได้เลย",
-    colProduct: "สินค้า",
+    listEmpty: "ยังไม่มีรายการ — เริ่มยิงบาร์โค้ดได้เลย",
     colQty: "จำนวน",
     remove: "เอาออก",
     totalLabel: "รวมทั้งหมด",
@@ -70,28 +61,27 @@ const content = {
     clearBtn: "ล้างรายการ",
     noShop: "ยังไม่มีร้าน — สร้างร้านก่อนถึงจะรับสินค้าเข้าได้",
     createShop: "ไปสร้างร้าน",
-    noTarget: "เลือกสินค้าปลายทางก่อน ระบบถึงจะรู้ว่าบาร์โค้ดนี้คือสินค้าอะไร",
-    learned: "จะผูกบาร์โค้ดนี้ให้สินค้าตอนบันทึก",
-    matched: "ตรงกับสินค้าที่ผูกบาร์โค้ดไว้แล้ว",
+    added: "เพิ่มแล้ว",
+    // ต้องบอกให้ชัดว่า "อ่านสำเร็จแล้ว" — ไม่งั้นคนอ่านนึกว่าสแกนไม่ติด
+    scanOk: "สแกนอ่านเลขได้แล้ว",
+    notFound: "แต่ยังไม่มีสินค้าไหนในร้านใช้บาร์โค้ดนี้",
+    notFoundHow:
+      "ต้องบันทึกเลขบาร์โค้ดนี้ไว้กับสินค้าก่อน ถึงจะยิงรับเข้าได้ — ไปที่หน้าสินค้า แล้วใส่บาร์โค้ดให้สินค้าตัวนั้น",
+    goCatalog: "ไปหน้าสินค้า",
     savedTitle: "บันทึกเรียบร้อย",
     savedBody: "สต็อกอัปเดตแล้ว และบันทึกลงประวัติสต็อกเป็นรายการรับเข้า",
     savedAgain: "รับเข้าอีกรอบ",
     savedHistory: "ดูประวัติสต็อก",
     note: "สต็อกจะเปลี่ยนตอนกดบันทึกเท่านั้น ยิงผิดแก้ตัวเลขในรายการได้ก่อน",
-    loading: "กำลังโหลดรายการสินค้า…",
   },
   en: {
     title: "Stock In (Scan)",
     scanHeading: "Scan barcode",
-    targetLabel: "Receiving into",
-    targetPh: "Type a product name to search",
-    targetNone: "Not selected",
-    targetHint:
-      "Pick one product, then scan freely — each scan is +1 until you switch product.",
+    scanHint:
+      "One scan = +1. Scan away — the barcode tells us which product it is.",
     manualPh: "Or type the barcode and press Enter",
     listHeading: "Counted so far",
-    listEmpty: "Nothing yet — pick a product and start scanning.",
-    colProduct: "Product",
+    listEmpty: "Nothing yet — start scanning.",
     colQty: "Qty",
     remove: "Remove",
     totalLabel: "Total",
@@ -101,15 +91,17 @@ const content = {
     clearBtn: "Clear list",
     noShop: "No shop yet — create one before receiving stock.",
     createShop: "Create a shop",
-    noTarget: "Pick the target product first, so we know what this barcode is.",
-    learned: "This barcode will be linked to the product on save",
-    matched: "Matched a product that already has this barcode",
+    added: "Added",
+    scanOk: "Scanned successfully",
+    notFound: "but no product in this shop uses that barcode yet.",
+    notFoundHow:
+      "Record this barcode on the product first — open the products page and set its barcode.",
+    goCatalog: "Open products",
     savedTitle: "Saved",
     savedBody: "Stock updated and written to the stock history as a stock-in entry.",
     savedAgain: "Receive more",
     savedHistory: "View stock history",
     note: "Stock only changes when you save — fix a miscount in the list first.",
-    loading: "Loading products…",
   },
 };
 
@@ -138,51 +130,21 @@ export default function StockInPage() {
     [shopProductsQuery.data],
   );
 
-  const [targetId, setTargetId] = useState("");
-  const [search, setSearch] = useState("");
   const [barcode, setBarcode] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [hint, setHint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ยิงไม่เจอ กับบันทึกไม่สำเร็จ ต้องแนะนำคนละอย่าง อย่ายุบเป็น error เดียว
+  const [errorIsUnknownBarcode, setErrorIsUnknownBarcode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  /**
-   * targetId ซ้ำไว้ใน ref ด้วย เพราะ submitBarcode เป็น async — ระหว่างรอ
-   * findByBarcode() ค่า target ที่ปิดทับไว้ตอนเรียกอาจเก่าไปแล้ว ถ้ามีบาร์โค้ด
-   * ตัวอื่นยิงเข้ามาคั่นแล้วสลับปลายทางไป จะบวกเข้าสินค้าผิดตัว
-   */
-  const targetIdRef = useRef("");
-  const selectTarget = (id: string) => {
-    targetIdRef.current = id;
-    setTargetId(id);
-  };
-
-  const target = shopProducts.find((item) => item.id === targetId);
-  const currentTarget = () =>
-    shopProducts.find((item) => item.id === targetIdRef.current);
-
-  const matches = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return shopProducts.slice(0, 8);
-    return shopProducts
-      .filter((item) => item.product.name.toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [shopProducts, search]);
-
-  const bump = (item: ShopProduct, learnedBarcode: string | null) => {
+  const bump = (item: ShopProduct, scanned: string) => {
     setLines((previous) => {
       const existing = previous.find((line) => line.shopProductId === item.id);
       if (existing) {
         return previous.map((line) =>
-          line.shopProductId === item.id
-            ? {
-                ...line,
-                qty: line.qty + 1,
-                // บาร์โค้ดที่เรียนมาทีหลังไม่ทับของเดิมที่ตั้งใจผูกไว้แล้ว
-                learnedBarcode: line.learnedBarcode ?? learnedBarcode,
-              }
-            : line,
+          line.shopProductId === item.id ? { ...line, qty: line.qty + 1 } : line,
         );
       }
       return [
@@ -191,8 +153,8 @@ export default function StockInPage() {
           shopProductId: item.id,
           name: item.product.name,
           unit: item.product.unit,
+          barcode: scanned,
           qty: 1,
-          learnedBarcode,
         },
       ];
     });
@@ -219,27 +181,21 @@ export default function StockInPage() {
     if (!value) return;
 
     setError(null);
+    setErrorIsUnknownBarcode(false);
     setBarcode("");
 
-    const known = await findByBarcode(value);
+    const found = await findByBarcode(value);
 
-    if (known) {
-      // ยิงเจอสินค้าที่ผูกไว้แล้ว — สลับปลายทางให้เอง ไม่ต้องเลือกเองทีละตัว
-      selectTarget(known.id);
-      bump(known, null);
-      setHint(`${t.matched}: ${known.product.name}`);
-      return;
-    }
-
-    const into = currentTarget();
-    if (!into) {
+    // ไม่เดาว่าเป็นสินค้าตัวไหน — บาร์โค้ดไม่ตรงคือไม่ตรง
+    if (!found) {
       setHint(null);
-      setError(t.noTarget);
+      setErrorIsUnknownBarcode(true);
+      setError(`${t.scanOk}: ${value} — ${t.notFound}`);
       return;
     }
 
-    bump(into, value);
-    setHint(`${t.learned}: ${into.product.name} ← ${value}`);
+    bump(found, value);
+    setHint(`${t.added}: ${found.product.name}`);
   };
 
   const setQty = (shopProductId: string, qty: number) => {
@@ -264,6 +220,7 @@ export default function StockInPage() {
   const onSave = async () => {
     if (!shopId || lines.length === 0 || saving) return;
     setError(null);
+    setErrorIsUnknownBarcode(false);
     setSaving(true);
 
     try {
@@ -274,25 +231,6 @@ export default function StockInPage() {
           quantity: line.qty,
           note: locale === "th" ? "รับเข้าด้วยการสแกน" : "Received by scan",
         });
-
-        /**
-         * ผูกบาร์โค้ดหลังปรับสต็อกสำเร็จเท่านั้น และไม่ให้ล้มทั้งงานถ้าพลาด —
-         * บาร์โค้ดซ้ำกับสินค้าตัวอื่นจะได้ 409 ซึ่งไม่ควรทำให้ของที่นับมา
-         * ทั้งกองหายไป ของเข้าคลังแล้วก็จบ ค่อยไปผูกบาร์โค้ดเองทีหลังได้
-         */
-        if (line.learnedBarcode) {
-          const productId = shopProducts.find(
-            (item) => item.id === line.shopProductId,
-          )?.productId;
-
-          if (productId) {
-            await api
-              .patch(`/api/backend/products/${productId}`, {
-                barcode: line.learnedBarcode,
-              })
-              .catch(() => undefined);
-          }
-        }
       }
 
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
@@ -338,15 +276,7 @@ export default function StockInPage() {
               </div>
               <p className="text-sm text-muted-foreground">{t.savedBody}</p>
               <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="dark"
-                  size="sm"
-                  onClick={() => {
-                    setSaved(false);
-                    selectTarget("");
-                    setSearch("");
-                  }}
-                >
+                <Button variant="dark" size="sm" onClick={() => setSaved(false)}>
                   {t.savedAgain}
                 </Button>
                 <Button
@@ -368,53 +298,11 @@ export default function StockInPage() {
     <>
       <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[380px_1fr]">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(380px,42rem)_1fr]">
           <Card>
             <div className="flex flex-col gap-3 px-5">
               <div className="font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
                 {t.scanHeading}
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <Label className="text-[11px] font-semibold tracking-[0.08em] uppercase">
-                  {t.targetLabel}
-                </Label>
-                <div className="rounded-lg border border-border bg-secondary px-3 py-2 text-sm font-semibold">
-                  {target ? target.product.name : t.targetNone}
-                </div>
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder={t.targetPh}
-                  className="mt-1"
-                />
-
-                {shopProductsQuery.isLoading ? (
-                  <p className="text-xs text-muted-foreground">{t.loading}</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {matches.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          selectTarget(item.id);
-                          setError(null);
-                          setHint(null);
-                        }}
-                        className={
-                          item.id === targetId
-                            ? "rounded-full bg-brand-dark px-3 py-1 text-xs text-background"
-                            : "rounded-full border border-border px-3 py-1 text-xs hover:bg-muted"
-                        }
-                      >
-                        {item.product.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                <Caption>{t.targetHint}</Caption>
               </div>
 
               <BarcodeScanner onScan={(value) => void submitBarcode(value)} />
@@ -432,10 +320,26 @@ export default function StockInPage() {
                 className="font-mono"
               />
 
+              <Caption>{t.scanHint}</Caption>
+
               {error && (
-                <p className="rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-xs text-status-red">
-                  {error}
-                </p>
+                <div className="flex flex-col items-start gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2">
+                  <p className="text-xs text-status-red">{error}</p>
+                  {errorIsUnknownBarcode && (
+                    <>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {t.notFoundHow}
+                      </p>
+                      <Button
+                        render={<Link href="/catalog" />}
+                        variant="outline"
+                        size="xs"
+                      >
+                        {t.goCatalog}
+                      </Button>
+                    </>
+                  )}
+                </div>
               )}
 
               {!error && hint && (
@@ -477,11 +381,9 @@ export default function StockInPage() {
                           <div className="truncate text-sm font-semibold">
                             {line.name}
                           </div>
-                          {line.learnedBarcode && (
-                            <div className="truncate font-mono text-[11px] text-muted-foreground">
-                              + {line.learnedBarcode}
-                            </div>
-                          )}
+                          <div className="truncate font-mono text-[11px] text-muted-foreground">
+                            {line.barcode}
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-1.5">

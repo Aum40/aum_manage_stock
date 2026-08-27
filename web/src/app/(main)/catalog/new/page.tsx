@@ -369,7 +369,6 @@ export default function AddProductFullPage() {
                       {scanOpen && (
                         <div className="mt-1">
                           <BarcodeScanner
-                            stopAfterFirstScan
                             onScan={(value) => {
                               setBarcode(value);
                               setScanOpen(false);

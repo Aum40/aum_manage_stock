@@ -158,31 +158,6 @@ export function useCreateProduct() {
   });
 }
 
-/**
- * [อั้ม] แก้สินค้าในคลังกลาง — ตอนนี้ใช้ผูกบาร์โค้ดที่เพิ่งสแกนเข้ากับสินค้าที่มีอยู่แล้ว
- * (หน้า /stock-in) สินค้าที่ทีมเพิ่มไว้ก่อนหน้านี้ส่วนใหญ่ยังไม่มีบาร์โค้ด
- */
-export function useUpdateProduct() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({
-      productId,
-      ...input
-    }: {
-      productId: string;
-      name?: string;
-      unit?: string;
-      barcode?: string;
-      categoryId?: string;
-      imageUrl?: string;
-    }) => api.patch<Product>(`/api/backend/products/${productId}`, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-    },
-  });
-}
-
 export function useShopProducts(
   shopId: string | undefined,
   params: { q?: string; status?: 'ACTIVE' | 'INACTIVE'; page?: number; limit?: number } = {},

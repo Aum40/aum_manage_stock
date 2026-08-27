@@ -152,7 +152,7 @@ export default function POSPage() {
     <>
       <TopBar title={t.title} />
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[340px_1fr]">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(340px,30rem)_1fr]">
           <Card>
             <div className="px-5">
               <div className="mb-4 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">

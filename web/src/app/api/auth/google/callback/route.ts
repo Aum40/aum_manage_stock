@@ -4,13 +4,15 @@ import { isValidOAuthState, oauthStateCookieName } from '@/lib/oauth-state';
 import { linkStateCookieName } from '@/lib/oauth-link-state';
 import { forwardAuthed } from '@/lib/api-forward';
 import { twoFactorChallengeCookie } from '@/lib/twofa-challenge';
+import { resolvePublicOrigin } from '@/lib/public-origin';
 
 const API_URL = process.env.API_URL;
 const STATE_COOKIE = oauthStateCookieName('google');
 const LINK_STATE_COOKIE = linkStateCookieName('google');
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
+  const origin = resolvePublicOrigin(request);
   const code = searchParams.get('code');
   const receivedState = searchParams.get('state');
 
