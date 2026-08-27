@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import TableState from "@/components/shared/TableState";
+import Pager from "@/components/shared/Pager";
 import SuspendDialog from "@/components/features/admin/SuspendDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useDebounced } from "@/lib/hooks/use-debounced";
@@ -23,13 +24,14 @@ import {
   useReactivateUser,
   useSuspendUser,
 } from "@/lib/hooks/use-admin";
-import type { AdminUser, UserRole } from "@/lib/types/admin";
+import type { AdminUser, UserRole, UserStatus } from "@/lib/types/admin";
 
 const content = {
   th: {
     title: "ผู้ใช้ทั้งหมด",
     searchPh: "ค้นหาชื่อ อีเมล หรือ username…",
     allRoles: "ทุกบทบาท",
+    allStatus: "ทุกสถานะ",
     roles: {
       SHOP_OWNER: "เจ้าของร้าน",
       SHOP_STAFF: "พนักงาน",
@@ -58,6 +60,7 @@ const content = {
     title: "All Users",
     searchPh: "Search by name, email, or username…",
     allRoles: "All Roles",
+    allStatus: "All Statuses",
     roles: {
       SHOP_OWNER: "Shop Owner",
       SHOP_STAFF: "Staff",
@@ -109,11 +112,15 @@ export default function AdminUsersPage() {
 
   const [search, setSearch] = useState("");
   const [role, setRole] = useState<UserRole | "all">("all");
+  const [status, setStatus] = useState<UserStatus | "all">("all");
+  const [page, setPage] = useState(1);
   const q = useDebounced(search);
 
   const { data, isPending, error } = useAdminUsers({
     q: q || undefined,
     role: role === "all" ? undefined : role,
+    status: status === "all" ? undefined : status,
+    page,
   });
 
   const suspend = useSuspendUser();
@@ -121,6 +128,15 @@ export default function AdminUsersPage() {
   const [target, setTarget] = useState<AdminUser | null>(null);
 
   const users = data?.items ?? [];
+
+  /**
+   * ทุกตัวกรองต้องพากลับหน้า 1 เสมอ — ถ้าอยู่หน้า 4 แล้วพิมพ์ค้นหา ผลลัพธ์ชุดใหม่
+   * มักสั้นกว่าเดิมมาก หน้า 4 ของมันจึงว่างเปล่าทั้งที่มีผลลัพธ์อยู่จริง
+   */
+  const applyFilter = <T,>(set: (value: T) => void) => (value: T) => {
+    set(value);
+    setPage(1);
+  };
 
   return (
     <>
@@ -132,11 +148,13 @@ export default function AdminUsersPage() {
               placeholder={t.searchPh}
               className="flex-1"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => applyFilter(setSearch)(event.target.value)}
             />
             <Select
               value={role}
-              onValueChange={(value) => setRole(value as UserRole | "all")}
+              onValueChange={(value) =>
+                applyFilter(setRole)(value as UserRole | "all")
+              }
             >
               <SelectTrigger>
                 <SelectValue />
@@ -146,6 +164,21 @@ export default function AdminUsersPage() {
                 <SelectItem value="SHOP_OWNER">{t.roles.SHOP_OWNER}</SelectItem>
                 <SelectItem value="SHOP_STAFF">{t.roles.SHOP_STAFF}</SelectItem>
                 <SelectItem value="ADMIN">{t.roles.ADMIN}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={status}
+              onValueChange={(value) =>
+                applyFilter(setStatus)(value as UserStatus | "all")
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t.allStatus}</SelectItem>
+                <SelectItem value="ACTIVE">{t.statusActive}</SelectItem>
+                <SelectItem value="SUSPENDED">{t.statusSuspended}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -240,8 +273,16 @@ export default function AdminUsersPage() {
           </Card>
 
           {data && (
-            <div className="text-[13px] text-muted-foreground">
-              {t.totalPrefix} {data.meta.total} {t.totalSuffix}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-[13px] text-muted-foreground">
+                {t.totalPrefix} {data.meta.total} {t.totalSuffix}
+              </div>
+              <Pager
+                page={data.meta.page}
+                totalPages={data.meta.totalPages}
+                isLoading={isPending}
+                onChange={setPage}
+              />
             </div>
           )}
         </div>

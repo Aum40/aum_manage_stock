@@ -25,8 +25,22 @@ export const adminKeys = {
   shops: (filters: ShopFilters) => [...adminKeys.all, 'shops', filters] as const,
 };
 
-export type UserFilters = { q?: string; role?: UserRole; status?: UserStatus };
-export type ShopFilters = { q?: string; status?: ShopStatus };
+/**
+ * ขนาดหน้าของทุกตารางฝั่งแอดมิน — api จำกัด limit ไว้ที่ 100 (PaginationQueryDto)
+ *
+ * เดิมส่งแต่ limit ไม่เคยส่ง page เลย ตารางจึงติดเพดานอยู่ที่หน้าแรกหน้าเดียว
+ * ทั้งที่ท้ายตารางโชว์ยอดรวมจริงจาก meta.total — พอผู้ใช้เกิน 50 คนก็เห็นว่ามี
+ * 312 บัญชี แต่กดดูได้แค่ 50 คนแรก ไม่มีทางไปต่อ
+ */
+export const ADMIN_PAGE_SIZE = 50;
+
+export type UserFilters = {
+  q?: string;
+  role?: UserRole;
+  status?: UserStatus;
+  page?: number;
+};
+export type ShopFilters = { q?: string; status?: ShopStatus; page?: number };
 
 export function useAdminOverview() {
   return useQuery({
@@ -40,7 +54,11 @@ export function useAdminUsers(filters: UserFilters) {
     queryKey: adminKeys.users(filters),
     queryFn: () =>
       api.get<Paginated<AdminUser>>(
-        withQuery('/api/backend/admin/users', { ...filters, limit: 50 }),
+        withQuery('/api/backend/admin/users', {
+          ...filters,
+          page: filters.page ?? 1,
+          limit: ADMIN_PAGE_SIZE,
+        }),
       ),
     // ยังอยู่ในหน้าเดิมตอนพิมพ์ค้นหา ตารางจะได้ไม่กะพริบเป็นช่องว่างทุกตัวอักษร
     placeholderData: (previous) => previous,
@@ -52,7 +70,11 @@ export function useAdminShops(filters: ShopFilters) {
     queryKey: adminKeys.shops(filters),
     queryFn: () =>
       api.get<Paginated<AdminShop>>(
-        withQuery('/api/backend/admin/shops', { ...filters, limit: 50 }),
+        withQuery('/api/backend/admin/shops', {
+          ...filters,
+          page: filters.page ?? 1,
+          limit: ADMIN_PAGE_SIZE,
+        }),
       ),
     placeholderData: (previous) => previous,
   });

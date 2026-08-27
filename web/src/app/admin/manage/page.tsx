@@ -11,6 +11,7 @@ import TableState from "@/components/shared/TableState";
 import AddAdminDialog from "@/components/features/admin/AddAdminDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useAdminUsers, useUpdateAdminRole } from "@/lib/hooks/use-admin";
+import { useMe } from "@/lib/hooks/use-profile";
 import type { AdminUser } from "@/lib/types/admin";
 
 const content = {
@@ -20,6 +21,7 @@ const content = {
     intro:
       "Super Admin มีสิทธิ์เหมือน Admin และจัดการสิทธิ์ของ Admin คนอื่นเพิ่มเติม",
     addBtn: "เพิ่ม Admin",
+    selfLabel: "บัญชีของคุณ",
     columns: ["Admin", "สถานะ", ""],
     activeLabel: "ปกติ",
     suspendedLabel: "ถูกระงับ",
@@ -37,6 +39,7 @@ const content = {
     intro:
       "Super Admin has all Admin rights plus the ability to manage other Admins' access.",
     addBtn: "Add admin",
+    selfLabel: "Your account",
     columns: ["Admin", "Status", ""],
     activeLabel: "Normal",
     suspendedLabel: "Suspended",
@@ -58,6 +61,7 @@ export default function AdminManagePage() {
   const admins = useAdminUsers({ role: "ADMIN" });
   const superAdmins = useAdminUsers({ role: "SUPER_ADMIN" });
   const updateRole = useUpdateAdminRole();
+  const { data: me } = useMe();
 
   const isPending = admins.isPending || superAdmins.isPending;
   const error = admins.error ?? superAdmins.error ?? updateRole.error ?? null;
@@ -78,11 +82,6 @@ export default function AdminManagePage() {
             </AlertDescription>
           </Alert>
 
-          {/*
-            ปุ่ม "เพิ่ม Admin" ของ mockup เดิมถูกตัดออก — api ไม่มี endpoint สร้างบัญชี Admin
-            (PATCH /admin/admins/:id/role เปลี่ยนได้เฉพาะคนที่เป็น Admin อยู่แล้วเท่านั้น)
-            ถ้าทีมตัดสินใจว่าต้องมีจริง ต้องเพิ่มฝั่ง api ก่อน แล้วค่อยเอาปุ่มกลับมา
-          */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm text-muted-foreground">{t.intro}</span>
             <Button variant="dark" onClick={() => setAdding(true)}>
@@ -115,6 +114,9 @@ export default function AdminManagePage() {
                 />
                 {rows.map((a, i) => {
                   const isSuper = a.role === "SUPER_ADMIN";
+                  // api ปฏิเสธการเปลี่ยน role ของตัวเองด้วย 400 (admin.service.ts)
+                  // ซ่อนปุ่มไปเลยแทนที่จะให้กดแล้วเด้ง error เหมือนหน้า /admin/users
+                  const isSelf = a.id === me?.id;
 
                   return (
                     <tr
@@ -148,19 +150,25 @@ export default function AdminManagePage() {
                         </Badge>
                       </td>
                       <td className="px-6 py-3.5">
-                        <Button
-                          variant={isSuper ? "outline" : "dark"}
-                          size="sm"
-                          disabled={updateRole.isPending}
-                          onClick={() =>
-                            updateRole.mutate({
-                              id: a.id,
-                              role: isSuper ? "ADMIN" : "SUPER_ADMIN",
-                            })
-                          }
-                        >
-                          {isSuper ? t.demoteBtn : t.promoteBtn}
-                        </Button>
+                        {isSelf ? (
+                          <span className="text-[13px] text-muted-foreground">
+                            {t.selfLabel}
+                          </span>
+                        ) : (
+                          <Button
+                            variant={isSuper ? "outline" : "dark"}
+                            size="sm"
+                            disabled={updateRole.isPending}
+                            onClick={() =>
+                              updateRole.mutate({
+                                id: a.id,
+                                role: isSuper ? "ADMIN" : "SUPER_ADMIN",
+                              })
+                            }
+                          >
+                            {isSuper ? t.demoteBtn : t.promoteBtn}
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   );
