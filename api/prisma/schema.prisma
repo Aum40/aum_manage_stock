@@ -445,6 +445,7 @@ model Shop {
   latitude    Decimal?   @db.Decimal(9, 6)
   longitude   Decimal?   @db.Decimal(9, 6)
   status      ShopStatus @default(ACTIVE)
+  pausedAt    DateTime?  @map("paused_at") // เจ้าของพักร้านชั่วคราวเอง — คนละความหมายกับ status=SUSPENDED ที่ Admin เป็นคนตั้งเท่านั้น (SRS §185)
   deletedAt   DateTime?  @map("deleted_at")
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")

@@ -383,6 +383,7 @@ Table shops {
   latitude decimal(9,6) [null, note: 'ปักหมุดตำแหน่งร้านผ่านแผนที่ (OpenStreetMap) — ไม่บังคับ']
   longitude decimal(9,6) [null]
   status shop_status [not null, default: 'ACTIVE', note: 'SUSPENDED ตั้งโดย Admin เท่านั้น (SRS §185)']
+  paused_at timestamptz [null, note: 'เจ้าของพักร้านชั่วคราวเอง — คนละอย่างกับ status=SUSPENDED']
   deleted_at timestamptz [null, note: 'soft delete — คืน quota ให้เจ้าของทันที (ดู Note ของ subscriptions)']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
