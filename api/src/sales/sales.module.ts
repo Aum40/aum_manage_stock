@@ -19,6 +19,9 @@ import {
   PrismaSalesSubscriptionAdapter,
 } from './ports/prisma-sales-adapters';
 
+const isSalesMockMode = (config: ConfigService) =>
+  config.get<string>('SALES_MOCK_MODE')?.trim().toLowerCase() === 'true';
+
 @Module({
   imports: [StockModule],
   controllers: [SalesController],
@@ -41,7 +44,7 @@ import {
         config: ConfigService,
         mock: MockSalesProductAdapter,
         actual: PrismaSalesProductAdapter,
-      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : actual),
+      ) => (isSalesMockMode(config) ? mock : actual),
     },
     {
       provide: SALES_STAFF_PORT,
@@ -50,7 +53,7 @@ import {
         config: ConfigService,
         mock: MockSalesStaffAdapter,
         actual: PrismaSalesStaffAdapter,
-      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : actual),
+      ) => (isSalesMockMode(config) ? mock : actual),
     },
     {
       provide: SALES_SUBSCRIPTION_PORT,
@@ -63,7 +66,7 @@ import {
         config: ConfigService,
         mock: MockSalesSubscriptionAdapter,
         actual: PrismaSalesSubscriptionAdapter,
-      ) => (config.get<boolean>('SALES_MOCK_MODE') ? mock : actual),
+      ) => (isSalesMockMode(config) ? mock : actual),
     },
   ],
 })

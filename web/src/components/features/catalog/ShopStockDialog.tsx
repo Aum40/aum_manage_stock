@@ -15,7 +15,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
-import { ApiError, api, withQuery } from "@/lib/api-client";
+import {
+  ApiErrorNotice,
+  toApiFailure,
+  type ApiFailure,
+} from "@/components/shared/ApiErrorNotice";
+import { api, withQuery } from "@/lib/api-client";
 import { inventoryKeys, type Shop } from "@/lib/hooks/use-inventory";
 
 /**
@@ -32,6 +37,17 @@ import { inventoryKeys, type Shop } from "@/lib/hooks/use-inventory";
  *
  * queryKey ["catalog","shop-products",shopId] ตรงกับที่หน้า /catalog ใช้
  * กล่องนี้จึงอ่านจากแคชเดิมทันที ไม่ยิงซ้ำ และ invalidate ทีเดียวอัปเดตทั้งคู่
+ *
+ * ลดสต็อกแล้วเลือกได้ว่า "ขายไป" หรือ "ปรับสต็อก" — คนขายหน้าร้านไม่ได้เปิด POS
+ * ทุกครั้ง แต่ระบบแยกเองไม่ได้ว่าของที่หายไปคือขายได้เงินหรือของเสีย/นับผิด
+ * ถ้านับการลดสต็อกเป็นยอดขายทั้งหมด ตัวเลขรายได้จะเพี้ยนทันทีที่ทิ้งของเน่า
+ *
+ * เลือก "ขายไป" จะไม่ยิง stock/adjust แต่ยิง POST /shops/:id/sales ของพี่ดิว
+ * ซึ่งสร้าง Sale + SaleItem + ตัดสต็อกให้เองผ่าน movementType 'SALE' ครบในทีเดียว
+ * ห้ามยิงทั้งสองเส้น ไม่งั้นสต็อกจะถูกหักสองรอบ
+ *
+ * ยอดคิดจาก sellPrice ปัจจุบันของร้านนั้น ถ้าวันนั้นลดราคาให้ลูกค้า
+ * ตัวเลขจะไม่ตรงกับเงินจริง — จงใจไม่ใส่ช่องกรอกราคาเพราะจะทำให้กล่องรกเกินไป
  */
 
 type ShopProductRow = {
@@ -39,7 +55,11 @@ type ShopProductRow = {
   productId: string;
   status: string;
   stockQty: number;
+  sellPrice: number | string;
 };
+
+/** ของที่หายไปจากชั้นมีสองความหมาย ระบบเดาเองไม่ได้ ต้องให้คนบอก */
+type Intent = "sale" | "adjust";
 
 interface DialogProduct {
   id: string;
@@ -91,6 +111,16 @@ const content = {
     noShops: "ยังไม่มีร้านค้า",
     needPrice: "ร้านที่จะลงต้องใส่ราคาขาย",
     defaultNote: "ปรับจากหน้าแคตตาล็อก",
+    defaultSaleNote: "ขายหน้าร้าน (บันทึกจากแคตตาล็อก)",
+    reasonLabel: "ของที่หายไปเพราะ",
+    intentSale: "ขายไป",
+    intentAdjust: "ปรับสต็อก",
+    intentSaleHint: "เปิดบิลจริง ยอดขายบนแดชบอร์ดจะขยับ",
+    intentAdjustHint: "ของเสีย ของหมดอายุ หรือนับใหม่ — ไม่นับเป็นรายได้",
+    billPreview: (amount: string) => `จะเปิดบิล ≈ ฿${amount}`,
+    summarySale: (n: number) => `เปิดบิล ${n} ใบ`,
+    summaryAdjust: (n: number) => `ปรับสต็อก ${n} รายการ`,
+    summaryListing: (n: number) => `ลงร้านใหม่ ${n} ร้าน`,
   },
   en: {
     title: "Stock by shop",
@@ -115,6 +145,16 @@ const content = {
     noShops: "No shops yet",
     needPrice: "Shops you list need a sell price",
     defaultNote: "Adjusted from the catalog",
+    defaultSaleNote: "Counter sale (recorded from the catalog)",
+    reasonLabel: "Stock went down because",
+    intentSale: "Sold",
+    intentAdjust: "Correction",
+    intentSaleHint: "Creates a real bill — dashboard revenue moves",
+    intentAdjustHint: "Damaged, expired or recounted — not revenue",
+    billPreview: (amount: string) => `Bill ≈ ฿${amount}`,
+    summarySale: (n: number) => `${n} bill(s)`,
+    summaryAdjust: (n: number) => `${n} correction(s)`,
+    summaryListing: (n: number) => `${n} new listing(s)`,
   },
 };
 
@@ -128,9 +168,10 @@ export function ShopStockDialog({
   const queryClient = useQueryClient();
 
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [intents, setIntents] = useState<Record<string, Intent>>({});
   const [listings, setListings] = useState<Record<string, NewListing>>({});
   const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiFailure | null>(null);
   const [saving, setSaving] = useState(false);
 
   const shopProductQueries = useQueries({
@@ -159,6 +200,10 @@ export function ShopStockDialog({
     return map;
   }, [shopProductQueries, shops, product]);
 
+  /** ค่าเริ่มต้นเป็น "ขายไป" เพราะเป็นเคสที่พบบ่อยสุด แต่โชว์ตัวเลือกให้เห็นเสมอ
+   *  ไม่แอบตัดสินใจแทน */
+  const intentOf = (shopId: string): Intent => intents[shopId] ?? "sale";
+
   const valueOf = (shopId: string) => {
     const typed = quantities[shopId];
     if (typed !== undefined) return typed;
@@ -178,6 +223,14 @@ export function ShopStockDialog({
     return Number.isFinite(next) && next >= 0 && next !== row.stockQty;
   });
   const newListings = shops.filter((shop) => listings[shop.id]);
+  const deltaOf = (shopId: string) => {
+    const row = current.get(shopId);
+    if (!row) return 0;
+    return Number(valueOf(shopId)) - row.stockQty;
+  };
+  const soldShops = adjustments.filter(
+    (shop) => deltaOf(shop.id) < 0 && intentOf(shop.id) === "sale",
+  );
   const changeCount = adjustments.length + newListings.length;
   const missingPrice = newListings.some(
     (shop) => !listings[shop.id]?.sellPrice.trim(),
@@ -198,6 +251,7 @@ export function ShopStockDialog({
 
   const reset = () => {
     setQuantities({});
+    setIntents({});
     setListings({});
     setNote("");
     setError(null);
@@ -243,6 +297,17 @@ export function ShopStockDialog({
         const row = current.get(shop.id);
         if (!row) continue;
         const delta = Number(valueOf(shop.id)) - row.stockQty;
+
+        // ของที่ลดลงเพราะขายไป → เปิดบิลจริง เส้นนี้ตัดสต็อกให้เองแล้ว
+        // ห้ามยิง stock/adjust ตามหลัง สต็อกจะถูกหักสองรอบ
+        if (delta < 0 && intentOf(shop.id) === "sale") {
+          await api.post(`/api/backend/shops/${shop.id}/sales`, {
+            items: [{ shopProductId: row.id, quantity: -delta }],
+            note: note.trim() || t.defaultSaleNote,
+          });
+          continue;
+        }
+
         await api.post(`/api/backend/shops/${shop.id}/stock/adjust`, {
           shopProductId: row.id,
           operation: delta > 0 ? "INCREASE" : "DECREASE",
@@ -253,13 +318,11 @@ export function ShopStockDialog({
 
       queryClient.invalidateQueries({ queryKey: ["catalog"] });
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      // เปิดบิลแล้วยอดขาย/จำนวนบิล/เฉลี่ยต่อบิลบนแดชบอร์ดต้องขยับตาม
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       closeAll();
     } catch (caught) {
-      setError(
-        caught instanceof ApiError || caught instanceof Error
-          ? caught.message
-          : String(caught),
-      );
+      setError(toApiFailure(caught));
       setSaving(false);
     }
   };
@@ -380,6 +443,57 @@ export function ShopStockDialog({
                   )}
                 </div>
 
+                {row && deltaOf(shop.id) < 0 && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-muted/60 px-3 py-2">
+                    <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
+                      {t.reasonLabel}
+                    </span>
+                    <span className="inline-flex gap-1 rounded-full bg-background p-0.5">
+                      {(
+                        [
+                          ["sale", t.intentSale],
+                          ["adjust", t.intentAdjust],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            setIntents((previous) => ({
+                              ...previous,
+                              [shop.id]: value,
+                            }))
+                          }
+                          className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                            intentOf(shop.id) === value
+                              ? "bg-foreground text-background"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {intentOf(shop.id) === "sale"
+                        ? t.intentSaleHint
+                        : t.intentAdjustHint}
+                    </span>
+                    {intentOf(shop.id) === "sale" && (
+                      <span className="ml-auto font-mono text-[13px] font-semibold">
+                        {t.billPreview(
+                          (
+                            Math.abs(deltaOf(shop.id)) * Number(row.sellPrice)
+                          ).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }),
+                        )}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {!row && listing && (
                   <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {(
@@ -435,11 +549,7 @@ export function ShopStockDialog({
           </span>
         </div>
 
-        {error && (
-          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ApiErrorNotice error={error} />}
 
         <DialogFooter>
           <span className="mr-auto self-center text-xs text-muted-foreground">
@@ -447,7 +557,15 @@ export function ShopStockDialog({
               ? t.needPrice
               : changeCount === 0
                 ? t.noChanges
-                : t.changes(changeCount)}
+                : [
+                    soldShops.length > 0 && t.summarySale(soldShops.length),
+                    adjustments.length - soldShops.length > 0 &&
+                      t.summaryAdjust(adjustments.length - soldShops.length),
+                    newListings.length > 0 &&
+                      t.summaryListing(newListings.length),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
           </span>
           <Button
             type="button"

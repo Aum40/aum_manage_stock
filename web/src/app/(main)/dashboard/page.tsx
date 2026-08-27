@@ -17,6 +17,11 @@ import { useLocale } from "@/components/i18n/LocaleContext";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import { ApiError, api, withQuery } from "@/lib/api-client";
 import { useShops } from "@/lib/hooks/use-inventory";
+import { LowStockByShopCard } from "@/components/features/dashboard/LowStockByShopCard";
+import {
+  ShopComparisonCard,
+  type SummaryShopRow,
+} from "@/components/features/dashboard/ShopComparisonCard";
 
 /**
  * ทุก query ในหน้านี้ใช้ "ช่วงเวลาเดียวกัน" ที่มาจากปุ่ม รายวัน/รายสัปดาห์/รายเดือน
@@ -73,10 +78,26 @@ interface DeadStockItem {
   daysSinceLastSale: number | null;
 }
 
+/** GET /dashboard/summary — ยอดรวมของทุกร้านที่ผู้ใช้คนนี้มีสิทธิ์เห็น */
+interface AccountSummary {
+  range: { from: string; to: string };
+  totals: { totalAmount: number; saleCount: number; shopCount: number };
+  shops: SummaryShopRow[];
+}
+
+/**
+ * ค่าปลอมใน <Select> สำหรับโหมด "ทุกร้าน" ไม่ใช่ uuid ของร้านไหน
+ * ตั้งใจใช้อักขระที่ uuid ชนไม่ได้ และห้ามหลุดไปลง SelectedShopContext
+ */
+const ALL_SHOPS = "__all__";
+
 const content = {
   th: {
     title: "แดชบอร์ด",
     pickShop: "เลือกร้าน",
+    allShops: "ทุกร้าน (รวม)",
+    perShopOnly:
+      "กราฟแนวโน้ม สินค้าขายดี ยอดตามหมวดหมู่ และสินค้าค้างสต็อก เป็นรายงานราย “ร้าน” — คลิกชื่อร้านในตารางด้านบนเพื่อดูของร้านนั้น",
     periods: { day: "รายวัน", week: "รายสัปดาห์", month: "รายเดือน" },
     rangeLabel: { day: "30 วันล่าสุด", week: "12 สัปดาห์ล่าสุด", month: "12 เดือนล่าสุด" },
     noShopTitle: "ยังไม่มีร้าน",
@@ -108,10 +129,17 @@ const content = {
     loading: "กำลังโหลดข้อมูล…",
     empty: "ยังไม่มีข้อมูล",
     lockedCta: "อัปเกรดแพ็กเกจ",
+    deniedTitle: "คุณยังไม่มีสิทธิ์ดูแดชบอร์ด",
+    deniedBody:
+      "เจ้าของร้านเป็นคนเปิดสิทธิ์นี้ให้ ลองติดต่อเจ้าของร้านเพื่อขอเปิด “ดูแดชบอร์ด” ระหว่างนี้ดูประวัติสต็อกของร้านที่คุณประจำอยู่ได้ตามปกติ",
+    deniedCta: "ไปดูประวัติสต็อก",
   },
   en: {
     title: "Dashboard",
     pickShop: "Select a shop",
+    allShops: "All shops (total)",
+    perShopOnly:
+      "The trend chart, best sellers, category split and dead stock are per-shop reports — click a shop name above to open one.",
     periods: { day: "Daily", week: "Weekly", month: "Monthly" },
     rangeLabel: { day: "Last 30 days", week: "Last 12 weeks", month: "Last 12 months" },
     noShopTitle: "No shop yet",
@@ -143,6 +171,10 @@ const content = {
     loading: "Loading…",
     empty: "No data yet",
     lockedCta: "Upgrade plan",
+    deniedTitle: "You do not have dashboard access",
+    deniedBody:
+      "Only the shop owner can grant this. Ask them to turn on “View dashboard” for you. In the meantime you can still browse the stock history of the shops you are assigned to.",
+    deniedCta: "View stock history",
   },
 };
 
@@ -159,14 +191,29 @@ function shortPeriod(key: string, groupBy: Period) {
   return `${day}/${month}`;
 }
 
+/** api ตอบ code นี้เมื่อเจ้าของร้านไม่ได้ติ๊ก canViewDashboard ให้พนักงานคนนี้ */
+const DASHBOARD_DENIED = "DASHBOARD_PERMISSION_DENIED";
+
 /**
  * 403 จากเส้นรายงาน = แพ็กเกจไม่ถึง (PLAN_UPGRADE_REQUIRED)
+ *
+ * ยกเว้น DASHBOARD_PERMISSION_DENIED ที่เป็น 403 เหมือนกันแต่คนละเรื่อง —
+ * ถ้าไม่แยก พนักงานที่เจ้าของร้านยังไม่เปิดสิทธิ์ให้ จะเห็นปุ่ม "อัปเกรดแพ็กเกจ"
+ * ทั้งที่พนักงานอัปเกรดแทนเจ้าของร้านไม่ได้ (SRS §126) เช็ค code ไม่ใช่แค่ status
  *
  * จงใจไม่ประกาศเป็น type predicate (`error is ApiError`) เพราะ `!planLocked(e)`
  * จะทำให้ TS ตัด ApiError ออกจนเหลือ never แล้วอ่าน .message ไม่ได้
  */
 function planLocked(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 403;
+  return (
+    error instanceof ApiError &&
+    error.status === 403 &&
+    error.code !== DASHBOARD_DENIED
+  );
+}
+
+function dashboardDenied(error: unknown): boolean {
+  return error instanceof ApiError && error.code === DASHBOARD_DENIED;
 }
 
 function SectionCard({
@@ -216,6 +263,12 @@ export default function DashboardPage() {
   const { locale } = useLocale();
   const t = content[locale];
   const [period, setPeriod] = useState<Period>("day");
+  /**
+   * โหมดทุกร้านเก็บแยกจาก selectedShopId — สลับไป "ทุกร้าน" แล้วกลับมาต้องได้
+   * ร้านเดิม ไม่ใช่เด้งไปร้านแรก และ SelectedShopContext ใช้ร่วมกับหน้าอื่นทั้งแอป
+   * จึงห้ามยัดค่าปลอม ALL_SHOPS ลงไปในนั้น
+   */
+  const [scope, setScope] = useState<"all" | "shop">("shop");
 
   const shopsQuery = useShops();
   const shops = useMemo(() => shopsQuery.data ?? [], [shopsQuery.data]);
@@ -229,6 +282,8 @@ export default function DashboardPage() {
   const hasShop = shopId !== "";
   const currentShopName =
     shops.find((shop) => shop.id === shopId)?.name ?? t.pickShop;
+  // ร้านเดียวไม่มีอะไรให้รวม — ถ้าร้านถูกลบจนเหลือร้านเดียวระหว่างอยู่โหมดนี้ ให้ถอยเอง
+  const isAll = scope === "all" && shops.length > 1;
 
   // useMemo กัน new Date() สร้างใหม่ทุก render ซึ่งจะทำให้ queryKey เปลี่ยนไม่หยุด
   const range = useMemo(() => {
@@ -238,7 +293,7 @@ export default function DashboardPage() {
   }, [period]);
 
   const base = `/api/backend/shops/${shopId}/dashboard`;
-  const shared = { enabled: hasShop, retry: false } as const;
+  const shared = { enabled: hasShop && !isAll, retry: false } as const;
 
   const overviewQuery = useQuery<ShopOverview, ApiError>({
     ...shared,
@@ -286,41 +341,116 @@ export default function DashboardPage() {
       ),
   });
 
+  const summaryQuery = useQuery<AccountSummary, ApiError>({
+    enabled: isAll,
+    retry: false,
+    queryKey: ["dashboard", "summary", range],
+    queryFn: () =>
+      api.get<AccountSummary>(
+        withQuery("/api/backend/dashboard/summary", range),
+      ),
+  });
+
   const overview = overviewQuery.data;
+  const summary = summaryQuery.data;
   const points = trendQuery.data?.points ?? [];
   const peak = points.reduce((max, point) => Math.max(max, point.totalAmount), 0);
   const rangeTotal = points.reduce((sum, point) => sum + point.totalAmount, 0);
+
+  /**
+   * การ์ดสี่ใบด้านบนใช้ตัวเลขชุดเดียวกันทั้งสองโหมด ต่างกันแค่แหล่งที่มา
+   *
+   * โหมดทุกร้านต้องหาร "เฉลี่ยต่อบิล" เองจากยอดรวม/บิลรวม เพราะการเอาค่าเฉลี่ย
+   * ของแต่ละร้านมาเฉลี่ยซ้ำจะได้เลขผิด — ร้านที่มี 2 บิลจะถ่วงน้ำหนักเท่าร้านที่มี 200
+   */
+  const headline = isAll
+    ? summary && {
+        totalAmount: summary.totals.totalAmount,
+        saleCount: summary.totals.saleCount,
+        averageSaleAmount:
+          summary.totals.saleCount === 0
+            ? 0
+            : summary.totals.totalAmount / summary.totals.saleCount,
+        lowStock: summary.shops.reduce((sum, row) => sum + row.lowStock, 0),
+      }
+    : overview && {
+        totalAmount: overview.sales.totalAmount,
+        saleCount: overview.sales.saleCount,
+        averageSaleAmount: overview.sales.averageSaleAmount,
+        lowStock: overview.stock.lowStock,
+      };
 
   const stats = [
     {
       key: "sales",
       label: `${t.statSales} · ${t.rangeLabel[period]}`,
-      value: overview ? baht(overview.sales.totalAmount, locale) : "—",
+      value: headline ? baht(headline.totalAmount, locale) : "—",
       icon: "💰",
       iconBg: "#FEF3DC",
     },
     {
       key: "bills",
       label: t.statBills,
-      value: overview ? overview.sales.saleCount.toLocaleString() : "—",
+      value: headline ? headline.saleCount.toLocaleString() : "—",
       icon: "🧾",
       iconBg: "#E8F5E7",
     },
     {
       key: "average",
       label: t.statAverage,
-      value: overview ? baht(overview.sales.averageSaleAmount, locale) : "—",
+      value: headline ? baht(headline.averageSaleAmount, locale) : "—",
       icon: "📈",
       iconBg: "#E8F5E7",
     },
     {
       key: "low",
       label: t.statLowStock,
-      value: overview ? overview.stock.lowStock.toLocaleString() : "—",
+      value: headline ? headline.lowStock.toLocaleString() : "—",
       icon: "⚠️",
       iconBg: "#FDEAE8",
     },
   ];
+
+  /**
+   * พนักงานที่เจ้าของร้านยังไม่เปิด canViewDashboard ให้ — จงใจไม่ redirect ออก
+   *
+   * ทุกหน้าฝั่งพนักงานมีสิทธิ์ของตัวเองคุมอยู่ (/products ใช้ canManageProduct,
+   * /pos ใช้ canScanSale, /chatbot ใช้ canUseChatbot) ถ้าเด้งไปหน้าใดหน้าหนึ่ง
+   * แล้วหน้านั้นก็ไม่มีสิทธิ์อีก จะกลายเป็นเด้งวนไม่จบ อยู่หน้าเดิมแล้วบอกเหตุผล
+   * ตรงนี้ชัดกว่า
+   *
+   * ลิงก์ออกไป /stock-history เพราะเป็นหน้า "ทำงานได้จริง" หน้าเดียวที่พนักงาน
+   * ทุกคนเปิดได้เสมอ — assertCanViewStock() ขอแค่ถูก assign เข้าร้านที่ยัง
+   * active ไม่ได้เช็ค staff_permissions เลย (prisma-stock-authorization.adapter.ts)
+   */
+  if (
+    dashboardDenied(overviewQuery.error) ||
+    dashboardDenied(summaryQuery.error)
+  ) {
+    return (
+      <>
+        <TopBar title={t.title} />
+        <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
+          <Card variant="dashed">
+            <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+              <div className="font-heading text-base font-semibold">
+                {t.deniedTitle}
+              </div>
+              <p className="max-w-md text-sm text-muted-foreground">
+                {t.deniedBody}
+              </p>
+              <Link
+                href="/stock-history"
+                className="rounded-full bg-primary px-4 py-1.5 text-[13px] font-semibold text-primary-foreground"
+              >
+                {t.deniedCta}
+              </Link>
+            </div>
+          </Card>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>
@@ -329,9 +459,16 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-5">
           <div className="flex flex-wrap items-center gap-3">
             <Select
-              value={shopId}
+              value={isAll ? ALL_SHOPS : shopId}
               onValueChange={(value) => {
-                if (value) setSelectedShopId(String(value));
+                const picked = String(value ?? "");
+                if (!picked) return;
+                if (picked === ALL_SHOPS) {
+                  setScope("all");
+                  return;
+                }
+                setScope("shop");
+                setSelectedShopId(picked);
               }}
               disabled={shops.length === 0}
             >
@@ -341,9 +478,14 @@ export default function DashboardPage() {
                 จึงเรนเดอร์ชื่อร้านเองตรงนี้
               */}
               <SelectTrigger className="min-w-52">
-                <span className="flex-1 truncate text-left">{currentShopName}</span>
+                <span className="flex-1 truncate text-left">
+                  {isAll ? t.allShops : currentShopName}
+                </span>
               </SelectTrigger>
               <SelectContent>
+                {shops.length > 1 && (
+                  <SelectItem value={ALL_SHOPS}>{t.allShops}</SelectItem>
+                )}
                 {shops.map((shop) => (
                   <SelectItem key={shop.id} value={shop.id}>
                     {shop.name}
@@ -411,6 +553,51 @@ export default function DashboardPage() {
                 ))}
               </div>
 
+              {/* การ์ดตัวเลขด้านบนบอกได้แค่ "มีกี่รายการ" ของร้านที่เลือกอยู่
+                  ตัวนี้บอกว่าตัวไหน สาขาไหน เหลือเท่าไหร่ ครบทุกสาขาในที่เดียว */}
+              <LowStockByShopCard shops={shops} />
+
+              {isAll && summaryQuery.isLoading && <StateLine label={t.loading} />}
+
+              {isAll && planLocked(summaryQuery.error) && (
+                <Card>
+                  <div className="px-4">
+                    <LockedNotice
+                      message={summaryQuery.error?.message ?? ""}
+                      cta={t.lockedCta}
+                    />
+                  </div>
+                </Card>
+              )}
+
+              {isAll &&
+                summaryQuery.isError &&
+                !planLocked(summaryQuery.error) && (
+                  <p className="text-center text-sm text-destructive">
+                    {summaryQuery.error?.message}
+                  </p>
+                )}
+
+              {isAll && summaryQuery.isSuccess && (
+                <>
+                  <ShopComparisonCard
+                    rows={summary?.shops ?? []}
+                    onPick={(pickedShopId) => {
+                      setScope("shop");
+                      setSelectedShopId(pickedShopId);
+                    }}
+                  />
+                  <p className="text-[13px] text-muted-foreground">
+                    {t.perShopOnly}
+                  </p>
+                </>
+              )}
+
+              {/* ส่วนที่เหลือเป็นรายงานราย "ร้าน" ทั้งหมด — api ไม่มีเส้นรวมข้ามร้าน
+                  ให้ ถ้าเรนเดอร์ต่อในโหมดทุกร้านจะกลายเป็นตัวเลขของร้านแรกที่ถูก
+                  เข้าใจผิดว่าเป็นยอดรวม จึงซ่อนแล้วชี้ทางไปเลือกร้านแทน */}
+              {!isAll && (
+                <>
               {/* กราฟแนวโน้ม — วางบนพื้นเข้มเพราะสีส้มแบรนด์บนพื้นครีมคอนทราสต์ไม่ผ่าน */}
               <Card className="bg-brand-dark text-white">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 px-4">
@@ -722,6 +909,8 @@ export default function DashboardPage() {
                   </div>
                 </SectionCard>
               </div>
+                </>
+              )}
             </>
           )}
         </div>

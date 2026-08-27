@@ -1,5 +1,6 @@
 "use client";
 
+import SessionRefresher from "@/components/auth/SessionRefresher";
 import Sidebar from "@/components/layout/Sidebar";
 import { getNavSections } from "@/components/layout/nav-config";
 import { useMe } from "@/lib/hooks/use-profile";
@@ -20,7 +21,10 @@ export default function AdminShell({
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar wordmarkSuffix="Admin" sections={getNavSections(role)} />
+      {/* หน้า /admin ก็ต้องต่ออายุ session เหมือน (main) ไม่งั้นเปิดค้างไว้เฉยๆ
+          เกิน 15 นาทีแล้วคลิกอะไรสักอย่าง จะได้ 401 ก่อนแล้วค่อยต่ออายุทีหลัง */}
+      <SessionRefresher />
+      <Sidebar sections={getNavSections(role)} />
       <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
     </div>
   );

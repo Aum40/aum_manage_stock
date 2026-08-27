@@ -107,6 +107,21 @@ export function useReactivateShop() {
   }));
 }
 
+/** SRS §29/§186 — Super Admin เท่านั้น (api บังคับด้วย @Roles อีกชั้น) */
+export function useCreateAdmin() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: {
+      firstName: string;
+      lastName: string;
+      email: string;
+      password: string;
+    }) => api.post<AdminUser>('/api/backend/admin/admins', input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminKeys.all }),
+  });
+}
+
 export function useUpdateAdminRole() {
   return useAdminAction<{ id: string; role: 'ADMIN' | 'SUPER_ADMIN' }>(
     ({ id, role }) => ({

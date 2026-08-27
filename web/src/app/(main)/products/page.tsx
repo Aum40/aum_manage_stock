@@ -30,6 +30,11 @@ import TableState from "@/components/shared/TableState";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog";
+import {
+  AdjustStockDialog,
+  SellStockDialog,
+  TransferStockDialog,
+} from "@/components/features/products/StockActionDialogs";
 import { ProductScopeTabs } from "@/components/shared/ProductScopeTabs";
 import { ApiError, api } from "@/lib/api-client";
 import {
@@ -55,6 +60,7 @@ const COLUMN_ALIGN = [
   "text-right",
   "text-center",
   "text-center",
+  "text-center",
   "text-right",
 ] as const;
 
@@ -68,8 +74,11 @@ const content = {
     addBtn: "เพิ่มสินค้าใหม่ →",
     quickLabel: "ค้นหาด่วน:",
     clearSearch: "ล้างการค้นหา",
-    columns: ["สินค้า", "หมวดหมู่", "บาร์โค้ด", "ราคาขาย", "คงเหลือ", "สถานะ", ""],
+    columns: ["สินค้า", "หมวดหมู่", "บาร์โค้ด", "ราคาขาย", "คงเหลือ", "สถานะ", "จัดการสต็อก", ""],
     restoreBtn: "กู้คืน",
+    sellBtn: "ขายออก",
+    adjustBtn: "ปรับสต็อก",
+    transferBtn: "ย้าย",
     editBtn: "แก้ไข",
     statusNormal: "ปกติ",
     statusLow: "ใกล้หมด",
@@ -132,8 +141,11 @@ const content = {
     addBtn: "Add new product →",
     quickLabel: "Quick search:",
     clearSearch: "Clear search",
-    columns: ["Product", "Category", "Barcode", "Sell price", "Stock", "Status", ""],
+    columns: ["Product", "Category", "Barcode", "Sell price", "Stock", "Status", "Stock actions", ""],
     restoreBtn: "Restore",
+    sellBtn: "Sell",
+    adjustBtn: "Adjust",
+    transferBtn: "Move",
     editBtn: "Edit",
     statusNormal: "Normal",
     statusLow: "Low stock",
@@ -189,40 +201,6 @@ const content = {
   },
 };
 
-function StockCell({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: number;
-  disabled: boolean;
-  onChange: (delta: number) => void;
-}) {
-  const step = (delta: number, label: string) => (
-    <button
-      type="button"
-      disabled={disabled || (delta < 0 && value + delta < 0)}
-      onClick={() => onChange(delta)}
-      aria-label={label}
-      className="rounded-md border border-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-    >
-      {label}
-    </button>
-  );
-
-  return (
-    <div className="inline-flex items-center justify-center gap-1">
-      {step(-10, "−10")}
-      {step(-1, "−1")}
-      <span className="min-w-9 text-center font-mono text-sm font-semibold">
-        {value}
-      </span>
-      {step(1, "+1")}
-      {step(10, "+10")}
-    </div>
-  );
-}
-
 export default function ProductsStockPage() {
   const { locale } = useLocale();
   const t = content[locale];
@@ -232,6 +210,9 @@ export default function ProductsStockPage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
   const [editing, setEditing] = useState<ShopProduct | null>(null);
+  const [selling, setSelling] = useState<ShopProduct | null>(null);
+  const [transferring, setTransferring] = useState<ShopProduct | null>(null);
+  const [adjusting, setAdjusting] = useState<ShopProduct | null>(null);
 
   const shopsQuery = useShops();
   const shops = useMemo(() => shopsQuery.data ?? [], [shopsQuery.data]);
@@ -254,7 +235,6 @@ export default function ProductsStockPage() {
     q: search || undefined,
     limit: 100,
   });
-  const adjustStock = useAdjustStock(shopId);
 
   const allProducts = useMemo(
     () => shopProductsQuery.data?.items ?? [],
@@ -295,14 +275,6 @@ export default function ProductsStockPage() {
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all }),
   });
 
-  const updateQty = (shopProductId: string, delta: number) => {
-    if (!shopId || adjustStock.isPending || delta === 0) return;
-    adjustStock.mutate({
-      shopProductId,
-      operation: delta > 0 ? "INCREASE" : "DECREASE",
-      quantity: Math.abs(delta),
-    });
-  };
 
   const selectedCategoryLabel =
     categoryFilter === "all"
@@ -398,7 +370,8 @@ export default function ProductsStockPage() {
                 <col className="w-28" />
                 <col className="w-52" />
                 <col className="w-28" />
-                <col className="w-24" />
+                <col className="w-64" />
+                <col className="w-20" />
               </colgroup>
               <thead>
                 <tr className="border-b border-border">
@@ -414,7 +387,7 @@ export default function ProductsStockPage() {
               </thead>
               <tbody>
                 <TableState
-                  colSpan={7}
+                  colSpan={8}
                   isLoading={shopsQuery.isLoading || shopProductsQuery.isLoading}
                   error={
                     (shopsQuery.error ?? shopProductsQuery.error) instanceof Error
@@ -481,17 +454,47 @@ export default function ProductsStockPage() {
                         ฿{Number(row.sellPrice).toFixed(2)}
                       </td>
                       <td className={`px-4 py-3.5 ${COLUMN_ALIGN[4]}`}>
-                        <StockCell
-                          value={row.stockQty}
-                          disabled={isInactive || adjustStock.isPending}
-                          onChange={(delta) => updateQty(row.id, delta)}
-                        />
+                        <span className="font-mono text-sm font-semibold">
+                          {row.stockQty}
+                        </span>
                       </td>
                       <td className={`px-4 py-3.5 ${COLUMN_ALIGN[5]}`}>
                         <Badge variant={status}>{statusLabel}</Badge>
                       </td>
+                      <td className={`px-4 py-3.5 ${COLUMN_ALIGN[6]}`}>
+                        {!isInactive && (
+                          <span className="inline-flex gap-1.5">
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              disabled={row.stockQty <= 0}
+                              onClick={() => setSelling(row)}
+                            >
+                              {t.sellBtn}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              onClick={() => setAdjusting(row)}
+                            >
+                              {t.adjustBtn}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              disabled={row.stockQty <= 0 || shops.length < 2}
+                              onClick={() => setTransferring(row)}
+                            >
+                              {t.transferBtn}
+                            </Button>
+                          </span>
+                        )}
+                      </td>
                       <td
-                        className={`px-4 py-3.5 whitespace-nowrap ${COLUMN_ALIGN[6]}`}
+                        className={`px-4 py-3.5 whitespace-nowrap ${COLUMN_ALIGN[7]}`}
                       >
                         {isInactive ? (
                           <button
@@ -522,6 +525,25 @@ export default function ProductsStockPage() {
           <Caption>{t.caption}</Caption>
         </div>
       </main>
+
+      <SellStockDialog
+        row={selling}
+        shopId={shopId}
+        onClose={() => setSelling(null)}
+      />
+
+      <AdjustStockDialog
+        row={adjusting}
+        shopId={shopId}
+        onClose={() => setAdjusting(null)}
+      />
+
+      <TransferStockDialog
+        row={transferring}
+        shopId={shopId}
+        shops={shops}
+        onClose={() => setTransferring(null)}
+      />
 
       <CategoryManagerDialog
         open={categoryManagerOpen}

@@ -22,9 +22,16 @@ export class PrismaSalesStaffAdapter implements SalesStaffPort {
   ): Promise<void> {
     const shop = await tx.shop.findFirst({
       where: { id: input.shopId, deletedAt: null, status: 'ACTIVE' },
-      select: { ownerId: true },
+      select: { ownerId: true, pausedAt: true },
     });
     if (!shop) throw new NotFoundException('Active shop not found');
+    if (shop.pausedAt) {
+      throw new ForbiddenException({
+        message:
+          'This shop is paused by its owner. Resume it before managing sales.',
+        code: 'SHOP_PAUSED',
+      });
+    }
     if (shop.ownerId === input.staffId) return;
 
     const assignment = await tx.shopStaff.findFirst({

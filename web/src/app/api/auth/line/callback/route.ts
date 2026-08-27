@@ -3,6 +3,7 @@ import { setSessionCookies } from '@/lib/session-cookies';
 import { isValidOAuthState, oauthStateCookieName } from '@/lib/oauth-state';
 import { linkStateCookieName } from '@/lib/oauth-link-state';
 import { forwardAuthed } from '@/lib/api-forward';
+import { landingPathFor } from '@/lib/auth-landing';
 import { twoFactorChallengeCookie } from '@/lib/twofa-challenge';
 import { resolvePublicOrigin } from '@/lib/public-origin';
 
@@ -87,5 +88,7 @@ export async function GET(request: NextRequest) {
   }
 
   await setSessionCookies(data.accessToken, data.refreshToken);
-  return done('/');
+  // เดิมพาไป '/' ซึ่งเป็นหน้า landing ของคนที่ยังไม่ล็อกอิน — คนที่เพิ่งล็อกอิน
+  // สำเร็จต้องเข้าแดชบอร์ดเหมือนช่องทางรหัสผ่าน (lib/auth-landing.ts)
+  return done(landingPathFor((data as { user?: { role?: string } }).user?.role));
 }

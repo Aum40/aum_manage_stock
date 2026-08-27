@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
+
 import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import TableState from "@/components/shared/TableState";
+import AddAdminDialog from "@/components/features/admin/AddAdminDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useAdminUsers, useUpdateAdminRole } from "@/lib/hooks/use-admin";
 import type { AdminUser } from "@/lib/types/admin";
@@ -16,6 +19,7 @@ const content = {
     bannerBody: "เมนูนี้เห็นได้เฉพาะ Super Admin — Admin ทั่วไปจะไม่เห็นเมนูนี้",
     intro:
       "Super Admin มีสิทธิ์เหมือน Admin และจัดการสิทธิ์ของ Admin คนอื่นเพิ่มเติม",
+    addBtn: "เพิ่ม Admin",
     columns: ["Admin", "สถานะ", ""],
     activeLabel: "ปกติ",
     suspendedLabel: "ถูกระงับ",
@@ -32,6 +36,7 @@ const content = {
       "This menu is only visible to Super Admin — regular Admins won't see it.",
     intro:
       "Super Admin has all Admin rights plus the ability to manage other Admins' access.",
+    addBtn: "Add admin",
     columns: ["Admin", "Status", ""],
     activeLabel: "Normal",
     suspendedLabel: "Suspended",
@@ -49,6 +54,7 @@ export default function AdminManagePage() {
   const t = content[locale];
 
   // api กรอง role ได้ทีละค่า จึงต้องยิงสองก้อนแล้วรวมเอง
+  const [adding, setAdding] = useState(false);
   const admins = useAdminUsers({ role: "ADMIN" });
   const superAdmins = useAdminUsers({ role: "SUPER_ADMIN" });
   const updateRole = useUpdateAdminRole();
@@ -77,7 +83,12 @@ export default function AdminManagePage() {
             (PATCH /admin/admins/:id/role เปลี่ยนได้เฉพาะคนที่เป็น Admin อยู่แล้วเท่านั้น)
             ถ้าทีมตัดสินใจว่าต้องมีจริง ต้องเพิ่มฝั่ง api ก่อน แล้วค่อยเอาปุ่มกลับมา
           */}
-          <span className="text-sm text-muted-foreground">{t.intro}</span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm text-muted-foreground">{t.intro}</span>
+            <Button variant="dark" onClick={() => setAdding(true)}>
+              {t.addBtn}
+            </Button>
+          </div>
 
           <Card className="p-0 overflow-x-auto">
             <table className="w-full min-w-125 border-collapse text-sm">
@@ -161,6 +172,8 @@ export default function AdminManagePage() {
           <p className="text-[13px] text-muted-foreground">{t.note}</p>
         </div>
       </main>
+
+      <AddAdminDialog open={adding} onClose={() => setAdding(false)} />
     </>
   );
 }

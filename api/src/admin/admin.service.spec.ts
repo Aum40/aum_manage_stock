@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -38,14 +39,20 @@ describe('AdminService', () => {
     subscriptionPlan: { findMany: jest.Mock };
     $transaction: jest.Mock;
   };
+  let bcrypt: { hash: jest.Mock };
   let service: AdminService;
 
   beforeEach(() => {
     prisma = {
       user: {
         findUnique: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockImplementation((args: { data: unknown }) => ({
+          id: 'new-admin',
+          ...(args.data as Record<string, unknown>),
+        })),
         update: jest.fn(),
       },
       shop: {
@@ -61,7 +68,8 @@ describe('AdminService', () => {
       // $transaction ในโค้ดจริงรับเป็น array ของ promise — mock ให้ resolve ตามลำดับ
       $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
     };
-    service = new AdminService(prisma as never);
+    bcrypt = { hash: jest.fn().mockResolvedValue('hashed') };
+    service = new AdminService(prisma as never, bcrypt as never);
   });
 
   /** ให้ requireUser() คืน actor/target ตามลำดับที่ service เรียก */
@@ -153,6 +161,64 @@ describe('AdminService', () => {
       await expect(
         service.suspendUser(ADMIN, OWNER, 'x'),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('createAdmin (SRS §29/§186)', () => {
+    const DTO = {
+      firstName: 'วิภา',
+      lastName: 'ตั้งเจน',
+      email: 'wipa.admin@example.com',
+      password: 'Str0ng!pass',
+    };
+
+    it('ปฏิเสธเมื่ออีเมลนี้มีคนใช้แล้ว', async () => {
+      prisma.user.findFirst.mockResolvedValue({ id: 'someone' });
+
+      await expect(service.createAdmin(SUPER, DTO)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    // เทียบแบบไม่สนตัวพิมพ์ ไม่งั้น Wipa@x.com กับ wipa@x.com จะกลายเป็นคนละบัญชี
+    it('เช็คอีเมลซ้ำแบบไม่สนตัวพิมพ์ใหญ่เล็ก', async () => {
+      await service.createAdmin(SUPER, DTO);
+
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            email: { equals: DTO.email, mode: 'insensitive' },
+            deletedAt: null,
+          }) as unknown,
+        }),
+      );
+    });
+
+    it('ไม่เก็บรหัสผ่านดิบลงฐานข้อมูล', async () => {
+      await service.createAdmin(SUPER, DTO);
+
+      expect(bcrypt.hash).toHaveBeenCalledWith(DTO.password);
+      const arg = firstArg<{ data: { password: string } }>(prisma.user.create);
+      expect(arg.data.password).toBe('hashed');
+    });
+
+    // login() บล็อกบัญชีที่มีอีเมลแต่ยังไม่ยืนยัน ถ้าไม่ตั้งให้ตั้งแต่แรก
+    // บัญชีที่ Super Admin เพิ่งสร้างจะล็อกอินไม่ได้เลยสักครั้ง
+    it('ถือว่าอีเมลยืนยันแล้ว และได้ role ADMIN เสมอ', async () => {
+      await service.createAdmin(SUPER, DTO);
+
+      const arg = firstArg<{ data: { role: string; emailVerifiedAt: Date } }>(
+        prisma.user.create,
+      );
+      expect(arg.data.role).toBe('ADMIN');
+      expect(arg.data.emailVerifiedAt).toBeInstanceOf(Date);
+    });
+
+    it('ลงบันทึกไว้ในประวัติผู้ดูแล', async () => {
+      await service.createAdmin(SUPER, DTO);
+
+      expect(prisma.adminAuditLog.create).toHaveBeenCalled();
     });
   });
 

@@ -20,6 +20,17 @@ const API_URL = process.env.API_URL;
  */
 const inFlightRefresh = new Map<string, Promise<string | null>>();
 
+/**
+ * เก็บผลไว้ต่ออีกพักหนึ่งหลังคำขอต่ออายุจบแล้ว ไม่ลบทิ้งทันที
+ *
+ * dedupe เฉพาะตอนที่คำขอซ้อนกันอยู่ยังไม่พอ เพราะ Set-Cookie ใบใหม่ออกไปกับ
+ * response ของ request ที่เป็นคนต่ออายุก้อนเดียว ก้อนอื่นที่เบราว์เซอร์ยิงออกมา
+ * พร้อมกันยังถือ cookie ใบเก่าอยู่ ถ้าก้อนไหนมาถึงหลังคำขอแรกจบไปแล้วเสี้ยววินาที
+ * มันจะเห็น map ว่างแล้วยิงใบเก่าไป /auth/refresh อีกรอบ = api ตีเป็นใช้ token ซ้ำ
+ * (api ผ่อนผันให้ช่วงสั้นๆ แล้ว แต่ไม่ควรยิงไปให้เสี่ยงตั้งแต่แรก)
+ */
+const REFRESH_RESULT_TTL_MS = 20_000;
+
 export async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = await getRefreshTokenCookie();
   if (!refreshToken) {
@@ -59,11 +70,18 @@ export async function refreshAccessToken(): Promise<string | null> {
     // api จะตีเป็นการขโมย token แล้วเพิกถอนทั้ง family
     await setSessionCookies(data.accessToken, data.refreshToken);
     return data.accessToken;
-  })().finally(() => {
-    inFlightRefresh.delete(refreshToken);
-  });
+  })();
 
   inFlightRefresh.set(refreshToken, request);
+  void request.finally(() => {
+    const timer = setTimeout(
+      () => inFlightRefresh.delete(refreshToken),
+      REFRESH_RESULT_TTL_MS,
+    );
+    // อย่าให้ตัวจับเวลาถือ process ไว้ตอนปิดเซิร์ฟเวอร์
+    timer.unref?.();
+  });
+
   return request;
 }
 

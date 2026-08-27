@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import SocialButtons from "@/components/features/auth/SocialButtons";
+import { landingPathFor } from "@/lib/auth-landing";
 import { resolveApiError } from "@/lib/api-error";
 import { loginSchema, type LoginValues } from "@/lib/validations/auth";
 
@@ -22,14 +23,6 @@ type SignedInUser = { role?: string };
 type LoginResponse =
   | { requires2fa: true; challengeToken: string }
   | { user?: SignedInUser };
-
-/**
- * แอดมินไม่มีร้าน — @OwnerId() ฝั่ง api ตอบ 403 ให้ทุก endpoint ของฝั่งร้านค้า
- * ถ้าพาไป /dashboard ก็จะเจอหน้าเปล่าที่ทุก query แดงหมด
- */
-function landingPathFor(role: string | undefined): string {
-  return role === "ADMIN" || role === "SUPER_ADMIN" ? "/admin" : "/dashboard";
-}
 
 export default function LoginForm() {
   const { locale } = useLocale();
