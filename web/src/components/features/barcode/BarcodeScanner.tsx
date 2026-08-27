@@ -431,7 +431,16 @@ export default function BarcodeScanner({
 
         ส่วนที่ถูกบังยังถูกสแกนอยู่ (พื้นที่อ่าน = ทั้งภาพ) แค่มองไม่เห็นเท่านั้น
       */}
-      <div className="relative flex max-h-[55vh] min-h-60 w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-[#faf9f6]">
+      {/*
+        ใช้ grid วางซ้อนกัน ไม่ใช่ flex — ข้างในมีที่รับภาพ 2 ตัวที่ใช้คนละเส้นทาง
+        (<video> ของเราเมื่อเบราว์เซอร์ถอดรหัสเองได้ / #ELEMENT_ID ของ html5-qrcode
+        เมื่อตกไปใช้ทางสำรอง) ถ้าเป็น flex sibling ทั้งคู่จะแย่งความกว้างกัน
+        แล้วตัวที่ไม่ได้ใช้ก็ยังกินที่อยู่ดี — เคยทำให้ Mac เหลือภาพแค่ ~10%
+
+        พอวางซ้อนในช่องเดียวกัน ต่างคนต่างได้ 100% เต็ม ไม่ต้องพึ่ง shrink-0
+        ซึ่งเป็นตัวที่ทำให้พังตั้งแต่แรก
+      */}
+      <div className="relative grid max-h-[55vh] min-h-60 w-full place-items-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-[#faf9f6] [&>*]:col-start-1 [&>*]:row-start-1">
         <video
           ref={videoRef}
           muted
@@ -470,7 +479,7 @@ export default function BarcodeScanner({
         */}
         <div
           id={ELEMENT_ID}
-          className="w-full shrink-0 [&_video]:!w-full [&_video]:rounded-xl"
+          className="w-full [&_video]:!w-full [&_video]:rounded-xl"
         />
 
         {/*
