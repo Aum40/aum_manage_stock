@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 import type { NavSection } from "@/components/layout/nav-config";
 
 interface SidebarProps {
-  wordmarkSuffix?: string;
   sections: NavSection[];
   shopSelector?: ReactNode;
   footer?: ReactNode;
@@ -25,7 +24,6 @@ interface SidebarProps {
 // formed by whoever renders it (currently the route-group layouts, backed
 // by nav-config.ts's hardcoded role switch — see the TODO there).
 export default function Sidebar({
-  wordmarkSuffix,
   sections,
   shopSelector,
   footer,
@@ -61,9 +59,6 @@ export default function Sidebar({
             <span className="font-heading text-xl font-bold tracking-[-0.02em] text-brand-orange">
               AumStocks
             </span>
-            {wordmarkSuffix && (
-              <span className="text-[11px] text-white/40">{wordmarkSuffix}</span>
-            )}
           </Link>
           <div className="shrink-0">
             <LanguageToggle />

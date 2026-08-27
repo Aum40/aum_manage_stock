@@ -6,9 +6,18 @@ import { resolveApiError } from '@/lib/api-error';
  * (route handler เป็นคนแนบ Bearer ให้ ดู lib/api-forward.ts)
  */
 export class ApiError extends Error {
+  /**
+   * รหัสเหตุผลจาก api (เช่น DASHBOARD_PERMISSION_DENIED, PLAN_UPGRADE_REQUIRED)
+   *
+   * status อย่างเดียวแยกไม่ออก — 403 ของ "แพ็กเกจไม่ถึง" กับ "เจ้าของร้านไม่ได้
+   * ให้สิทธิ์พนักงานคนนี้" คนละเรื่องกันคนละทางแก้ ถ้าไม่พก code มาด้วยหน้าเว็บ
+   * จะบอกพนักงานให้ไปอัปเกรดแพ็กเกจ ทั้งที่พนักงานอัปเกรดแทนเจ้าของร้านไม่ได้
+   * (SRS §126) api ส่ง code มาใน body อยู่แล้ว แค่เดิมโดนทิ้งตอนแปลงเป็น ApiError
+   */
   constructor(
     message: string,
     readonly status: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -31,7 +40,11 @@ async function request<T>(
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
-    throw new ApiError(resolveApiError(data, DEFAULT_ERROR), res.status);
+    throw new ApiError(
+      resolveApiError(data, DEFAULT_ERROR),
+      res.status,
+      (data as { code?: string } | null)?.code,
+    );
   }
 
   return data as T;

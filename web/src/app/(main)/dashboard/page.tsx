@@ -108,6 +108,10 @@ const content = {
     loading: "กำลังโหลดข้อมูล…",
     empty: "ยังไม่มีข้อมูล",
     lockedCta: "อัปเกรดแพ็กเกจ",
+    deniedTitle: "คุณยังไม่มีสิทธิ์ดูแดชบอร์ด",
+    deniedBody:
+      "เจ้าของร้านเป็นคนเปิดสิทธิ์นี้ให้ ลองติดต่อเจ้าของร้านเพื่อขอเปิด “ดูแดชบอร์ด” ระหว่างนี้ดูประวัติสต็อกของร้านที่คุณประจำอยู่ได้ตามปกติ",
+    deniedCta: "ไปดูประวัติสต็อก",
   },
   en: {
     title: "Dashboard",
@@ -143,6 +147,10 @@ const content = {
     loading: "Loading…",
     empty: "No data yet",
     lockedCta: "Upgrade plan",
+    deniedTitle: "You do not have dashboard access",
+    deniedBody:
+      "Only the shop owner can grant this. Ask them to turn on “View dashboard” for you. In the meantime you can still browse the stock history of the shops you are assigned to.",
+    deniedCta: "View stock history",
   },
 };
 
@@ -159,14 +167,29 @@ function shortPeriod(key: string, groupBy: Period) {
   return `${day}/${month}`;
 }
 
+/** api ตอบ code นี้เมื่อเจ้าของร้านไม่ได้ติ๊ก canViewDashboard ให้พนักงานคนนี้ */
+const DASHBOARD_DENIED = "DASHBOARD_PERMISSION_DENIED";
+
 /**
  * 403 จากเส้นรายงาน = แพ็กเกจไม่ถึง (PLAN_UPGRADE_REQUIRED)
+ *
+ * ยกเว้น DASHBOARD_PERMISSION_DENIED ที่เป็น 403 เหมือนกันแต่คนละเรื่อง —
+ * ถ้าไม่แยก พนักงานที่เจ้าของร้านยังไม่เปิดสิทธิ์ให้ จะเห็นปุ่ม "อัปเกรดแพ็กเกจ"
+ * ทั้งที่พนักงานอัปเกรดแทนเจ้าของร้านไม่ได้ (SRS §126) เช็ค code ไม่ใช่แค่ status
  *
  * จงใจไม่ประกาศเป็น type predicate (`error is ApiError`) เพราะ `!planLocked(e)`
  * จะทำให้ TS ตัด ApiError ออกจนเหลือ never แล้วอ่าน .message ไม่ได้
  */
 function planLocked(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 403;
+  return (
+    error instanceof ApiError &&
+    error.status === 403 &&
+    error.code !== DASHBOARD_DENIED
+  );
+}
+
+function dashboardDenied(error: unknown): boolean {
+  return error instanceof ApiError && error.code === DASHBOARD_DENIED;
 }
 
 function SectionCard({
@@ -321,6 +344,44 @@ export default function DashboardPage() {
       iconBg: "#FDEAE8",
     },
   ];
+
+  /**
+   * พนักงานที่เจ้าของร้านยังไม่เปิด canViewDashboard ให้ — จงใจไม่ redirect ออก
+   *
+   * ทุกหน้าฝั่งพนักงานมีสิทธิ์ของตัวเองคุมอยู่ (/products ใช้ canManageProduct,
+   * /pos ใช้ canScanSale, /chatbot ใช้ canUseChatbot) ถ้าเด้งไปหน้าใดหน้าหนึ่ง
+   * แล้วหน้านั้นก็ไม่มีสิทธิ์อีก จะกลายเป็นเด้งวนไม่จบ อยู่หน้าเดิมแล้วบอกเหตุผล
+   * ตรงนี้ชัดกว่า
+   *
+   * ลิงก์ออกไป /stock-history เพราะเป็นหน้า "ทำงานได้จริง" หน้าเดียวที่พนักงาน
+   * ทุกคนเปิดได้เสมอ — assertCanViewStock() ขอแค่ถูก assign เข้าร้านที่ยัง
+   * active ไม่ได้เช็ค staff_permissions เลย (prisma-stock-authorization.adapter.ts)
+   */
+  if (dashboardDenied(overviewQuery.error)) {
+    return (
+      <>
+        <TopBar title={t.title} />
+        <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
+          <Card variant="dashed">
+            <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+              <div className="font-heading text-base font-semibold">
+                {t.deniedTitle}
+              </div>
+              <p className="max-w-md text-sm text-muted-foreground">
+                {t.deniedBody}
+              </p>
+              <Link
+                href="/stock-history"
+                className="rounded-full bg-primary px-4 py-1.5 text-[13px] font-semibold text-primary-foreground"
+              >
+                {t.deniedCta}
+              </Link>
+            </div>
+          </Card>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>

@@ -3,6 +3,7 @@ import {
   ListShopsQueryDto,
   ListUsersQueryDto,
 } from '@/admin/dto/list-query.dto';
+import { CreateAdminDto } from '@/admin/dto/create-admin.dto';
 import { SuspendDto } from '@/admin/dto/suspend.dto';
 import { UpdateAdminRoleDto } from '@/admin/dto/update-admin-role.dto';
 import { CurrentUser } from '@/common/decorator/current-user.decorator';
@@ -15,6 +16,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 
@@ -50,6 +52,15 @@ export class AdminController {
   }
 
   // ---- สิทธิ์ Admin (Super Admin เท่านั้น) ----
+
+  @Roles(UserRole.SUPER_ADMIN)
+  @Post('admins')
+  async createAdmin(
+    @CurrentUser('sub') actorId: string,
+    @Body() createAdminDto: CreateAdminDto,
+  ) {
+    return this.adminService.createAdmin(actorId, createAdminDto);
+  }
 
   @Roles(UserRole.SUPER_ADMIN)
   @Patch('admins/:id/role')

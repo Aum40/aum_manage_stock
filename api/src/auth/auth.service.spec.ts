@@ -247,12 +247,12 @@ describe('AuthService', () => {
   });
 
   describe('refresh', () => {
-    it('เพิกถอนทั้ง family เมื่อพบการใช้ token ซ้ำ', async () => {
+    it('เพิกถอนทั้ง family เมื่อพบการใช้ token ซ้ำหลังพ้นช่วงผ่อนผัน', async () => {
       refreshToken.findValid.mockResolvedValue({
         id: 'r1',
         familyId: 'f1',
         revokedAt: null,
-        usedAt: new Date(),
+        usedAt: new Date(Date.now() - 60_000),
         expiresAt: new Date(Date.now() + 60_000),
         user: makeUser(),
       });
@@ -261,6 +261,43 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       expect(refreshToken.revokeFamily).toHaveBeenCalledWith('f1');
+    });
+
+    // request ขนานจากหน้าเว็บเดียวกันถือ cookie ใบเดิมมาช้ากว่าเพื่อนไม่กี่วินาที
+    // ต้องต่ออายุให้ ไม่ใช่เตะออก
+    it('ต่ออายุให้ตามปกติเมื่อใบเดิมเพิ่งถูกหมุนไปในช่วงผ่อนผัน', async () => {
+      refreshToken.findValid.mockResolvedValue({
+        id: 'r1',
+        familyId: 'f1',
+        revokedAt: null,
+        usedAt: new Date(Date.now() - 1_000),
+        expiresAt: new Date(Date.now() + 60_000),
+        user: makeUser(),
+      });
+
+      await expect(service.refresh('token')).resolves.toEqual({
+        accessToken: 'access',
+        refreshToken: 'refresh',
+      });
+      expect(refreshToken.revokeFamily).not.toHaveBeenCalled();
+      // ใบเดิมถูก mark ไปแล้ว ห้าม mark ซ้ำจนเวลาถูกเลื่อนออกไปเรื่อยๆ
+      expect(refreshToken.markUsed).not.toHaveBeenCalled();
+    });
+
+    it('ปฏิเสธ token ที่ถูกเพิกถอนแล้วโดยไม่แตะ family', async () => {
+      refreshToken.findValid.mockResolvedValue({
+        id: 'r1',
+        familyId: 'f1',
+        revokedAt: new Date(),
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: makeUser(),
+      });
+
+      await expect(service.refresh('token')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(refreshToken.revokeFamily).not.toHaveBeenCalled();
     });
 
     it('เพิกถอนทั้ง family เมื่อเจ้าของ token ถูกระงับ', async () => {

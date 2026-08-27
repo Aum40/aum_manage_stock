@@ -42,10 +42,19 @@ export class RefreshTokenService {
     });
   }
 
+  /**
+   * ตั้งแค่ usedAt เท่านั้น — ห้ามตั้ง revokedAt ด้วย
+   *
+   * สองคอลัมน์นี้คนละความหมายกัน usedAt = "ใบนี้ถูกหมุนไปเป็นใบใหม่แล้ว"
+   * ส่วน revokedAt = "ใบนี้ถูกยกเลิก (logout / เพิกถอนทั้ง family)" ถ้าตั้ง
+   * revokedAt ตอนหมุนด้วย จะแยกสองกรณีนี้ไม่ออก แล้ว AuthService.refresh()
+   * จะเผื่อช่วง grace ให้ request ที่ตามมาทีหลังไม่ได้ (ดูคอมเมนต์ที่นั่น)
+   * และ revokeFamily() ก็จะข้ามใบที่ถูกหมุนแล้วไป เพราะมันกรอง revokedAt: null
+   */
   async markUsed(id: string) {
     await this.prisma.refreshToken.update({
       where: { id },
-      data: { usedAt: new Date(), revokedAt: new Date() },
+      data: { usedAt: new Date() },
     });
   }
 

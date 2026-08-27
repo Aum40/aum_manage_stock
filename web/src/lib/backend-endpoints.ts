@@ -15,6 +15,7 @@ export const backendEndpointRules = [
   { methods: ["DELETE"] as const, pattern: /^users\/me\/unlink-line$/ },
   { methods: ["DELETE"] as const, pattern: /^users\/me\/unlink-google$/ },
   { methods: ["GET", "PATCH"] as const, pattern: /^admin\/(?:users|shops)(?:\/[^/]+\/(?:suspend|reactivate))?$/ },
+  { methods: ["POST"] as const, pattern: /^admin\/admins$/ },
   { methods: ["PATCH"] as const, pattern: /^admin\/admins\/[^/]+\/role$/ },
   { methods: ["GET"] as const, pattern: /^admin\/overview$/ },
   { methods: ["GET"] as const, pattern: /^payments(?:\/[^/]+)?$/ },
