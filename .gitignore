@@ -16,6 +16,8 @@ node_modules/
 # Env files (fallback; api/ and web/ already ignore their own .env files)
 .env
 .env.local
+# [อั้ม] ไฟล์สำรองที่ scripts/mobile-tunnel.mjs สร้าง — มีคีย์จริงอยู่ข้างใน
+.env.backup-*
 
 
 .agents/

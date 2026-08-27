@@ -3,12 +3,14 @@
 import { useState } from "react";
 
 import TopBar from "@/components/layout/TopBar";
+import BarcodeScanner from "@/components/features/barcode/BarcodeScanner";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Stepper from "@/components/shared/Stepper";
 import Caption from "@/components/shared/Caption";
 import { useLocale } from "@/components/i18n/LocaleContext";
+import { ApiError } from "@/lib/api-client";
 import { useCreateSale, useScanSale, useShops } from "@/lib/hooks/use-inventory";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 
@@ -26,6 +28,8 @@ const content = {
     scanHint: "เล็งกล้องไปที่บาร์โค้ดสินค้า",
     scanFormats: "รองรับ EAN-13 และ QR",
     scanInputPh: "หรือพิมพ์บาร์โค้ดเอง แล้วกด Enter",
+    scanAdded: "เพิ่มลงบิลแล้ว",
+    scanNotFound: "ไม่พบสินค้าที่ใช้บาร์โค้ดนี้ในร้าน — เพิ่มสินค้าก่อนถึงจะขายได้",
     billHeading: "บิลปัจจุบัน",
     colProduct: "สินค้า",
     colPrice: "ราคา",
@@ -47,6 +51,8 @@ const content = {
     scanHint: "Point the camera at the product barcode",
     scanFormats: "Supports EAN-13 and QR",
     scanInputPh: "Or type the barcode and press Enter",
+    scanAdded: "Added to the bill",
+    scanNotFound: "No product in this shop uses that barcode — add the product before selling it.",
     billHeading: "Current Bill",
     colProduct: "Product",
     colPrice: "Price",
@@ -79,11 +85,28 @@ export default function POSPage() {
   const createSale = useCreateSale(shopId);
   const [barcode, setBarcode] = useState("");
   const [items, setItems] = useState<PosItem[]>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [lastAdded, setLastAdded] = useState<string | null>(null);
 
-  const scanBarcode = () => {
-    const value = barcode.trim();
+  /**
+   * [อั้ม] รับบาร์โค้ดจากสองทาง — กล้อง กับช่องพิมพ์ — เลยแยกออกมารับค่าเป็น
+   * พารามิเตอร์ ไม่อ่านจาก state โดยตรง เพราะ callback ที่ส่งเข้ากล้องไปแล้ว
+   * จะปิดทับค่า state ณ ตอนนั้นไว้ ถ้าอ่านจาก state จะได้ค่าเก่าเสมอ
+   */
+  const submitBarcode = (raw: string) => {
+    const value = raw.trim();
     if (!value || scanSale.isPending) return;
+    setScanError(null);
     scanSale.mutate(value, {
+      onError: (cause) => {
+        setLastAdded(null);
+        // 404 = ร้านนี้ไม่มีสินค้าที่ผูกบาร์โค้ดนี้ไว้ ซึ่งเป็นเคสที่เจอบ่อยสุดตอนใช้จริง
+        setScanError(
+          cause instanceof ApiError && cause.status === 404
+            ? t.scanNotFound
+            : (cause as Error).message,
+        );
+      },
       onSuccess: (product) => {
         setItems((previous) => {
           const existing = previous.find((item) => item.shopProductId === product.shopProductId);
@@ -105,9 +128,12 @@ export default function POSPage() {
           ];
         });
         setBarcode("");
+        setLastAdded(product.name);
       },
     });
   };
+
+  const scanBarcode = () => submitBarcode(barcode);
 
   const updateQty = (i: number, delta: number) => {
     setItems((prev) =>
@@ -132,25 +158,33 @@ export default function POSPage() {
               <div className="mb-4 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
                 {t.scanHeading}
               </div>
-              <div className="relative flex h-52.5 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-[#faf9f6]">
-                <div className="absolute inset-x-0 top-1/2 h-0.75 -translate-y-1/2 bg-linear-to-r from-transparent via-primary to-transparent" />
-                <div className="mt-5 px-4 text-center text-[13px] text-muted-foreground">
-                  {t.scanHint}
-                </div>
-                <div className="mt-1 text-xs text-border">{t.scanFormats}</div>
-              </div>
-            <Input
-              value={barcode}
-              onChange={(event) => setBarcode(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  scanBarcode();
-                }
-              }}
-              placeholder={t.scanInputPh}
-              className="mt-3.5 font-mono"
-            />
+              {/* [อั้ม] กรอบเดิมเป็นภาพประกอบเฉย ๆ เปลี่ยนเป็นกล้องจริง */}
+              <BarcodeScanner onScan={submitBarcode} />
+
+              <Input
+                value={barcode}
+                onChange={(event) => setBarcode(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    scanBarcode();
+                  }
+                }}
+                placeholder={t.scanInputPh}
+                className="mt-3.5 font-mono"
+              />
+
+              {scanError && (
+                <p className="mt-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-xs text-status-red">
+                  {scanError}
+                </p>
+              )}
+
+              {!scanError && lastAdded && (
+                <p className="mt-2 text-xs text-status-green">
+                  {t.scanAdded}: {lastAdded}
+                </p>
+              )}
             </div>
           </Card>
 
