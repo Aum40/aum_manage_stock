@@ -20,6 +20,7 @@ import {
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog";
+import BarcodeScanner from "@/components/features/barcode/BarcodeScanner";
 import { ApiError, api } from "@/lib/api-client";
 import {
   inventoryKeys,
@@ -78,6 +79,8 @@ const content = {
     cancelCategory: "ยกเลิก",
     barcode: "บาร์โค้ด",
     barcodePh: "ห้ามซ้ำกับสินค้าอื่นของคุณ (เว้นว่างได้)",
+    scanOpen: "สแกนแทนการพิมพ์",
+    scanClose: "ปิดกล้อง",
     unit: "หน่วยนับ",
     unitPh: "เช่น ชิ้น",
     unitHint: "พิมพ์เองได้ หรือกดเลือกจากตัวอย่าง",
@@ -126,6 +129,8 @@ const content = {
     cancelCategory: "Cancel",
     barcode: "Barcode",
     barcodePh: "Must not clash with your other products (optional)",
+    scanOpen: "Scan instead of typing",
+    scanClose: "Close camera",
     unit: "Unit",
     unitPh: "e.g. piece",
     unitHint: "Type your own, or pick a suggestion",
@@ -174,6 +179,7 @@ export default function AddProductFullPage() {
   const [categoryId, setCategoryId] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [rows, setRows] = useState<Record<string, ShopRow>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -341,15 +347,35 @@ export default function AddProductFullPage() {
                     </div>
 
                     <div className="flex flex-col gap-1">
-                      <Label className="text-[11px] font-semibold tracking-[0.08em] uppercase">
-                        {t.barcode}
-                      </Label>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-[11px] font-semibold tracking-[0.08em] uppercase">
+                          {t.barcode}
+                        </Label>
+                        {/* [อั้ม] สแกนแทนการพิมพ์ — เลข EAN-13 พิมพ์ผิดง่ายมาก */}
+                        <button
+                          type="button"
+                          onClick={() => setScanOpen((open) => !open)}
+                          className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                        >
+                          {scanOpen ? t.scanClose : t.scanOpen}
+                        </button>
+                      </div>
                       <Input
                         value={barcode}
                         onChange={(event) => setBarcode(event.target.value)}
                         placeholder={t.barcodePh}
                         className="font-mono"
                       />
+                      {scanOpen && (
+                        <div className="mt-1">
+                          <BarcodeScanner
+                            onScan={(value) => {
+                              setBarcode(value);
+                              setScanOpen(false);
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
 

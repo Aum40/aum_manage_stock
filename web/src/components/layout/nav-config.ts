@@ -11,6 +11,7 @@ export type IconKey =
   | "message"
   | "users"
   | "history"
+  | "scan"
   | "sparkles"
   | "catalog"
   | "store"
@@ -90,6 +91,7 @@ export function getNavSections(role: SidebarRole): NavSection[] {
           { label: { th: "แดชบอร์ด", en: "Dashboard" }, href: dashboardHref, icon: "dashboard" },
           { label: { th: "สินค้า", en: "Products" }, href: "/products", icon: "package" },
           { label: { th: "ขายหน้าร้าน (POS)", en: "Point of Sale" }, href: "/pos", icon: "cart" },
+          { label: { th: "รับสินค้าเข้า (สแกน)", en: "Stock In (Scan)" }, href: "/stock-in", icon: "scan" },
           { label: { th: "แชทบอทรับสต็อก", en: "Stock Chatbot" }, href: "/chatbot", icon: "message" },
           { label: { th: "คำแนะนำจาก AI", en: "AI Recommendations" }, href: "/insights", icon: "sparkles" },
         ],
@@ -122,6 +124,13 @@ export function getNavSections(role: SidebarRole): NavSection[] {
           label: { th: "ขายหน้าร้าน (POS)", en: "Point of Sale" },
           href: "/pos",
           icon: "cart",
+          locked: isFree ? "PLUS" : undefined,
+        },
+        {
+          // [อั้ม] ยิงบาร์โค้ดนับของเข้า — gate เดียวกับ POS เพราะ barcode เป็นฟีเจอร์ Plus ขึ้นไป
+          label: { th: "รับสินค้าเข้า (สแกน)", en: "Stock In (Scan)" },
+          href: "/stock-in",
+          icon: "scan",
           locked: isFree ? "PLUS" : undefined,
         },
         {

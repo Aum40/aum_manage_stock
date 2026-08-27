@@ -1,5 +1,5 @@
 import { EnvVariable } from '@/config/env.validation';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 export type GoogleProfile = {
@@ -11,6 +11,8 @@ export type GoogleProfile = {
 
 @Injectable()
 export class GoogleAuthService {
+  private readonly logger = new Logger(GoogleAuthService.name);
+
   constructor(
     private readonly configService: ConfigService<EnvVariable, true>,
   ) {}
@@ -36,6 +38,17 @@ export class GoogleAuthService {
     });
 
     if (!tokenRes.ok) {
+      /**
+       * [อั้ม] Google บอกสาเหตุจริงมาใน body เสมอ (invalid_client =
+       * client id/secret ผิด, redirect_uri_mismatch = ยังไม่ได้ลงทะเบียน URI ใน
+       * console, invalid_grant = code หมดอายุ/ถูกใช้ไปแล้ว) เดิมโยนทิ้งหมด
+       * เหลือข้อความเดียวกันทุกกรณี ทำให้ไล่ปัญหาไม่ได้เลย
+       */
+      const detail = await tokenRes.text().catch(() => '');
+      this.logger.error(
+        `Google token exchange failed (${tokenRes.status}) redirect_uri=${redirectUri} :: ${detail.slice(0, 300)}`,
+      );
+
       throw new UnauthorizedException('Invalid Google authorization code');
     }
 
