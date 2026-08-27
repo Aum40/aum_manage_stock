@@ -41,6 +41,7 @@ export class PrismaStockAuthorizationAdapter implements StockAuthorizationPort {
       where: { id: input.shopId, deletedAt: null, status: 'ACTIVE' },
       select: {
         ownerId: true,
+        pausedAt: true,
         owner: {
           select: {
             subscription: { select: { status: true, expiresAt: true } },
@@ -52,6 +53,13 @@ export class PrismaStockAuthorizationAdapter implements StockAuthorizationPort {
     const subscription = shop.owner.subscription;
     if (!subscription || isSubscriptionReadOnly(subscription))
       throw new ForbiddenException('Subscription is read-only');
+    if (shop.pausedAt) {
+      throw new ForbiddenException({
+        message:
+          'This shop is paused by its owner. Resume it before adjusting stock.',
+        code: 'SHOP_PAUSED',
+      });
+    }
     if (shop.ownerId === input.actorId) return;
 
     const assignment = await tx.shopStaff.findFirst({
@@ -76,6 +84,7 @@ export class PrismaStockAuthorizationAdapter implements StockAuthorizationPort {
       where: { id: input.shopId, deletedAt: null, status: 'ACTIVE' },
       select: {
         ownerId: true,
+        pausedAt: true,
         owner: {
           select: {
             subscription: {
@@ -97,6 +106,13 @@ export class PrismaStockAuthorizationAdapter implements StockAuthorizationPort {
       !subscription.plan.chatbotEnabled
     ) {
       throw new ForbiddenException('Subscription does not include chatbot');
+    }
+    if (shop.pausedAt) {
+      throw new ForbiddenException({
+        message:
+          'This shop is paused by its owner. Resume it before adjusting stock.',
+        code: 'SHOP_PAUSED',
+      });
     }
     if (shop.ownerId === input.actorId) return;
 

@@ -133,4 +133,37 @@ describe('PrismaStockAuthorizationAdapter', () => {
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it('blocks stock adjustment and chatbot use for a paused shop, even for the owner', async () => {
+    const pausedShop = {
+      ownerId: 'owner',
+      pausedAt: new Date('2026-08-27T00:00:00.000Z'),
+      owner: {
+        subscription: {
+          status: 'ACTIVE',
+          expiresAt: null,
+          plan: { chatbotEnabled: true },
+        },
+      },
+    };
+    const tx = {
+      shop: { findFirst: jest.fn().mockResolvedValue(pausedShop) },
+      shopStaff: { findFirst: jest.fn() },
+    };
+    const adapter = new PrismaStockAuthorizationAdapter();
+
+    await expect(
+      adapter.assertCanAdjustStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'owner',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      adapter.assertCanUseChatbot(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.shopStaff.findFirst).not.toHaveBeenCalled();
+  });
 });
