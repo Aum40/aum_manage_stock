@@ -217,11 +217,11 @@ export default function ShopsManager() {
                       <img
                         src={s.imageUrl}
                         alt=""
-                        className="size-12 rounded-2xl object-cover"
+                        className="size-30 rounded-2xl object-cover"
                       />
                     ) : (
                       <div
-                        className="flex size-12 items-center justify-center rounded-2xl font-heading text-xl font-bold text-white"
+                        className="flex size-30 items-center justify-center rounded-2xl font-heading text-4xl font-bold text-white"
                         style={{ backgroundColor: i % 2 === 0 ? "#F5A31C" : "#5C9A54" }}
                       >
                         {s.name.charAt(0)}
