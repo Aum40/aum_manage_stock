@@ -9,12 +9,13 @@ const nextConfig: NextConfig = {
    * เครื่องอื่นแล้วหน้าจะโหลดมาแต่ asset ของ dev/HMR โดนบล็อก
    *
    * มีผลเฉพาะ development — production build ไม่สนใจค่านี้
+   *
+   * ใส่เฉพาะรูปแบบที่ใช้ได้กับทุกคนในทีม — **ห้ามใส่ IP ในวงแลนของเครื่องตัวเอง**
+   * เพราะคนอื่นใช้ไม่ได้ แล้วทุกคนจะต้องมาแก้ไฟล์กลางนี้เพิ่ม IP ตัวเอง
+   * กลายเป็นชนวน conflict ประจำ ถ้าต้องเปิดจากเครื่องอื่นให้ใช้ tunnel แทน
+   * (ดู scripts/mobile-tunnel.mjs) ซึ่งได้ https ด้วย จึงใช้กล้องได้
    */
-  allowedDevOrigins: [
-    "192.168.1.48",
-    "*.trycloudflare.com",
-    "*.ngrok-free.app",
-  ],
+  allowedDevOrigins: ["*.trycloudflare.com", "*.ngrok-free.app"],
 };
 
 export default nextConfig;

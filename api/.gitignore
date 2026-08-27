@@ -42,7 +42,6 @@ lerna-debug.log*
 .env.test.local
 .env.production.local
 .env.local
-.env.backup-20260826-210316
 
 # temp directory
 .temp
