@@ -9,9 +9,12 @@ import {
   ListShopsQueryDto,
   ListUsersQueryDto,
 } from '@/admin/dto/list-query.dto';
+import { CreateAdminDto } from '@/admin/dto/create-admin.dto';
 import { AdminRole } from '@/admin/dto/update-admin-role.dto';
+import { BcryptService } from '@/infrastructure/hash/bcrypt.service';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -38,7 +41,10 @@ const USER_SELECT = {
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bcryptService: BcryptService,
+  ) {}
 
   // =====================================================================
   // ผู้ใช้ (SRS §184-185)
@@ -151,6 +157,56 @@ export class AdminService {
     ]);
 
     return this.findUser(target.id);
+  }
+
+  /**
+   * SRS §29/§186 — Super Admin สร้างบัญชีผู้ดูแลระบบใหม่
+   *
+   * สร้างเป็นบัญชีใหม่ ไม่ใช่เลื่อนขั้นผู้ใช้เดิม เพราะ @OwnerId() ปฏิเสธบัญชี
+   * admin ด้วย 403 (admin ไม่มีร้านตามนิยาม) ถ้าเลื่อนเจ้าของร้านที่มีร้านอยู่
+   * ขึ้นมา ร้านของเขาจะเข้าไม่ถึงทันทีทั้งที่ subscription ยังเดินและยังถูก
+   * เก็บเงินอยู่
+   *
+   * ตั้ง emailVerifiedAt ให้เลย — Super Admin เป็นคนกรอกอีเมลนี้เอง ไม่ได้มา
+   * จากการสมัครผ่านหน้าเว็บ และ login() บล็อกบัญชีที่มีอีเมลแต่ยังไม่ยืนยัน
+   * ถ้าไม่ตั้ง บัญชีที่เพิ่งสร้างจะล็อกอินไม่ได้เลยสักครั้ง
+   */
+  async createAdmin(actorId: string, dto: CreateAdminDto) {
+    const taken = await this.prisma.user.findFirst({
+      where: {
+        email: { equals: dto.email, mode: 'insensitive' },
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new ConflictException('Email already registered');
+    }
+
+    const password = await this.bcryptService.hash(dto.password);
+    const admin = await this.prisma.user.create({
+      data: {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        email: dto.email,
+        emailVerifiedAt: new Date(),
+        password,
+        role: UserRole.ADMIN,
+      },
+      select: USER_SELECT,
+    });
+
+    await this.auditLog(
+      actorId,
+      AdminAuditAction.USER_ROLE_CHANGE,
+      'USER',
+      admin.id,
+      {
+        metadata: { from: 'NONE', to: UserRole.ADMIN },
+      },
+    );
+
+    return admin;
   }
 
   /** SRS §29/§186 — เรียกได้เฉพาะ Super Admin (บังคับที่ @Roles ใน controller) */
