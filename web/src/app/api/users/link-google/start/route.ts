@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createOAuthState, oauthStateCookieOptions } from '@/lib/oauth-state';
 import { linkStateCookieName } from '@/lib/oauth-link-state';
+import { resolvePublicOrigin } from '@/lib/public-origin';
 
 /**
  * ผูกบัญชีใช้ callback "ตัวเดียวกับตอน login" โดยตั้งใจ
@@ -11,7 +12,7 @@ import { linkStateCookieName } from '@/lib/oauth-link-state';
  * แล้วแยกว่าเป็น "ผูกบัญชี" หรือ "เข้าสู่ระบบ" ด้วย cookie ของ state แทน
  */
 export async function GET(request: Request) {
-  const { origin } = new URL(request.url);
+  const origin = resolvePublicOrigin(request);
   const state = createOAuthState();
 
   const params = new URLSearchParams({

@@ -4,13 +4,14 @@ import {
   oauthStateCookieName,
   oauthStateCookieOptions,
 } from '@/lib/oauth-state';
+import { resolvePublicOrigin } from '@/lib/public-origin';
 
 /**
  * เริ่ม LINE Login ฝั่ง server เพื่อให้เก็บ state ลง httpOnly cookie ได้
  * (ถ้าให้ปุ่มฝั่ง client เด้งไปเอง จะเก็บ state แบบที่ JS อ่านไม่ได้ไม่ได้เลย)
  */
 export async function GET(request: Request) {
-  const { origin } = new URL(request.url);
+  const origin = resolvePublicOrigin(request);
   const state = createOAuthState();
 
   const params = new URLSearchParams({

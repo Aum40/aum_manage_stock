@@ -4,9 +4,10 @@ import {
   oauthStateCookieName,
   oauthStateCookieOptions,
 } from '@/lib/oauth-state';
+import { resolvePublicOrigin } from '@/lib/public-origin';
 
 export async function GET(request: Request) {
-  const { origin } = new URL(request.url);
+  const origin = resolvePublicOrigin(request);
   const state = createOAuthState();
 
   const params = new URLSearchParams({
