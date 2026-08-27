@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import TableState from "@/components/shared/TableState";
+import Pager from "@/components/shared/Pager";
 import SuspendDialog from "@/components/features/admin/SuspendDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { useDebounced } from "@/lib/hooks/use-debounced";
@@ -81,11 +82,13 @@ export default function AdminShopsPage() {
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<ShopStatus | "all">("all");
+  const [page, setPage] = useState(1);
   const q = useDebounced(search);
 
   const { data, isPending, error } = useAdminShops({
     q: q || undefined,
     status: status === "all" ? undefined : status,
+    page,
   });
 
   const suspend = useSuspendShop();
@@ -93,6 +96,15 @@ export default function AdminShopsPage() {
   const [target, setTarget] = useState<AdminShop | null>(null);
 
   const shops = data?.items ?? [];
+
+  /**
+   * ทุกตัวกรองต้องพากลับหน้า 1 เสมอ — ถ้าอยู่หน้า 4 แล้วพิมพ์ค้นหา ผลลัพธ์ชุดใหม่
+   * มักสั้นกว่าเดิมมาก หน้า 4 ของมันจึงว่างเปล่าทั้งที่มีผลลัพธ์อยู่จริง
+   */
+  const applyFilter = <T,>(set: (value: T) => void) => (value: T) => {
+    set(value);
+    setPage(1);
+  };
   const dateFormat = new Intl.DateTimeFormat(
     locale === "th" ? "th-TH" : "en-GB",
     { day: "numeric", month: "short", year: "2-digit" },
@@ -108,11 +120,13 @@ export default function AdminShopsPage() {
               placeholder={t.searchPh}
               className="flex-1"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => applyFilter(setSearch)(event.target.value)}
             />
             <Select
               value={status}
-              onValueChange={(value) => setStatus(value as ShopStatus | "all")}
+              onValueChange={(value) =>
+                applyFilter(setStatus)(value as ShopStatus | "all")
+              }
             >
               <SelectTrigger>
                 <SelectValue />
@@ -210,8 +224,16 @@ export default function AdminShopsPage() {
           </Card>
 
           {data && (
-            <div className="text-[13px] text-muted-foreground">
-              {t.totalPrefix} {data.meta.total} {t.totalSuffix}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-[13px] text-muted-foreground">
+                {t.totalPrefix} {data.meta.total} {t.totalSuffix}
+              </div>
+              <Pager
+                page={data.meta.page}
+                totalPages={data.meta.totalPages}
+                isLoading={isPending}
+                onChange={setPage}
+              />
             </div>
           )}
 

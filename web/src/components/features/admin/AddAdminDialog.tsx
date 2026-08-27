@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -78,7 +77,6 @@ function AddAdminDialogContent({ onClose }: { onClose: () => void }) {
   const { locale } = useLocale();
   const t = content[locale];
   const createAdmin = useCreateAdmin();
-  const [done, setDone] = useState(false);
 
   const {
     register,
@@ -87,18 +85,16 @@ function AddAdminDialogContent({ onClose }: { onClose: () => void }) {
   } = useForm<Values>({ resolver: zodResolver(schema) });
 
   const onSubmit = (values: Values) => {
-    createAdmin.mutate(values, {
-      onSuccess: () => {
-        setDone(true);
-        onClose();
-      },
-    });
+    createAdmin.mutate(values, { onSuccess: onClose });
   };
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-brand-dark/40 px-4"
-      onClick={onClose}
+      // ปุ่มยกเลิก disabled ระหว่างส่งอยู่แล้ว การคลิกฉากหลังก็ต้องปิดไม่ได้เหมือนกัน
+      onClick={() => {
+        if (!createAdmin.isPending) onClose();
+      }}
     >
       <form
         role="dialog"
@@ -171,7 +167,7 @@ function AddAdminDialogContent({ onClose }: { onClose: () => void }) {
           <Button
             type="submit"
             variant="dark"
-            disabled={createAdmin.isPending || done}
+            disabled={createAdmin.isPending}
           >
             {createAdmin.isPending ? t.submitting : t.submit}
           </Button>
