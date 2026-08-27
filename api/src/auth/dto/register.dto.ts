@@ -1,10 +1,10 @@
+import { NormalizeEmail } from '@/common/decorator/normalize-email.decorator';
 import { Trim } from '@/common/decorator/trim.decorator';
 import {
-  IsAlphanumeric,
   IsEmail,
   IsNotEmpty,
   IsString,
-  MinLength,
+  IsStrongPassword,
 } from 'class-validator';
 
 export class RegisterDto {
@@ -21,12 +21,17 @@ export class RegisterDto {
   @IsEmail()
   @IsString()
   @IsNotEmpty()
-  @Trim()
+  @NormalizeEmail()
   email: string;
 
   @IsString()
-  @MinLength(8)
   @IsNotEmpty()
-  @IsAlphanumeric()
+  @IsStrongPassword({
+    minLength: 8,
+    minLowercase: 1,
+    minUppercase: 1,
+    minNumbers: 1,
+    minSymbols: 1,
+  })
   password: string;
 }
