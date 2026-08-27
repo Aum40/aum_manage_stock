@@ -36,6 +36,21 @@ import * as QRCode from 'qrcode';
  */
 const TOTP_EPOCH_TOLERANCE_SECONDS = 30;
 
+/**
+ * ช่วงผ่อนผันหลัง refresh token ถูกหมุนไปแล้ว
+ *
+ * หน้าเว็บยิง request ขนานกันหลายก้อน ทุกก้อนแนบ refresh token cookie ใบเดียวกัน
+ * ไปตั้งแต่ตอนออกจากเบราว์เซอร์ พอเปิดหน้าค้างไว้เฉยๆ จน access token หมดอายุ
+ * (900 วิ) request ชุดถัดไปจะเจอ 401 พร้อมกันแล้ววิ่งมาต่ออายุ ก้อนที่ออกไป
+ * ก่อน Set-Cookie ใบใหม่จะกลับถึงเบราว์เซอร์ จะยังถือใบเดิมอยู่ — นั่นคือ
+ * client แข่งกับตัวเอง ไม่ใช่ token ถูกขโมย ถ้าเพิกถอนทั้ง family ทันที
+ * ผู้ใช้จะถูกเตะออกทุกครั้งที่ปล่อยหน้าเว็บทิ้งไว้เกิน 15 นาที
+ *
+ * ภายในช่วงนี้จึงออกคู่ token ใหม่ใน family เดิมให้ไปตามปกติ พ้นช่วงนี้แล้ว
+ * ยังมีใบเดิมโผล่มาอีก = ใบนั้นหลุดออกไปจริง เพิกถอนทั้ง family ตามเดิม
+ */
+const REFRESH_TOKEN_REUSE_GRACE_MS = 30_000;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -143,11 +158,19 @@ export class AuthService {
   async refresh(rawRefreshToken: string) {
     const record = await this.refreshTokenService.findValid(rawRefreshToken);
 
-    if (!record || record.revokedAt || record.expiresAt < new Date()) {
+    if (!record || record.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    if (record.usedAt) {
+    // ถูกยกเลิกจริง (logout หรือโดนเพิกถอนทั้ง family) — ไม่มีทางกู้คืน
+    if (record.revokedAt) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (
+      record.usedAt &&
+      Date.now() - record.usedAt.getTime() > REFRESH_TOKEN_REUSE_GRACE_MS
+    ) {
       await this.refreshTokenService.revokeFamily(record.familyId);
       throw new UnauthorizedException('Refresh token reuse detected');
     }
@@ -157,7 +180,9 @@ export class AuthService {
       throw new ForbiddenException('Your account has been suspended');
     }
 
-    await this.refreshTokenService.markUsed(record.id);
+    if (!record.usedAt) {
+      await this.refreshTokenService.markUsed(record.id);
+    }
 
     const accessToken = await this.accessTokenService.sign({
       sub: record.user.id,
