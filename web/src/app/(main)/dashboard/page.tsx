@@ -37,7 +37,18 @@ type Period = keyof typeof RANGE_DAYS;
 
 interface ShopOverview {
   range: { from: string; to: string };
-  sales: { totalAmount: number; saleCount: number; averageSaleAmount: number };
+  /**
+   * ฟิลด์ต้นทุนเป็น optional โดยตั้งใจ — api ที่ยังไม่ได้ deploy รุ่นใหม่จะไม่ส่งมา
+   * หน้านี้ต้องไม่พังและต้องซ่อนบรรทัดกำไรไปเฉยๆ ไม่ใช่ขึ้น ฿NaN
+   */
+  sales: {
+    totalAmount: number;
+    saleCount: number;
+    averageSaleAmount: number;
+    costAmount?: number;
+    grossProfit?: number;
+    itemsWithoutCost?: number;
+  };
   stock: { activeProducts: number; lowStock: number; outOfStock: number };
   generatedAt: string;
 }
@@ -81,7 +92,14 @@ interface DeadStockItem {
 /** GET /dashboard/summary — ยอดรวมของทุกร้านที่ผู้ใช้คนนี้มีสิทธิ์เห็น */
 interface AccountSummary {
   range: { from: string; to: string };
-  totals: { totalAmount: number; saleCount: number; shopCount: number };
+  totals: {
+    totalAmount: number;
+    saleCount: number;
+    shopCount: number;
+    costAmount?: number;
+    grossProfit?: number;
+    itemsWithoutCost?: number;
+  };
   shops: SummaryShopRow[];
 }
 
@@ -104,6 +122,9 @@ const content = {
     noShopBody: "สร้างร้านก่อน แล้วแดชบอร์ดจะเริ่มเก็บตัวเลขให้อัตโนมัติ",
     noShopCta: "ไปสร้างร้าน",
     statSales: "ยอดขาย",
+    statCost: "ทุน",
+    statProfit: "กำไรขั้นต้น",
+    missingCost: (n: number) => `${n} รายการยังไม่ได้ใส่ต้นทุน`,
     statBills: "จำนวนบิล",
     statAverage: "เฉลี่ยต่อบิล",
     statLowStock: "สินค้าใกล้หมด",
@@ -146,6 +167,9 @@ const content = {
     noShopBody: "Create a shop first — the dashboard starts collecting numbers automatically.",
     noShopCta: "Create a shop",
     statSales: "Sales",
+    statCost: "Cost",
+    statProfit: "Gross profit",
+    missingCost: (n: number) => `${n} line items have no cost yet`,
     statBills: "Bills",
     statAverage: "Average per bill",
     statLowStock: "Low stock",
@@ -372,21 +396,57 @@ export default function DashboardPage() {
             ? 0
             : summary.totals.totalAmount / summary.totals.saleCount,
         lowStock: summary.shops.reduce((sum, row) => sum + row.lowStock, 0),
+        costAmount: summary.totals.costAmount,
+        grossProfit: summary.totals.grossProfit,
+        itemsWithoutCost: summary.totals.itemsWithoutCost,
       }
     : overview && {
         totalAmount: overview.sales.totalAmount,
         saleCount: overview.sales.saleCount,
         averageSaleAmount: overview.sales.averageSaleAmount,
         lowStock: overview.stock.lowStock,
+        costAmount: overview.sales.costAmount,
+        grossProfit: overview.sales.grossProfit,
+        itemsWithoutCost: overview.sales.itemsWithoutCost,
       };
 
-  const stats = [
+  /**
+   * ต้นทุนกับกำไรอยู่ในการ์ดเดียวกับยอดขาย ไม่แยกการ์ดใหม่
+   * สามตัวนี้เป็นเรื่องเดียวกัน แยกออกไปจะต้องกวาดตาสามที่เพื่ออ่านเรื่องเดียว
+   *
+   * "กำไรขั้นต้น" ไม่ใช่ "กำไร" — ยังไม่ได้หักค่าเช่า ค่าแรง ค่าน้ำค่าไฟ
+   * เขียนสั้นกว่านี้แล้วเจ้าของร้านจะเข้าใจว่าเหลือเข้ากระเป๋าเท่านี้จริง
+   */
+  const hasCost = headline?.costAmount !== undefined;
+  const marginPct =
+    headline && hasCost && headline.totalAmount > 0
+      ? Math.round(((headline.grossProfit ?? 0) / headline.totalAmount) * 100)
+      : null;
+
+  const stats: {
+    key: string;
+    label: string;
+    value: string;
+    icon: string;
+    iconBg: string;
+    hint?: string;
+    warn?: string;
+  }[] = [
     {
       key: "sales",
       label: `${t.statSales} · ${t.rangeLabel[period]}`,
       value: headline ? baht(headline.totalAmount, locale) : "—",
       icon: "💰",
       iconBg: "#FEF3DC",
+      hint:
+        headline && hasCost
+          ? `${t.statCost} ${baht(headline.costAmount ?? 0, locale)} · ${t.statProfit} ${baht(headline.grossProfit ?? 0, locale)}${marginPct === null ? "" : ` (${marginPct}%)`}`
+          : undefined,
+      // ทุน 0 คือยังไม่เคยกรอก ไม่ใช่ของฟรี ปล่อยเงียบไว้ = ตัวเลขกำไรหลอกตา
+      warn:
+        headline && (headline.itemsWithoutCost ?? 0) > 0
+          ? t.missingCost(headline.itemsWithoutCost ?? 0)
+          : undefined,
     },
     {
       key: "bills",
@@ -548,6 +608,16 @@ export default function DashboardPage() {
                       <div className="mt-1 text-[13px] text-muted-foreground">
                         {stat.label}
                       </div>
+                      {stat.hint && (
+                        <div className="mt-2 border-t border-border pt-2 text-[13px] text-muted-foreground">
+                          {stat.hint}
+                        </div>
+                      )}
+                      {stat.warn && (
+                        <div className="mt-1 text-xs text-status-orange">
+                          {stat.warn}
+                        </div>
+                      )}
                     </div>
                   </Card>
                 ))}
