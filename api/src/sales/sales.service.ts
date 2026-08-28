@@ -39,11 +39,21 @@ export class SalesService {
     });
   }
 
+  /**
+   * ปิดการขาย — ประตูที่ใช้คือ assertSalesEnabled ไม่ใช่ assertBarcodeEnabled
+   *
+   * สิ่งที่แพ็กเกจล็อกไว้คือ "การสแกนบาร์โค้ด" ไม่ใช่ "การขาย" — ตารางแพ็กเกจ
+   * ให้ Basic Dashboard กับ Free ซึ่งเป็นแดชบอร์ดที่แสดงยอดขาย ถ้า Free เปิดบิล
+   * ไม่ได้เลยแดชบอร์ดนั้นจะว่างตลอดกาล และ void() ก็ใช้ assertSalesEnabled อยู่
+   * แล้ว การให้ยกเลิกบิลได้แต่สร้างบิลไม่ได้เป็นสถานะที่ขัดกันในตัวเอง
+   *
+   * ลูกค้า Free จึงพิมพ์รายการขายเองได้ แต่ใช้กล้องสแกนไม่ได้ (ดู scan())
+   */
   create(shopId: string, staffId: string, input: CreateSaleDto) {
     return this.prisma.$transaction(
       async (tx) => {
         await this.assertAccess(tx, shopId, staffId);
-        await this.subscriptions.assertBarcodeEnabled(tx, shopId);
+        await this.subscriptions.assertSalesEnabled(tx, shopId);
         const requested = new Map<string, number>();
         for (const item of input.items)
           requested.set(

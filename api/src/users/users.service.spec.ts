@@ -67,6 +67,13 @@ describe('UsersService', () => {
       refreshToken: { updateMany: jest.fn() },
       $transaction: jest.fn(),
     };
+    // createStaff() นับโควตาในทรานแซกชันเดียวกับการสร้างพนักงาน เพื่อกันการยิง
+    // พร้อมกันแซงโควตา — mock จึงต้องส่ง client ตัวเดิมเข้า callback ให้
+    prisma.$transaction.mockImplementation((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: typeof prisma) => unknown)(prisma)
+        : arg,
+    );
     bcrypt = {
       hash: jest.fn().mockResolvedValue('hashed'),
       compare: jest.fn().mockResolvedValue(true),

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { Prisma } from '../database/generated/prisma/client';
 import { UserRole } from '../database/generated/prisma/enums';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -50,25 +51,34 @@ export class ShopsService {
       );
     }
 
-    const usedShopCount = await this.prisma.shop.count({
-      where: { ownerId: userId, deletedAt: null },
-    });
+    // นับแล้วสร้างต้องอยู่ในทรานแซกชันเดียวกัน ไม่งั้นสองรีเควสต์ที่ยิงพร้อมกัน
+    // จะนับได้เท่ากันแล้วผ่านทั้งคู่ — เท่ากับสร้างร้านเกินโควตาที่จ่ายเงินมา
+    // Serializable ให้ Postgres จับ read-write conflict นี้เอง (แบบเดียวกับ
+    // StockService.adjust) ฝั่งที่แพ้จะได้ error แล้วผู้ใช้กดใหม่ได้
+    return this.prisma.$transaction(
+      async (tx) => {
+        const usedShopCount = await tx.shop.count({
+          where: { ownerId: userId, deletedAt: null },
+        });
 
-    const quota = calculateShopQuota({
-      status: subscription.status,
-      includedShopQuota: subscription.plan.includedShopQuota,
-      usedShopCount,
-    });
+        const quota = calculateShopQuota({
+          status: subscription.status,
+          includedShopQuota: subscription.plan.includedShopQuota,
+          usedShopCount,
+        });
 
-    if (!quota.canCreateShop) {
-      throw new ForbiddenException(
-        'Cannot create a new shop: shop quota is used up or the subscription is not active. Upgrade your plan to get more quota.',
-      );
-    }
+        if (!quota.canCreateShop) {
+          throw new ForbiddenException(
+            'Cannot create a new shop: shop quota is used up or the subscription is not active. Upgrade your plan to get more quota.',
+          );
+        }
 
-    return this.prisma.shop.create({
-      data: { ...dto, ownerId: userId },
-    });
+        return tx.shop.create({
+          data: { ...dto, ownerId: userId },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async update(userId: string, shopId: string, dto: UpdateShopDto) {
@@ -85,15 +95,26 @@ export class ShopsService {
     await this.assertNotReadOnly(userId);
     await this.findOwnedShopOrThrow(userId, shopId);
 
-    // TODO(shop-products-resource, staff-resource): ตาม ER note ของ shops
-    // ต้องตั้ง shop_products.status = INACTIVE และ shop_staffs.removed_at
-    // ให้ทุกแถวของร้านนี้ในทรานแซกชันเดียวกันด้วย แต่สองตารางนั้นยังไม่มีใน
-    // ระบบ (รอ feature/shop-products-resource, feature/staff-resource) —
-    // ตอนนี้ soft delete แค่ตัว shop เอง quota จะถูกคืนให้อัตโนมัติทันที
-    // เพราะ getSubscriptionWithPlanOrThrow คำนวณ used สดจาก deletedAt เสมอ
-    return this.prisma.shop.update({
-      where: { id: shopId },
-      data: { deletedAt: new Date() },
+    // ตาม ER note ของ shops: การลบร้านต้องพาสองตารางลูกไปด้วยในทรานแซกชัน
+    // เดียวกัน ไม่งั้นพนักงานจะยังผูกกับร้านที่ไม่มีอยู่แล้ว และ shop_products
+    // จะยัง ACTIVE ค้างไว้ (ตอนที่เขียนครั้งแรกสองตารางนี้ยังไม่มีในระบบ)
+    //
+    // stock_movements / Sale / SaleItem ห้ามแตะ — เก็บเป็นหลักฐานตลอด
+    const deletedAt = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      await tx.shopProduct.updateMany({
+        where: { shopId, status: 'ACTIVE' },
+        data: { status: 'INACTIVE' },
+      });
+      await tx.shopStaff.updateMany({
+        where: { shopId, removedAt: null },
+        data: { removedAt: deletedAt },
+      });
+      // quota คืนให้อัตโนมัติทันทีเพราะ used คำนวณสดจาก deletedAt เสมอ
+      return tx.shop.update({
+        where: { id: shopId },
+        data: { deletedAt },
+      });
     });
   }
 
