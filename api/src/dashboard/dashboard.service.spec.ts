@@ -22,7 +22,7 @@ const RANGE = {
 function createPrismaMock() {
   return {
     sale: { aggregate: jest.fn(), groupBy: jest.fn(), findMany: jest.fn() },
-    saleItem: { groupBy: jest.fn() },
+    saleItem: { groupBy: jest.fn(), findMany: jest.fn() },
     shopProduct: {
       count: jest.fn(),
       findMany: jest.fn(),
@@ -47,6 +47,9 @@ describe('DashboardService', () => {
 
   beforeEach(() => {
     prisma = createPrismaMock();
+    // เส้นทางส่วนใหญ่ไม่สนใจต้นทุน ให้ค่าเริ่มต้นเป็นไม่มีรายการขาย
+    // เทสต์ที่ตรวจกำไรจะ mock ทับเอง
+    prisma.saleItem.findMany.mockResolvedValue([]);
     access = {
       assertCanViewShopDashboard: jest.fn().mockResolvedValue(OWNER_CTX),
       assertCanViewAccountDashboard: jest.fn().mockResolvedValue(OWNER_CTX),
@@ -76,12 +79,52 @@ describe('DashboardService', () => {
         totalAmount: 1500,
         saleCount: 6,
         averageSaleAmount: 250,
+        costAmount: 0,
+        grossProfit: 1500,
+        itemsWithoutCost: 0,
       });
       expect(result.stock).toEqual({
         activeProducts: 42,
         lowStock: 3,
         outOfStock: 1,
       });
+    });
+
+    it('กำไรขั้นต้น = ยอดขาย − ทุนที่ snapshot ไว้ตอนเปิดบิล', async () => {
+      prisma.sale.aggregate.mockResolvedValue({
+        _sum: { totalAmount: 1000 },
+        _count: { _all: 2 },
+      });
+      prisma.shopProduct.count.mockResolvedValue(0);
+      prisma.saleItem.findMany.mockResolvedValue([
+        { quantity: 50, costPrice: 6, sale: { shopId: SHOP } },
+        { quantity: 10, costPrice: 20, sale: { shopId: SHOP } },
+      ]);
+
+      const result = await service.getShopDashboard(OWNER, SHOP, RANGE);
+
+      expect(result.sales.costAmount).toBe(500);
+      expect(result.sales.grossProfit).toBe(500);
+      expect(result.sales.itemsWithoutCost).toBe(0);
+    });
+
+    it('รายการที่ยังไม่ได้กรอกทุนถูกนับไว้ ไม่ใช่เงียบไป', async () => {
+      prisma.sale.aggregate.mockResolvedValue({
+        _sum: { totalAmount: 400 },
+        _count: { _all: 1 },
+      });
+      prisma.shopProduct.count.mockResolvedValue(0);
+      prisma.saleItem.findMany.mockResolvedValue([
+        { quantity: 4, costPrice: 25, sale: { shopId: SHOP } },
+        // ทุน 0 = ยังไม่เคยกรอก ไม่ใช่ของฟรี
+        { quantity: 3, costPrice: 0, sale: { shopId: SHOP } },
+      ]);
+
+      const result = await service.getShopDashboard(OWNER, SHOP, RANGE);
+
+      expect(result.sales.costAmount).toBe(100);
+      expect(result.sales.grossProfit).toBe(300);
+      expect(result.sales.itemsWithoutCost).toBe(1);
     });
 
     it('ไม่มีบิลเลย averageSaleAmount ต้องเป็น 0 ไม่ใช่ NaN', async () => {
@@ -251,6 +294,9 @@ describe('DashboardService', () => {
         totalAmount: 1200,
         saleCount: 7,
         shopCount: 2,
+        costAmount: 0,
+        grossProfit: 1200,
+        itemsWithoutCost: 0,
       });
       expect(result.shops[0].lowStock).toBe(4);
       expect(result.shops[1].lowStock).toBe(0);
