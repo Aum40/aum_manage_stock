@@ -335,10 +335,25 @@ export function useMySubscription() {
   });
 }
 
+/**
+ * ยอดที่ต้องจ่ายจริงมาจาก api เท่านั้น ห้ามเอาราคาป้ายของแพ็กเกจมาแสดงแทน
+ * เพราะการอัปเกรดจากแพ็กเกจที่ยังไม่หมดอายุจะเก็บแค่ส่วนต่าง (เช่น PLUS -> PRO
+ * = 1,000 ไม่ใช่ 3,499) ถ้าหน้าเว็บโชว์ราคาป้ายจะไม่ตรงกับที่ Stripe ตัดจริง
+ */
+export type PaymentIntentResult = {
+  paymentId: string;
+  clientSecret: string;
+  amountThb: number;
+  fullPriceThb: number;
+  /** true = จ่ายเฉพาะส่วนต่าง วันหมดอายุเดิมไม่ขยับ */
+  prorated: boolean;
+  expiresAt: string;
+};
+
 export function useCreateSubscriptionPaymentIntent() {
   return useMutation({
     mutationFn: (planCode: 'PLUS' | 'PRO') =>
-      api.post<{ paymentId: string; clientSecret: string }>(
+      api.post<PaymentIntentResult>(
         '/api/backend/payments/subscription-intent',
         { planCode },
       ),
@@ -348,7 +363,7 @@ export function useCreateSubscriptionPaymentIntent() {
 export function useRetrySubscriptionPaymentIntent() {
   return useMutation({
     mutationFn: (paymentId: string) =>
-      api.post<{ paymentId: string; clientSecret: string }>(
+      api.post<PaymentIntentResult>(
         `/api/backend/payments/${paymentId}/retry-intent`,
       ),
   });
@@ -367,6 +382,14 @@ export type Payment = {
   status: string;
   purpose: string;
   createdAt: string;
+  /** เวลาที่ใบนี้หมดอายุ (createdAt + 24 ชม.) */
+  expiresAt: string;
+  /**
+   * api เป็นคนตัดสินว่ายังกด "ชำระอีกครั้ง" ได้ไหม ไม่ใช่หน้าเว็บ — ถ้าคำนวณ
+   * จาก createdAt เองที่นี่ นาฬิกาเครื่องผู้ใช้ที่เพี้ยนจะทำให้ปุ่มโผล่ทั้งที่
+   * api ปฏิเสธไปแล้ว (หรือหายไปทั้งที่ยังจ่ายได้)
+   */
+  retryable: boolean;
   subscription?: { plan?: { nameTh?: string } };
 };
 

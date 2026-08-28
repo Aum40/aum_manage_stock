@@ -23,7 +23,7 @@ export class SubscriptionsController {
   // อัปเกรดเป็น PRO ได้ฟรีแค่ยิง endpoint ตรงๆ
   //
   // ตอนนี้ย้ายไปเป็น SubscriptionsService.applyUpgrade()/applyRenewal() ที่
-  // PaymentsService.handleWebhook() เรียกหลัง Stripe ยืนยันว่าจ่ายเงินสำเร็จ
+  // PaymentsService เรียกให้หลังยืนยันการชำระเงินที่ POST /payments/:id/confirm
   // แล้วเท่านั้น และ commit พร้อมการปิดยอดชำระในทรานแซกชันเดียว ตามที่ ER
   // note ของ subscriptions กำหนดไว้
   //

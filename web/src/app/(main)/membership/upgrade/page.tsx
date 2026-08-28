@@ -27,6 +27,9 @@ const content = {
     chooseProBtn: "เลือก Pro →",
     footerNote:
       "ร้านและสินค้าที่มีอยู่แล้วจะถูกเก็บไว้เต็มจำนวนเมื่ออัปเกรดแพ็กเกจ ไม่มีการหักข้อมูลเก่าใดๆ",
+    upgradeOnly: (amount: string) => `จ่ายเพิ่มเพียง ฿${amount}`,
+    keepsExpiry: "วันหมดอายุเดิมไม่เปลี่ยน",
+    fullPriceNote: "เริ่มนับอายุ 12 เดือนใหม่",
     unlimited: "ไม่จำกัด",
     featShops: "จำนวนร้านค้า",
     featProducts: "สินค้าสูงสุด",
@@ -51,6 +54,9 @@ const content = {
     chooseProBtn: "Choose Pro →",
     footerNote:
       "Existing shops and products are kept in full when you upgrade — nothing is ever deducted.",
+    upgradeOnly: (amount: string) => `Pay only ฿${amount} more`,
+    keepsExpiry: "Your current expiry date stays the same",
+    fullPriceNote: "Starts a fresh 12-month term",
     unlimited: "Unlimited",
     featShops: "Number of Shops",
     featProducts: "Max Products",
@@ -96,7 +102,50 @@ export default function UpgradePlanPage() {
   const freePlan = plans.find((p) => p.code === "FREE");
   const plusPlan = plans.find((p) => p.code === "PLUS");
   const proPlan = plans.find((p) => p.code === "PRO");
-  const currentPlanCode = subscriptionQuery.data?.subscription.plan.code;
+  const currentSubscription = subscriptionQuery.data?.subscription;
+  const currentPlanCode = currentSubscription?.plan.code;
+
+  /**
+   * กฎเดียวกับ resolveUpgradeCharge() ฝั่ง api — จ่ายแค่ส่วนต่างได้ก็ต่อเมื่อ
+   * แพ็กเกจปัจจุบันเป็นแบบเสียเงินและยังไม่หมดอายุ
+   *
+   * ใช้ readOnly ที่ api คำนวณมาให้ ไม่เทียบวันที่เอง — นอกจากจะได้ผลตรงกับ
+   * เซิร์ฟเวอร์แน่นอนแล้ว การเรียก Date.now() ระหว่าง render ยังเป็นฟังก์ชัน
+   * ไม่บริสุทธิ์ที่ React Compiler ห้ามไว้
+   *
+   * ตัวเลขนี้เป็นแค่ตัวอย่างให้เห็นก่อนกด ยอดจริงยึดตามที่ api ตอบกลับมาเสมอ
+   */
+  const keepsExpiry =
+    currentSubscription !== undefined &&
+    currentSubscription.plan.code !== "FREE" &&
+    subscriptionQuery.data?.readOnly === false;
+
+  const upgradePriceFor = (plan: SubscriptionPlan | undefined) => {
+    if (!plan || !keepsExpiry) return null;
+    const difference = Number(plan.priceThb) - Number(currentSubscription?.plan.priceThb ?? 0);
+    return difference > 0 ? difference : null;
+  };
+
+  // เขียนเป็นฟังก์ชันคืน JSX ไม่ใช่คอมโพเนนต์ที่ประกาศระหว่าง render
+  // (react-hooks/static-components) — คอมโพเนนต์ที่สร้างใหม่ทุกรอบจะถูก
+  // React ถอด/ใส่ใหม่ทั้งต้นไม้ทุกครั้งที่หน้านี้ re-render
+  const upgradeHint = (plan: SubscriptionPlan | undefined) => {
+    const difference = upgradePriceFor(plan);
+    if (difference === null) {
+      return (
+        <p className="mt-2 text-[11px] text-muted-foreground">{t.fullPriceNote}</p>
+      );
+    }
+    return (
+      <p className="mt-2 text-[11px] leading-snug">
+        <span className="font-mono font-semibold text-status-green">
+          {t.upgradeOnly(difference.toLocaleString())}
+        </span>
+        <br />
+        <span className="text-muted-foreground">{t.keepsExpiry}</span>
+      </p>
+    );
+  };
 
   const features = [
     {
@@ -151,10 +200,11 @@ export default function UpgradePlanPage() {
   const startCheckout = (planCode: "PLUS" | "PRO") => {
     if (createPayment.isPending) return;
     createPayment.mutate(planCode, {
-      onSuccess: ({ paymentId, clientSecret }) => {
-        const selectedPlan = planCode === "PLUS" ? plusPlan : proPlan;
-        if (clientSecret && selectedPlan) {
-          setPayment({ paymentId, clientSecret, amount: Number(selectedPlan.priceThb) });
+      onSuccess: ({ paymentId, clientSecret, amountThb }) => {
+        // amountThb คือยอดที่ Stripe จะตัดจริง — อัปเกรดจากแพ็กเกจที่ยังไม่
+        // หมดอายุจะเก็บแค่ส่วนต่าง ราคาป้ายจึงใช้แทนกันไม่ได้
+        if (clientSecret) {
+          setPayment({ paymentId, clientSecret, amount: amountThb });
         }
       },
     });
@@ -262,13 +312,16 @@ export default function UpgradePlanPage() {
                         {t.currentPlanBtn}
                       </Button>
                     ) : (
-                      <Button
-                        variant="gradient"
-                        disabled={createPayment.isPending}
-                        onClick={() => startCheckout("PLUS")}
-                      >
-                        {t.choosePlusBtn}
-                      </Button>
+                      <>
+                        <Button
+                          variant="gradient"
+                          disabled={createPayment.isPending}
+                          onClick={() => startCheckout("PLUS")}
+                        >
+                          {t.choosePlusBtn}
+                        </Button>
+                        {upgradeHint(plusPlan)}
+                      </>
                     )}
                   </td>
                   <td className="px-4 py-5 text-center">
@@ -277,13 +330,16 @@ export default function UpgradePlanPage() {
                         {t.currentPlanBtn}
                       </Button>
                     ) : (
-                      <Button
-                        variant="dark"
-                        disabled={createPayment.isPending}
-                        onClick={() => startCheckout("PRO")}
-                      >
-                        {t.chooseProBtn}
-                      </Button>
+                      <>
+                        <Button
+                          variant="dark"
+                          disabled={createPayment.isPending}
+                          onClick={() => startCheckout("PRO")}
+                        >
+                          {t.chooseProBtn}
+                        </Button>
+                        {upgradeHint(proPlan)}
+                      </>
                     )}
                   </td>
                 </tr>

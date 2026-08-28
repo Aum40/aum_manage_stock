@@ -194,7 +194,7 @@ describe('SalesService', () => {
 
   it('fails before product access when the subscription check fails', async () => {
     const { service, subscriptions, products } = setup();
-    subscriptions.assertBarcodeEnabled.mockRejectedValue(
+    subscriptions.assertSalesEnabled.mockRejectedValue(
       new Error('unavailable'),
     );
     await expect(
@@ -203,5 +203,39 @@ describe('SalesService', () => {
       }),
     ).rejects.toThrow('unavailable');
     expect(products.getForSale).not.toHaveBeenCalled();
+  });
+
+  /**
+   * แพ็กเกจล็อก "การสแกนบาร์โค้ด" ไม่ใช่ "การขาย" — Free ต้องพิมพ์รายการขายเอง
+   * ได้ ไม่งั้นแดชบอร์ดพื้นฐานที่ Free มีสิทธิ์ใช้จะไม่มียอดขายให้แสดงเลย
+   * และ void() ก็ใช้ assertSalesEnabled อยู่แล้ว การให้ยกเลิกบิลได้แต่เปิดบิล
+   * ไม่ได้เป็นสถานะที่ขัดกันในตัวเอง
+   */
+  it('เปิดบิลได้โดยไม่ต้องมีสิทธิ์บาร์โค้ด — ประตูของการขายคือ assertSalesEnabled', async () => {
+    const { service, subscriptions } = setup();
+    subscriptions.assertBarcodeEnabled.mockRejectedValue(
+      new Error('barcode locked'),
+    );
+
+    await expect(
+      service.create('shop', 'staff', {
+        items: [{ shopProductId: productId, quantity: 1 }],
+      }),
+    ).resolves.toBeDefined();
+
+    expect(subscriptions.assertSalesEnabled).toHaveBeenCalled();
+    expect(subscriptions.assertBarcodeEnabled).not.toHaveBeenCalled();
+  });
+
+  it('สแกนบาร์โค้ดยังถูกล็อกตามแพ็กเกจเหมือนเดิม', async () => {
+    const { service, subscriptions, products } = setup();
+    subscriptions.assertBarcodeEnabled.mockRejectedValue(
+      new Error('barcode locked'),
+    );
+
+    await expect(service.scan('shop', 'staff', '8850001')).rejects.toThrow(
+      'barcode locked',
+    );
+    expect(products.scan).not.toHaveBeenCalled();
   });
 });

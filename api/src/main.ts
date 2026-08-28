@@ -5,7 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { EnvVariable } from './config/env.validation';
 
 async function bootstrap() {
-  // rawBody จำเป็นสำหรับตรวจลายเซ็น Stripe webhook (feature/payments-resource)
+  // rawBody จำเป็นสำหรับตรวจลายเซ็น LINE webhook (line-webhook.controller.ts)
+  // — Stripe ไม่ได้ใช้แล้ว การชำระเงินยืนยันผ่าน POST /payments/:id/confirm
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   const configService = app.get(ConfigService<EnvVariable, true>);

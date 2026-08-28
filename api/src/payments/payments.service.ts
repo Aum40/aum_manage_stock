@@ -5,6 +5,12 @@ import {
   PaymentStatus,
 } from '@/database/generated/prisma/enums';
 import { PaidPlanCode } from '@/payments/dto/create-subscription-payment.dto';
+import {
+  isPaymentWindowOpen,
+  paymentExpiresAt,
+  resolveUpgradeCharge,
+  PAYMENT_WINDOW_HOURS,
+} from '@/payments/payment-pricing.util';
 import { StripeService } from '@/payments/stripe.service';
 import { SubscriptionsService } from '@/subscriptions/subscriptions.service';
 import {
@@ -64,12 +70,41 @@ export class PaymentsService {
         ? PaymentPurpose.RENEWAL
         : PaymentPurpose.NEW_SUBSCRIPTION;
 
+    // อัปเกรดจากแพ็กเกจที่ยังไม่หมดอายุ = เก็บเฉพาะส่วนต่าง แล้วคงวันหมดอายุเดิม
+    const charge = resolveUpgradeCharge({
+      targetPlan: {
+        id: targetPlan.id,
+        code: targetPlan.code,
+        priceThb: Number(targetPlan.priceThb),
+        isFree: targetPlan.isFree,
+      },
+      current: {
+        planId: subscription.planId,
+        status: subscription.status,
+        expiresAt: subscription.expiresAt,
+        plan: {
+          id: subscription.plan.id,
+          code: subscription.plan.code,
+          priceThb: Number(subscription.plan.priceThb),
+          isFree: subscription.plan.isFree,
+        },
+      },
+    });
+
     // ปิดใบเก่าที่ค้างก่อนออกใบใหม่ (ดูคอมเมนต์ของเมธอด)
     await this.cancelPendingIntents(userId, reusePaymentId);
 
+    // keepExpiry ต้องเดินทางไปกับ intent ไม่ใช่คำนวณซ้ำตอน fulfill — ระหว่างที่
+    // ใบยังเปิดค้าง (สูงสุด 24 ชม.) แพ็กเกจเดิมอาจหมดอายุพอดี ถ้าคำนวณใหม่ตอน
+    // นั้นจะกลายเป็นจ่ายส่วนต่างแต่ได้รอบใหม่เต็มปี
     const intent = await this.stripeService.createCardPaymentIntent(
-      Number(targetPlan.priceThb),
-      { userId, planCode, purpose },
+      charge.amountThb,
+      {
+        userId,
+        planCode,
+        purpose,
+        keepExpiry: charge.keepExpiry ? 'true' : 'false',
+      },
     );
     if (!intent.client_secret) {
       throw new BadRequestException('Stripe ไม่ได้ส่ง client secret กลับมา');
@@ -81,11 +116,12 @@ export class PaymentsService {
           data: {
             subscriptionId: subscription.id,
             purpose,
-            amountThb: targetPlan.priceThb,
+            amountThb: charge.amountThb,
             status: PaymentStatus.PENDING,
             provider: PROVIDER,
             providerRef: intent.id,
             paidAt: null,
+            // createdAt ไม่ถูกแตะโดยตั้งใจ — หน้าต่าง 24 ชม. นับจากใบแรก
           },
         })
       : await this.prisma.payment.create({
@@ -93,17 +129,29 @@ export class PaymentsService {
             userId,
             subscriptionId: subscription.id,
             purpose,
-            amountThb: targetPlan.priceThb,
+            amountThb: charge.amountThb,
             status: PaymentStatus.PENDING,
             provider: PROVIDER,
             providerRef: intent.id,
           },
         });
 
-    return { paymentId: payment.id, clientSecret: intent.client_secret };
+    return {
+      paymentId: payment.id,
+      clientSecret: intent.client_secret,
+      // หน้าเว็บต้องแสดงยอดจริงที่ถูกเรียกเก็บ ไม่ใช่ราคาป้ายของแพ็กเกจ
+      amountThb: charge.amountThb,
+      fullPriceThb: Number(targetPlan.priceThb),
+      prorated: charge.keepExpiry,
+      expiresAt: paymentExpiresAt(payment.createdAt).toISOString(),
+    };
   }
 
   async listMyPayments(userId: string) {
+    // cron เดินรายชั่วโมง ผู้ใช้ที่เปิดหน้านี้ก่อนรอบถัดไปต้องไม่เห็นปุ่ม
+    // "ชำระอีกครั้ง" ของใบที่หมดอายุไปแล้ว
+    await this.expireStalePaymentsForUser(userId);
+
     const payments = await this.prisma.payment.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
@@ -111,8 +159,9 @@ export class PaymentsService {
       include: { subscription: { include: { plan: true } } },
     });
 
-    // แบบ Learnora ไม่มี webhook: ถ้าผู้ใช้ปิดหน้าเว็บหลังจ่ายสำเร็จ
-    // รอบถัดไปที่เปิดประวัติจะตรวจ PaymentIntent ที่ยัง PENDING แล้วบันทึกให้
+    // ตาข่ายรองของ POST /payments/:id/confirm — ระบบนี้ไม่ใช้ webhook ถ้าผู้ใช้
+    // ปิดหน้าเว็บหลังบัตรผ่านแต่ก่อนกดยืนยัน จะไม่มีอะไรมาปิดยอดให้เลย
+    // รอบถัดไปที่เปิดประวัติจึงต้องไล่ถาม Stripe เองว่าใบที่ยัง PENDING จ่ายแล้วไหม
     const pendingIntents = payments.filter(
       (payment) =>
         payment.status === PaymentStatus.PENDING &&
@@ -133,16 +182,45 @@ export class PaymentsService {
       }),
     );
 
-    return pendingIntents.some(
+    const rows = pendingIntents.some(
       (payment) => payment.status === PaymentStatus.PENDING,
     )
-      ? this.prisma.payment.findMany({
+      ? await this.prisma.payment.findMany({
           where: { userId },
           orderBy: { createdAt: 'desc' },
           take: 5,
           include: { subscription: { include: { plan: true } } },
         })
       : payments;
+
+    // หน้าเว็บไม่ควรคำนวณหน้าต่าง 24 ชม. เอง ไม่งั้นนาฬิกาเครื่องผู้ใช้ที่เพี้ยน
+    // จะทำให้ปุ่มโผล่/หายไม่ตรงกับที่ api ยอมรับจริง
+    const now = new Date();
+    return rows.map((row) => ({
+      ...row,
+      expiresAt: paymentExpiresAt(row.createdAt).toISOString(),
+      retryable:
+        (row.status === PaymentStatus.PENDING ||
+          row.status === PaymentStatus.FAILED) &&
+        isPaymentWindowOpen(row.createdAt, now),
+    }));
+  }
+
+  /** เหมือน expireStalePayments() แต่จำกัดเฉพาะของผู้ใช้คนเดียว */
+  private async expireStalePaymentsForUser(userId: string) {
+    const cutoff = new Date(Date.now() - PAYMENT_WINDOW_HOURS * 60 * 60 * 1000);
+    const stale = await this.prisma.payment.findMany({
+      where: {
+        userId,
+        status: PaymentStatus.PENDING,
+        provider: PROVIDER,
+        createdAt: { lt: cutoff },
+      },
+      select: { providerRef: true },
+    });
+    for (const payment of stale) {
+      await this.expirePayment(payment.providerRef);
+    }
   }
 
   async retryPaymentIntent(userId: string, paymentId: string) {
@@ -155,6 +233,16 @@ export class PaymentsService {
       payment.status !== PaymentStatus.FAILED
     ) {
       throw new BadRequestException('รายการนี้ไม่สามารถชำระซ้ำได้');
+    }
+
+    // ยึด "อายุของใบ" เป็นเกณฑ์ ไม่ใช่สถานะ — ไม่มี webhook คอยพลิกใบที่บัตร
+    // ถูกปฏิเสธเป็น FAILED ให้ ใบที่จ่ายไม่ผ่านจึงค้าง PENDING จนกว่า cron
+    // จะเก็บกวาด และผู้ใช้ต้องลองบัตรใบใหม่ได้ตลอดช่วงที่ใบยังไม่หมดอายุ
+    if (!isPaymentWindowOpen(payment.createdAt)) {
+      await this.expirePayment(payment.providerRef);
+      throw new BadRequestException(
+        `ใบชำระเงินนี้หมดอายุแล้ว (เปิดไว้ได้ ${PAYMENT_WINDOW_HOURS} ชั่วโมง) กรุณาเริ่มรายการใหม่จากหน้าอัปเกรดแพ็กเกจ`,
+      );
     }
 
     let planCode: string | null = null;
@@ -174,11 +262,10 @@ export class PaymentsService {
       } catch {
         // ถ้าเป็นรายการจาก Stripe account/mode เก่า ให้ใช้ยอดเงินใน ledger
         // หาแพ็กเกจแทน เพื่อให้ผู้ใช้เปิด PaymentIntent ใบใหม่ได้
-        const plan = await this.prisma.subscriptionPlan.findFirst({
-          where: { priceThb: payment.amountThb, isActive: true },
-          select: { code: true },
-        });
-        planCode = plan?.code ?? null;
+        planCode = await this.inferPlanCodeFromAmount(
+          payment.userId,
+          Number(payment.amountThb),
+        );
       }
     }
     if (planCode !== 'PLUS' && planCode !== 'PRO') {
@@ -238,28 +325,18 @@ export class PaymentsService {
   }
 
   /**
-   * Stripe ส่ง event ซ้ำได้เสมอ (retry เมื่อเราตอบช้าหรือพลาด) จึงต้อง
-   * idempotent — ยึด providerRef เป็นตัวกันซ้ำ ถ้าจ่ายสำเร็จไปแล้วให้จบเงียบๆ
+   * บันทึกผลว่าจ่ายสำเร็จแล้วเปลี่ยนแพ็กเกจให้ — จุดรวมของทุกเส้นทางที่ยืนยันเงิน
+   *
+   * ระบบนี้ไม่ใช้ Stripe webhook เส้นทางที่เรียกเมธอดนี้มีสองทางเท่านั้น:
+   *   1. POST /payments/:id/confirm — ทางหลัก ฟอร์มบัตรเรียกทันทีหลัง
+   *      stripe.confirmCardPayment() ผ่าน
+   *   2. listMyPayments() — ตาข่ายรอง เผื่อผู้ใช้ปิดเบราว์เซอร์ก่อนกดยืนยัน
+   *      รอบหน้าที่เปิดหน้าประวัติจะไล่ถาม Stripe แล้วปิดยอดให้เอง
+   *
+   * ทั้งสองทางเรียกซ้ำได้เสมอ จึงต้อง idempotent — ยึด providerRef เป็นตัวกันซ้ำ
+   * และจองแถวด้วย updateMany ที่เงื่อนไข status = PENDING ถ้าจ่ายสำเร็จไปแล้ว
+   * ให้จบเงียบๆ ไม่ใช่โยน error
    */
-  async handleWebhook(rawBody: Buffer, signature: string) {
-    const event = this.stripeService.constructEvent(rawBody, signature);
-
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        await this.fulfillPaymentIntent(event.data.object);
-        break;
-      case 'payment_intent.payment_failed':
-      case 'payment_intent.canceled':
-        await this.markFailed(event.data.object.id, PaymentStatus.FAILED);
-        break;
-      default:
-        // event อื่นไม่เกี่ยวกับเรา ตอบ 200 ไปเฉยๆ ไม่งั้น Stripe จะ retry ไม่จบ
-        this.logger.debug(`ไม่ได้จัดการ event ชนิด ${event.type}`);
-    }
-
-    return { received: true };
-  }
-
   private async fulfillPaymentIntent(intent: Stripe.PaymentIntent) {
     const payment = await this.prisma.payment.findUnique({
       where: { providerRef: intent.id },
@@ -290,6 +367,8 @@ export class PaymentsService {
             payment.userId,
             planCode,
             tx,
+            // จ่ายมาแค่ส่วนต่าง จึงห้ามแถมรอบใหม่เต็มระยะเวลาให้
+            { keepExpiry: intent.metadata?.keepExpiry === 'true' },
           );
         }
         return true;
@@ -361,7 +440,7 @@ export class PaymentsService {
         provider: PROVIDER,
         ...(exceptPaymentId ? { id: { not: exceptPaymentId } } : {}),
       },
-      select: { id: true, providerRef: true },
+      select: { providerRef: true },
     });
 
     for (const item of pending) {
@@ -376,6 +455,97 @@ export class PaymentsService {
       }
       await this.markFailed(item.providerRef, PaymentStatus.FAILED);
     }
+  }
+
+  /**
+   * เดาแพ็กเกจจากยอดเงิน ใช้เฉพาะรายการเก่าที่อ่าน metadata จาก Stripe ไม่ได้
+   *
+   * ต้องรองรับสองแบบ: ยอดเต็มของแพ็กเกจ และยอดส่วนต่างจากแพ็กเกจปัจจุบัน
+   * (ตั้งแต่เปลี่ยนมาเก็บเฉพาะส่วนต่าง ยอดใน ledger ไม่ตรงกับราคาป้ายอีกต่อไป)
+   */
+  private async inferPlanCodeFromAmount(
+    userId: string,
+    amountThb: number,
+  ): Promise<string | null> {
+    const plans = await this.prisma.subscriptionPlan.findMany({
+      where: { isActive: true, isFree: false },
+      select: { code: true, priceThb: true },
+    });
+
+    const byFullPrice = plans.find(
+      (plan) => Number(plan.priceThb) === amountThb,
+    );
+    if (byFullPrice) return byFullPrice.code;
+
+    const subscription = await this.prisma.subscription.findUnique({
+      where: { userId },
+      select: { plan: { select: { priceThb: true } } },
+    });
+    if (!subscription) return null;
+
+    const currentPrice = Number(subscription.plan.priceThb);
+    const byDifference = plans.find(
+      (plan) => Number(plan.priceThb) - currentPrice === amountThb,
+    );
+    return byDifference?.code ?? null;
+  }
+
+  /**
+   * ปิดใบที่หมดอายุ — ต้องยกเลิกฝั่ง Stripe ก่อนเสมอ
+   *
+   * ลำดับสำคัญ: ถ้าพลิกเป็น FAILED ก่อนแล้วยกเลิกไม่สำเร็จ ผู้ใช้ที่ยังถือ
+   * client secret อยู่จะจ่ายผ่าน แล้ว fulfillPaymentIntent() จะเมินเพราะแถว
+   * ไม่ได้อยู่ในสถานะ PENDING แล้ว = ตัดเงินแล้วไม่ได้แพ็กเกจ
+   *
+   * และเพราะไม่มี webhook จึงไม่มีอะไรมาบอกเราทีหลังว่าเงินเข้าแล้ว — ถ้ายกเลิก
+   * ไม่สำเร็จเพราะจ่ายไปก่อนหน้า ต้องตรวจกับ Stripe แล้วปิดยอดให้ตรงนี้เลย
+   */
+  private async expirePayment(providerRef: string) {
+    try {
+      await this.stripeService.cancelPaymentIntent(providerRef);
+    } catch (error) {
+      // ยกเลิกไม่ได้เพราะจ่ายสำเร็จไปแล้วก็เป็นไปได้ — ตรวจก่อนพลิกสถานะ
+      // ไม่งั้นจะทับรายการที่จ่ายจริงให้กลายเป็น FAILED
+      this.logger.warn(
+        `ยกเลิก payment intent ${providerRef} ไม่สำเร็จ: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      try {
+        const intent =
+          await this.stripeService.retrievePaymentIntent(providerRef);
+        if (intent.status === 'succeeded') {
+          await this.fulfillPaymentIntent(intent);
+          return;
+        }
+      } catch {
+        // อ่านจาก Stripe ไม่ได้เลย ปล่อยให้พลิกเป็น FAILED ตามกำหนด
+      }
+    }
+    await this.markFailed(providerRef, PaymentStatus.FAILED);
+  }
+
+  /**
+   * พลิกใบที่เปิดค้างเกินกำหนดเป็น FAILED — เรียกจาก cron และตอนเปิดหน้าประวัติ
+   *
+   * ที่ต้องทำตอนเปิดหน้าประวัติด้วยเพราะ cron ทำงานรายชั่วโมง ผู้ใช้ที่เปิดดู
+   * ก่อนรอบถัดไปจะเห็นปุ่ม "ชำระอีกครั้ง" ของใบที่หมดอายุไปแล้ว กดแล้วได้ error
+   */
+  async expireStalePayments(): Promise<number> {
+    const cutoff = new Date(Date.now() - PAYMENT_WINDOW_HOURS * 60 * 60 * 1000);
+    const stale = await this.prisma.payment.findMany({
+      where: {
+        status: PaymentStatus.PENDING,
+        provider: PROVIDER,
+        createdAt: { lt: cutoff },
+      },
+      select: { providerRef: true },
+    });
+
+    for (const payment of stale) {
+      await this.expirePayment(payment.providerRef);
+    }
+    return stale.length;
   }
 
   private async markFailed(providerRef: string, status: PaymentStatus) {
