@@ -47,6 +47,13 @@ import { inventoryKeys, type Shop, type ShopProduct } from "@/lib/hooks/use-inve
  * อัตโนมัติ และถ้า rollback ล้มด้วยจะแจ้งเลขที่ต้องแก้มือให้ชัด
  * ทางแก้ที่ถูกจริงคือ endpoint /stock/transfer ฝั่ง api ที่ทำในทรานแซกชันเดียว
  * — เป็นของ feature/stock-movements-resource (พี่ดิว) ไม่ใช่ที่นี่
+ *
+ * ⚠️ setSaving(false) ต้องอยู่ใน finally เสมอ ห้ามอยู่แค่ใน catch
+ * ทั้งสามกล่องถูก mount ค้างไว้ในหน้า /products ตลอดเวลา (page.tsx ท้ายไฟล์)
+ * การปิดคือส่ง row = null ไม่ใช่การ unmount — state ทั้งหมดจึงอยู่ต่อ
+ * ถ้าปลดเฉพาะตอน error ทางที่บันทึกสำเร็จจะทิ้ง saving = true ค้างไว้ แล้วครั้ง
+ * ต่อไปที่เปิดกล่องเดิมจะเจอปุ่ม "กำลังบันทึก…" ที่กดไม่ได้ ปิดก็ไม่ได้
+ * (ทั้ง onOpenChange และปุ่มยกเลิกถูก !saving กันไว้หมด) ต้องรีเฟรชหน้าอย่างเดียว
  */
 
 type ShopProductRow = {
@@ -185,6 +192,8 @@ export function SellStockDialog({
       close();
     } catch (caught) {
       setError(toApiFailure(caught));
+    } finally {
+      // ต้องปลดทุกทาง ไม่ใช่แค่ตอน error — ดูหมายเหตุหัวไฟล์
       setSaving(false);
     }
   };
@@ -312,6 +321,8 @@ export function AdjustStockDialog({
       close();
     } catch (caught) {
       setError(toApiFailure(caught));
+    } finally {
+      // ต้องปลดทุกทาง ไม่ใช่แค่ตอน error — ดูหมายเหตุหัวไฟล์
       setSaving(false);
     }
   };
@@ -504,6 +515,7 @@ export function TransferStockDialog({
         });
       } catch (inbound) {
         // ขาเข้าล้ม — คืนของกลับต้นทางทันที ไม่งั้นสต็อกหายเฉย ๆ
+        let restored = false;
         try {
           await api.post(`/api/backend/shops/${shopId}/stock/adjust`, {
             shopProductId: row.id,
@@ -511,10 +523,18 @@ export function TransferStockDialog({
             quantity,
             note: t.transferIn(picked.shop.name),
           });
-          throw new Error(`${t.rollbackDone} (${toApiFailure(inbound).message})`);
+          restored = true;
         } catch {
-          throw new Error(t.rollbackFailed(quantity, sourceName));
+          restored = false;
         }
+
+        // throw ต้องอยู่นอก try ของ rollback — เดิมมันอยู่ข้างใน แล้วโดน catch
+        // ของตัวเองกลืน จึงรายงาน "คืนของกลับไม่ได้" ทุกครั้งแม้คืนสำเร็จ
+        throw new Error(
+          restored
+            ? `${t.rollbackDone} (${toApiFailure(inbound).message})`
+            : t.rollbackFailed(quantity, sourceName),
+        );
       }
 
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
@@ -522,6 +542,8 @@ export function TransferStockDialog({
       close();
     } catch (caught) {
       setError(toApiFailure(caught));
+    } finally {
+      // ต้องปลดทุกทาง ไม่ใช่แค่ตอน error — ดูหมายเหตุหัวไฟล์
       setSaving(false);
     }
   };
