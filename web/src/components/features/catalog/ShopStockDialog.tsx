@@ -323,6 +323,8 @@ export function ShopStockDialog({
       closeAll();
     } catch (caught) {
       setError(toApiFailure(caught));
+    } finally {
+      // ต้องปลดทุกทาง ไม่ใช่แค่ตอน error — ดูหมายเหตุหัวไฟล์
       setSaving(false);
     }
   };
