@@ -57,6 +57,8 @@ const content = {
     retryPayment: "ชำระอีกครั้ง",
     retryingPayment: "กำลังเปิดหน้าชำระเงิน…",
     retryError: "เปิดหน้าชำระเงินไม่สำเร็จ",
+    payBefore: (at: string) => `ชำระภายใน ${at}`,
+    paymentExpired: "หมดเวลาชำระแล้ว",
     historyEmpty: "ยังไม่มีประวัติการชำระเงิน",
     payHistory: [
       { date: "15 ส.ค. 2569", item: "ซื้อสิทธิ์ร้านเพิ่ม", qty: 1, amount: "฿590.00" },
@@ -91,6 +93,8 @@ const content = {
     retryPayment: "Pay again",
     retryingPayment: "Opening checkout…",
     retryError: "Could not open checkout",
+    payBefore: (at: string) => `Pay before ${at}`,
+    paymentExpired: "Payment window closed",
     historyEmpty: "No payments yet",
     payHistory: [
       { date: "Aug 15, 2026", item: "Bought extra shop slot", qty: 1, amount: "฿590.00" },
@@ -162,10 +166,10 @@ export default function MembershipPage() {
     if (!currentPlanCode || currentPlanCode === "FREE" || createPayment.isPending) return;
     setRenewError(null);
     createPayment.mutate(currentPlanCode as "PLUS" | "PRO", {
-      onSuccess: ({ paymentId, clientSecret }) => {
-        const plan = subscription?.subscription.plan;
-        if (clientSecret && plan) {
-          setPayment({ paymentId, clientSecret, amount: Number(plan.priceThb) });
+      onSuccess: ({ paymentId, clientSecret, amountThb }) => {
+        // ยอดมาจาก api เสมอ ไม่ใช่ราคาป้ายของแพ็กเกจ (ดู PaymentIntentResult)
+        if (clientSecret) {
+          setPayment({ paymentId, clientSecret, amount: amountThb });
         }
       },
       onError: (error) => {
@@ -178,10 +182,9 @@ export default function MembershipPage() {
     if (retryPayment.isPending) return;
     setRetryError(null);
     retryPayment.mutate(paymentId, {
-      onSuccess: ({ clientSecret }) => {
-        const row = paymentsQuery.data?.find((item) => item.id === paymentId);
-        if (clientSecret && row) {
-          setPayment({ paymentId, clientSecret, amount: Number(row.amountThb) });
+      onSuccess: ({ clientSecret, amountThb }) => {
+        if (clientSecret) {
+          setPayment({ paymentId, clientSecret, amount: amountThb });
         }
       },
       onError: (error) => setRetryError(toMessage(error, t.retryError)),
@@ -304,17 +307,34 @@ export default function MembershipPage() {
                           {t.statuses[row.status] ?? row.status}
                         </Badge>
                       </td>
+                      {/*
+                        ปุ่มขึ้นตาม row.retryable ที่ api คำนวณให้ ไม่ใช่ตามสถานะ —
+                        ใบชำระเงินมีอายุ 24 ชม. พ้นกำหนดแล้วต้องเริ่มรายการใหม่
+                        จากหน้าอัปเกรด เพราะ PaymentIntent ฝั่ง Stripe ถูกยกเลิกไปแล้ว
+                      */}
                       <td className="px-5 py-3.5 text-right">
-                        {(row.status === "PENDING" || row.status === "FAILED") && (
-                          <Button
-                            size="sm"
-                            variant="gradient"
-                            disabled={retryPayment.isPending}
-                            onClick={() => onRetryPayment(row.id)}
-                          >
-                            {retryPayment.isPending ? t.retryingPayment : t.retryPayment}
-                          </Button>
-                        )}
+                        {row.retryable ? (
+                          <div className="flex flex-col items-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="gradient"
+                              disabled={retryPayment.isPending}
+                              onClick={() => onRetryPayment(row.id)}
+                            >
+                              {retryPayment.isPending ? t.retryingPayment : t.retryPayment}
+                            </Button>
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              {t.payBefore(
+                                new Date(row.expiresAt).toLocaleString(
+                                  locale === "th" ? "th-TH" : "en-US",
+                                  { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" },
+                                ),
+                              )}
+                            </span>
+                          </div>
+                        ) : row.status === "PENDING" || row.status === "FAILED" ? (
+                          <span className="text-xs text-muted-foreground">{t.paymentExpired}</span>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

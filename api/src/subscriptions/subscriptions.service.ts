@@ -95,16 +95,24 @@ export class SubscriptionsService {
 
   /**
    * เปลี่ยนแพ็กเกจจริง — เรียกได้เฉพาะหลังยืนยันการชำระเงินแล้วเท่านั้น
-   * (PaymentsService.handleWebhook) ไม่มี HTTP endpoint ตรงมาถึงเมธอดนี้
+   * (PaymentsService.fulfillPaymentIntent) ไม่มี HTTP endpoint ตรงมาถึงเมธอดนี้
    * ไม่งั้นจะอัปเกรดได้ฟรีโดยไม่ต้องจ่าย
    *
    * รับ tx เข้ามาเพื่อให้ commit พร้อมกับการปิดยอดชำระในทรานแซกชันเดียว
    * ตามที่ ER note ของ subscriptions กำหนดไว้
+   *
+   * options.keepExpiry มาจาก PaymentsService ซึ่งเป็นคนตัดสินว่ารอบนี้เก็บเงิน
+   * เต็มราคาหรือเก็บแค่ส่วนต่าง สองอย่างนี้ต้องไปด้วยกันเสมอ:
+   *   จ่ายส่วนต่าง (PLUS -> PRO ที่ยังไม่หมดอายุ) -> วันหมดอายุคงเดิม
+   *   จ่ายเต็ม (FREE -> PLUS/PRO หรือของเดิมหมดอายุแล้ว) -> เริ่มรอบใหม่เต็ม
+   * ห้ามคำนวณใหม่ที่นี่ เพราะแพ็กเกจเดิมอาจหมดอายุระหว่างที่ใบชำระเงินเปิดค้าง
+   * แล้วจะกลายเป็นจ่าย 1,000 แต่ได้ PRO เต็มปี
    */
   async applyUpgrade(
     userId: string,
     planCode: string,
     tx: Prisma.TransactionClient,
+    options: { keepExpiry?: boolean } = {},
   ) {
     const subscription = await tx.subscription.findUnique({
       where: { userId },
@@ -133,16 +141,22 @@ export class SubscriptionsService {
       );
     }
 
-    const startedAt = new Date();
-    const expiresAt = addMonths(startedAt, targetPlan.durationMonths);
+    const now = new Date();
+    // จ่ายแค่ส่วนต่าง = ซื้อ "ระดับที่สูงขึ้น" ของรอบเดิม ไม่ใช่รอบใหม่
+    // startedAt ก็ไม่ขยับ เพราะรอบสมาชิกยังเป็นรอบเดียวกันอยู่
+    const keepExpiry = options.keepExpiry === true && subscription.expiresAt;
 
     return tx.subscription.update({
       where: { userId },
       data: {
         planId: targetPlan.id,
         status: 'ACTIVE',
-        startedAt,
-        expiresAt,
+        ...(keepExpiry
+          ? {}
+          : {
+              startedAt: now,
+              expiresAt: addMonths(now, targetPlan.durationMonths),
+            }),
         expiryNotifiedAt: null,
       },
       include: { plan: true },
