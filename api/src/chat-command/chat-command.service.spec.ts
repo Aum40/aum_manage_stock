@@ -21,6 +21,7 @@ describe('ChatCommandService', () => {
       prisma as never,
       { get: jest.fn() } as never,
       {} as never,
+      { notifyIfCrossed: jest.fn() } as never,
       parser,
       { resolveProduct: jest.fn() } as never,
       authorization as never,
@@ -90,12 +91,23 @@ describe('ChatCommandService', () => {
         .mockResolvedValueOnce({ shopProductId: productIds[1] }),
     };
     const stock = {
-      adjustInTransaction: jest.fn().mockResolvedValue({ stock: {} }),
+      adjustInTransaction: jest
+        .fn()
+        .mockResolvedValueOnce({
+          movement: { shopProductId: productIds[0] },
+          stock: { quantityBefore: 5, quantityAfter: 7 },
+        })
+        .mockResolvedValueOnce({
+          movement: { shopProductId: productIds[1] },
+          stock: { quantityBefore: 3, quantityAfter: 2 },
+        }),
     };
+    const notifyIfCrossed = jest.fn().mockResolvedValue(undefined);
     const service = new ChatCommandService(
       prisma as never,
       { get: jest.fn().mockReturnValue(15) } as never,
       stock as never,
+      { notifyIfCrossed } as never,
       parser,
       inventory as never,
       { assertCanUseChatbot: jest.fn().mockResolvedValue(undefined) } as never,
@@ -113,9 +125,8 @@ describe('ChatCommandService', () => {
     await expect(
       service.confirm('shop', pendingId, 'staff'),
     ).resolves.toMatchObject({
-      stock: {},
       pendingActionId: pendingId,
-      items: [{ stock: {} }, { stock: {} }],
+      items: [{ stock: { quantityAfter: 7 } }, { stock: { quantityAfter: 2 } }],
     });
     expect(stock.adjustInTransaction).toHaveBeenCalledTimes(2);
     expect(stock.adjustInTransaction).toHaveBeenNthCalledWith(
@@ -128,5 +139,11 @@ describe('ChatCommandService', () => {
       tx,
       expect.objectContaining({ shopProductId: productIds[1], quantity: 1 }),
     );
+    // ยิงหลัง commit ครั้งเดียวพร้อมกันทุกรายการ ไม่ใช่ทีละรายการในทรานแซกชัน
+    expect(notifyIfCrossed).toHaveBeenCalledTimes(1);
+    expect(notifyIfCrossed).toHaveBeenCalledWith([
+      { shopProductId: productIds[0], quantityBefore: 5, quantityAfter: 7 },
+      { shopProductId: productIds[1], quantityBefore: 3, quantityAfter: 2 },
+    ]);
   });
 });
