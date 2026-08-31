@@ -440,6 +440,10 @@ export class DashboardService {
    * นับ `itemsWithoutCost` ไปด้วย เพราะ `cost_price` มี default 0 และหน้าเพิ่ม
    * สินค้าไม่ได้บังคับกรอกทุน สินค้าที่ปล่อยว่างจะดูเหมือนกำไร 100% ฝั่งหน้าเว็บ
    * ต้องเตือนได้ว่าตัวเลขนี้ยังไม่ครบ ไม่ใช่ปล่อยให้เข้าใจผิด
+   *
+   * นับแบบ distinct ตาม shopProductId ไม่ใช่นับแถว sale_items — สินค้าตัวเดียว
+   * ที่ไม่มีทุนแต่ขายไป 50 บิลคือปัญหา 1 รายการที่ต้องไปแก้ ไม่ใช่ 50 รายการ
+   * ตัวเลขนี้ไปโผล่เป็นข้อความ "N รายการยังไม่ได้ใส่ต้นทุน" ให้ผู้ใช้ไล่แก้
    */
   private async costByShop(
     shopIds: string[],
@@ -449,8 +453,10 @@ export class DashboardService {
       string,
       { costAmount: number; itemsWithoutCost: number }
     >();
+    const noCostProducts = new Map<string, Set<string>>();
     for (const shopId of shopIds) {
       byShop.set(shopId, { costAmount: 0, itemsWithoutCost: 0 });
+      noCostProducts.set(shopId, new Set<string>());
     }
 
     if (shopIds.length === 0) return byShop;
@@ -466,6 +472,7 @@ export class DashboardService {
       select: {
         quantity: true,
         costPrice: true,
+        shopProductId: true,
         sale: { select: { shopId: true } },
       },
     });
@@ -477,11 +484,14 @@ export class DashboardService {
       const cost = Number(item.costPrice);
       bucket.costAmount += cost * item.quantity;
       // ทุน 0 แปลว่ายังไม่เคยกรอกทุนให้สินค้านั้น ไม่ใช่ของที่ได้มาฟรี
-      if (cost === 0) bucket.itemsWithoutCost += 1;
+      if (cost === 0) {
+        noCostProducts.get(item.sale.shopId)?.add(item.shopProductId);
+      }
     }
 
-    for (const bucket of byShop.values()) {
+    for (const [shopId, bucket] of byShop) {
       bucket.costAmount = this.money(bucket.costAmount);
+      bucket.itemsWithoutCost = noCostProducts.get(shopId)?.size ?? 0;
     }
 
     return byShop;
