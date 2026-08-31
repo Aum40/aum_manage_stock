@@ -97,8 +97,18 @@ describe('DashboardService', () => {
       });
       prisma.shopProduct.count.mockResolvedValue(0);
       prisma.saleItem.findMany.mockResolvedValue([
-        { quantity: 50, costPrice: 6, sale: { shopId: SHOP } },
-        { quantity: 10, costPrice: 20, sale: { shopId: SHOP } },
+        {
+          quantity: 50,
+          costPrice: 6,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+        {
+          quantity: 10,
+          costPrice: 20,
+          shopProductId: 'sp-2',
+          sale: { shopId: SHOP },
+        },
       ]);
 
       const result = await service.getShopDashboard(OWNER, SHOP, RANGE);
@@ -115,15 +125,58 @@ describe('DashboardService', () => {
       });
       prisma.shopProduct.count.mockResolvedValue(0);
       prisma.saleItem.findMany.mockResolvedValue([
-        { quantity: 4, costPrice: 25, sale: { shopId: SHOP } },
+        {
+          quantity: 4,
+          costPrice: 25,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
         // ทุน 0 = ยังไม่เคยกรอก ไม่ใช่ของฟรี
-        { quantity: 3, costPrice: 0, sale: { shopId: SHOP } },
+        {
+          quantity: 3,
+          costPrice: 0,
+          shopProductId: 'sp-2',
+          sale: { shopId: SHOP },
+        },
       ]);
 
       const result = await service.getShopDashboard(OWNER, SHOP, RANGE);
 
       expect(result.sales.costAmount).toBe(100);
       expect(result.sales.grossProfit).toBe(300);
+      expect(result.sales.itemsWithoutCost).toBe(1);
+    });
+
+    it('สินค้าไม่มีทุนตัวเดียวที่ขายหลายบิล นับเป็น 1 รายการ ไม่ใช่หลายรายการ', async () => {
+      prisma.sale.aggregate.mockResolvedValue({
+        _sum: { totalAmount: 300 },
+        _count: { _all: 3 },
+      });
+      prisma.shopProduct.count.mockResolvedValue(0);
+      // สินค้าตัวเดียวกัน (sp-1) ขายไป 3 บิล ทุกบิลยังไม่มีทุน
+      prisma.saleItem.findMany.mockResolvedValue([
+        {
+          quantity: 1,
+          costPrice: 0,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+        {
+          quantity: 1,
+          costPrice: 0,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+        {
+          quantity: 1,
+          costPrice: 0,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+      ]);
+
+      const result = await service.getShopDashboard(OWNER, SHOP, RANGE);
+
       expect(result.sales.itemsWithoutCost).toBe(1);
     });
 
