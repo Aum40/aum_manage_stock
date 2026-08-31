@@ -95,6 +95,11 @@ function invalidateStockAndSales(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
   queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   queryClient.invalidateQueries({ queryKey: ['catalog'] });
+  /**
+   * สต็อกที่ตกข้ามจุดแจ้งเตือนทำให้ api สร้าง LOW_STOCK ขึ้นมาเงียบๆ ฝั่งนี้
+   * ไม่มีทางรู้ ถ้าไม่ล้างแคชกระดิ่งด้วย ตัวเลขจะค้างจนกว่าจะรีเฟรชหน้า
+   */
+  queryClient.invalidateQueries({ queryKey: ['notifications'] });
 }
 
 export const inventoryKeys = {
@@ -501,9 +506,23 @@ export function useSetStaffPermissions(shopId: string | undefined, staffId: stri
  * `enabled` มีไว้ปิดตอนอยู่หน้า admin — บัญชี admin ไม่มีร้าน @OwnerId() ฝั่ง api
  * จึงตอบ 403 ทุกครั้ง ยิงไปก็ได้แค่ error แดงใน console
  */
+/**
+ * ดึงซ้ำทุกนาที เพราะการแจ้งเตือนเกิดที่ฝั่งเซิร์ฟเวอร์และไม่มี push channel
+ * (socket.io ในโปรเจกต์ทำเฉพาะ ai-recommendations)
+ *
+ * การ invalidate ตอน mutation ช่วยได้เฉพาะแท็บที่เป็นคนกดขายเอง แต่เคสจริงคือ
+ * พนักงานขายอยู่หน้าร้านแล้วเจ้าของร้านเปิดจออีกเครื่อง ซึ่งเป็นตอนที่การแจ้งเตือน
+ * มีประโยชน์ที่สุด — แท็บนั้นต้องรู้เองโดยไม่มีใครมาบอก
+ *
+ * TanStack ตั้ง refetchIntervalInBackground เป็น false อยู่แล้ว แท็บที่ไม่ได้
+ * เปิดอยู่จึงไม่ยิง
+ */
+const NOTIFICATION_POLL_MS = 60_000;
+
 export function useNotifications(unreadOnly = false, enabled = true) {
   return useQuery({
     enabled,
+    refetchInterval: NOTIFICATION_POLL_MS,
     queryKey: ['notifications', { unreadOnly }],
     queryFn: () =>
       api.get<{ items: Notification[]; meta: unknown }>(
