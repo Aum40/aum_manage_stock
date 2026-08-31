@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+// [อั้ม] ทางกลับเข้าห้องแชทบอทสำหรับคนที่ลบห้องทิ้ง (feature/chatbot-resource)
+import LineBotInviteDialog from "@/components/features/chatbot/LineBotInviteDialog";
 import { buttonVariants } from "@/components/ui/button";
 import Caption from "@/components/shared/Caption";
 import { FormError } from "@/components/features/auth/form-error";
@@ -464,7 +466,7 @@ export default function ProfilePage() {
                   </Alert>
                 )}
 
-                <div className="flex items-center justify-between border-b border-border py-3.5">
+                <div className="flex items-center justify-between py-3.5">
                   <div>
                     <div className="text-sm font-semibold">LINE</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
@@ -494,6 +496,10 @@ export default function ProfilePage() {
                       </a>
                     )}
                   </div>
+                </div>
+
+                <div className="border-b border-border pb-3.5">
+                  <LineBotInviteDialog />
                 </div>
 
                 <div className="flex items-center justify-between py-3.5">

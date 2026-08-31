@@ -16,6 +16,8 @@ import type {
   ListChatMessagesQueryDto,
   SelectChatProductDto,
 } from './dto/chat.dto';
+import { StockQueryService } from '../chat-command/stock-query.service';
+import { StockQueryRequestedError } from '../chat-command/stock-query-requested.error';
 
 /**
  * คำทักทาย/ขอความช่วยเหลือ — ชุดเดียวกับฝั่ง LINE (line-webhook.service.ts)
@@ -69,6 +71,7 @@ export class ChatService {
     private readonly chatAccess: ChatAccessService,
     private readonly chatCommand: ChatCommandService,
     private readonly stockChoice: StockChoiceService,
+    private readonly stockQuery: StockQueryService,
   ) {}
 
   async listMessages(
@@ -138,6 +141,20 @@ export class ChatService {
       return { pendingAction: pending, reply, candidates: [] };
     } catch (error) {
       /**
+       * [อั้ม] ถามยอดคงเหลือ ไม่ใช่สั่งแก้ — ตอบทันที ไม่ต้องยืนยัน
+       *
+       * ฝั่งเว็บไม่ต้องถามว่าร้านไหน เพราะตัวสลับร้านมุมซ้ายบนบอกอยู่แล้วว่า
+       * กำลังคุยกับร้านไหน (ต่างจาก LINE ที่ไม่มี context นั้น)
+       */
+      if (error instanceof StockQueryRequestedError) {
+        const reply = await this.stockQuery.answer(shopId, error.productQuery);
+
+        await this.recordAssistant(shopId, ctx.userId, reply);
+
+        return { pendingAction: null, reply, candidates: [] };
+      }
+
+      /**
        * ชื่อกำกวม = แมตช์ได้หลายตัว ให้ผู้ใช้เลือกจากรายการแทนการเดาให้
        * ฝั่ง LINE ให้พิมพ์หมายเลข ส่วนเว็บเอา candidates ไปวาดเป็นปุ่ม
        */
@@ -175,7 +192,7 @@ export class ChatService {
         error instanceof Error ? error.stack : undefined,
       );
 
-      const reply = this.buildErrorReply(error, content);
+      const reply = await this.buildErrorReply(error, content, shopId);
 
       await this.prisma.chatMessage.create({
         data: {
@@ -404,7 +421,11 @@ export class ChatService {
    * เดิมส่งข้อความดิบของ exception ออกไปตรงๆ ผู้ใช้จึงเห็นภาษาอังกฤษอย่าง
    * "Shop product not found" ซึ่งอ่านไม่รู้เรื่องและไม่บอกว่าต้องทำอะไรต่อ
    */
-  private buildErrorReply(error: unknown, message: string): string {
+  private async buildErrorReply(
+    error: unknown,
+    message: string,
+    shopId: string,
+  ): Promise<string> {
     if (error instanceof NotFoundException) {
       return `ไม่พบสินค้าที่ตรงกับ "${message}" ในร้าน กรุณาตรวจสอบชื่อสินค้าแล้วลองใหม่`;
     }
@@ -430,8 +451,15 @@ export class ChatService {
       return 'คุณไม่มีสิทธิ์ใช้แชทบอทในร้านนี้';
     }
 
+    /**
+     * ก่อนยอมแพ้ ลองมองว่าเป็นชื่อสินค้า — คนพิมพ์ "โค้ก" เฉย ๆ กำลังถามว่าร้าน
+     * มีไหม เหลือเท่าไหร่ ตอบว่าไม่เข้าใจทั้งที่ตอบได้ทำให้เขาพิมพ์ซ้ำเดิมไปเรื่อย ๆ
+     * ใช้ StockQueryService ตัวเดียวกับฝั่ง LINE คำตอบสองช่องทางจึงตรงกันเสมอ
+     */
     if (error instanceof BadRequestException) {
-      return `ไม่เข้าใจคำสั่ง "${message}" ครับ\n\n${HELP_TEXT}`;
+      const guess = await this.stockQuery.answerUnknownCommand(shopId, message);
+
+      return guess.matched ? guess.text : `${guess.text}\n\n${HELP_TEXT}`;
     }
 
     return 'ตีความคำสั่งไม่สำเร็จ กรุณาลองพิมพ์ใหม่ เช่น "เพิ่มโค้ก 10"';
