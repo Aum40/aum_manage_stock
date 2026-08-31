@@ -438,6 +438,8 @@ export type Notification = {
   message: string;
   readAt: string | null;
   createdAt: string;
+  /** ใช้สลับร้านให้ตรงตอนกดเปิดรายการ — api ส่งมาอยู่แล้ว */
+  shopId: string | null;
 };
 
 export type ChatMessage = {
