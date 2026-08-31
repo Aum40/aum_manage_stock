@@ -56,6 +56,8 @@ type ShopProductRow = {
   status: string;
   stockQty: number;
   sellPrice: number | string;
+  /** api ส่งมาอยู่แล้วเพราะ findMany ไม่ได้ select เฉพาะบางคอลัมน์ */
+  costPrice: number | string;
 };
 
 /** ของที่หายไปจากชั้นมีสองความหมาย ระบบเดาเองไม่ได้ ต้องให้คนบอก */
@@ -80,6 +82,14 @@ type NewListing = {
   threshold: string;
 };
 
+/** เงินสองตำแหน่งเสมอ — ฿12 กับ ฿12.50 วางเรียงกันแล้วอ่านยากถ้าไม่เท่ากัน */
+function baht(value: number): string {
+  return `฿${value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 const EMPTY_LISTING: NewListing = {
   sellPrice: "",
   costPrice: "",
@@ -98,6 +108,9 @@ const content = {
     cancelListing: "ไม่ลงร้านนี้",
     sellPrice: "ราคาขาย",
     costPrice: "ต้นทุน",
+    priceLine: (sell: string, cost: string) => `ขาย ${sell} · ทุน ${cost}`,
+    marginPerUnit: (amount: string, unit: string) => `กำไร ${amount}/${unit}`,
+    noCost: "ยังไม่ได้ใส่ทุน",
     initialStock: "จำนวนเริ่มต้น",
     threshold: "แจ้งเตือนเมื่อเหลือ",
     noteLabel: "หมายเหตุ (ไม่บังคับ)",
@@ -132,6 +145,9 @@ const content = {
     cancelListing: "Don't list",
     sellPrice: "Sell price",
     costPrice: "Cost",
+    priceLine: (sell: string, cost: string) => `Sells ${sell} · costs ${cost}`,
+    marginPerUnit: (amount: string, unit: string) => `${amount} margin per ${unit}`,
+    noCost: "No cost entered yet",
     initialStock: "Starting stock",
     threshold: "Alert below",
     noteLabel: "Note (optional)",
@@ -366,13 +382,43 @@ export function ShopStockDialog({
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-semibold">
-                      {shop.name}
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-semibold">
+                        {shop.name}
+                      </span>
+                      <Badge variant={row ? "success" : "neutral"}>
+                        {row ? t.selling : t.notSelling}
+                      </Badge>
                     </span>
-                    <Badge variant={row ? "success" : "neutral"}>
-                      {row ? t.selling : t.notSelling}
-                    </Badge>
+                    {/*
+                      ราคาขายกับต้นทุนตั้งแยกต่อร้านได้ ร้านเดียวกันสินค้าเดียวกัน
+                      จึงมีกำไรต่อหน่วยไม่เท่ากัน — ไม่เห็นตัวเลขนี้ก็ตัดสินใจ
+                      ไม่ได้ว่าควรย้ายของไปขายที่ไหน
+                    */}
+                    {row && (
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
+                        <span>
+                          {t.priceLine(
+                            baht(Number(row.sellPrice)),
+                            baht(Number(row.costPrice)),
+                          )}
+                        </span>
+                        {Number(row.costPrice) > 0 ? (
+                          <span className="text-status-green">
+                            {t.marginPerUnit(
+                              baht(
+                                Number(row.sellPrice) - Number(row.costPrice),
+                              ),
+                              product?.unit ?? "",
+                            )}
+                          </span>
+                        ) : (
+                          // ทุน 0 ไม่ใช่กำไร 100% แต่คือยังไม่เคยกรอก
+                          <span className="text-status-orange">{t.noCost}</span>
+                        )}
+                      </span>
+                    )}
                   </span>
 
                   {row ? (
