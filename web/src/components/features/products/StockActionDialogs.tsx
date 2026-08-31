@@ -26,7 +26,11 @@ import {
   type ApiFailure,
 } from "@/components/shared/ApiErrorNotice";
 import { api, withQuery } from "@/lib/api-client";
-import { inventoryKeys, type Shop, type ShopProduct } from "@/lib/hooks/use-inventory";
+import {
+  invalidateStockAndSales,
+  type Shop,
+  type ShopProduct,
+} from "@/lib/hooks/use-inventory";
 
 /**
  * สองการกระทำที่ปุ่ม +/− เดิมทำแทนไม่ได้ เพราะมันเปลี่ยนแค่จำนวนโดยไม่บอกสาเหตุ
@@ -172,10 +176,7 @@ export function SellStockDialog({
         items: [{ shopProductId: row.id, quantity }],
         note: t.sellNote,
       });
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
-      // เปิดบิลแล้วยอดขาย/จำนวนบิล/เฉลี่ยต่อบิลบนแดชบอร์ดต้องขยับตาม
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateStockAndSales(queryClient);
       close();
     } catch (caught) {
       setError(toApiFailure(caught));
@@ -302,9 +303,7 @@ export function AdjustStockDialog({
         quantity,
         note: note.trim() || t.defaultAdjustNote,
       });
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateStockAndSales(queryClient);
       close();
     } catch (caught) {
       setError(toApiFailure(caught));
@@ -489,9 +488,7 @@ export function TransferStockDialog({
         quantity,
       });
 
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateStockAndSales(queryClient);
       close();
     } catch (caught) {
       setError(toApiFailure(caught));

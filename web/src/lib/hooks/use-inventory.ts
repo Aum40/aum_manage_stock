@@ -89,9 +89,11 @@ type Paginated<T> = {
  * ค้างอยู่ครึ่งนาที เหมือนระบบไม่ได้บันทึกบิลให้
  *
  * เขียนเป็นฟังก์ชันกลางเพื่อไม่ให้ต้องจำว่าต้องล้างอะไรบ้างในทุก mutation
- * ที่จะเพิ่มเข้ามาทีหลัง
+ * ที่จะเพิ่มเข้ามาทีหลัง — **ทุกที่ที่ทำให้สต็อกเปลี่ยนต้องเรียกตัวนี้**
+ * ไม่ใช่ไล่ล้างเองทีละ key เพราะพอมี key ใหม่เพิ่มเข้ามาแล้วจะตกหล่นทันที
+ * (เคยเกิดมาแล้วตอนเพิ่ม 'notifications' — hook อัปเดตแต่กล่องต่างๆ ไม่ได้ตาม)
  */
-function invalidateStockAndSales(queryClient: QueryClient) {
+export function invalidateStockAndSales(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
   queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   queryClient.invalidateQueries({ queryKey: ['catalog'] });
