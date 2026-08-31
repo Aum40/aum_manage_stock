@@ -1,6 +1,11 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 
 import { api, withQuery } from '@/lib/api-client';
 
@@ -74,6 +79,23 @@ type Paginated<T> = {
   items: T[];
   meta: { page: number; limit: number; total: number; totalPages: number };
 };
+
+/**
+ * ทุกอย่างที่ทำให้สต็อกหรือยอดขายเปลี่ยน ต้องล้างแคชสองก้อน ไม่ใช่ก้อนเดียว
+ *
+ * แดชบอร์ดใช้ queryKey ขึ้นต้นด้วย 'dashboard' คนละต้นไม้กับ inventoryKeys
+ * และ QueryClient ตั้ง staleTime ไว้ 30 วินาที (query-provider.tsx) ถ้าล้างแค่
+ * inventory ผู้ใช้ที่ขายของที่ POS แล้วกดไปหน้าแดชบอร์ดทันทีจะเห็นยอดเก่า
+ * ค้างอยู่ครึ่งนาที เหมือนระบบไม่ได้บันทึกบิลให้
+ *
+ * เขียนเป็นฟังก์ชันกลางเพื่อไม่ให้ต้องจำว่าต้องล้างอะไรบ้างในทุก mutation
+ * ที่จะเพิ่มเข้ามาทีหลัง
+ */
+function invalidateStockAndSales(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+  queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+  queryClient.invalidateQueries({ queryKey: ['catalog'] });
+}
 
 export const inventoryKeys = {
   all: ['inventory'] as const,
@@ -265,9 +287,7 @@ export function useAdjustStock(shopId: string | undefined) {
       quantity: number;
       note?: string;
     }) => api.post(`/api/backend/shops/${shopId}/stock/adjust`, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-    },
+    onSuccess: () => invalidateStockAndSales(queryClient),
   });
 }
 
@@ -277,6 +297,7 @@ export type SellableProduct = {
   unitPrice: number | string;
 };
 
+// สแกนอย่างเดียวยังไม่เปิดบิล ไม่มีอะไรเปลี่ยนในฐานข้อมูล จึงไม่ต้องล้างแคช
 export function useScanSale(shopId: string | undefined) {
   return useMutation({
     mutationFn: (barcode: string) =>
@@ -290,9 +311,7 @@ export function useCreateSale(shopId: string | undefined) {
   return useMutation({
     mutationFn: (input: { items: { shopProductId: string; quantity: number }[] }) =>
       api.post(`/api/backend/shops/${shopId}/sales`, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-    },
+    onSuccess: () => invalidateStockAndSales(queryClient),
   });
 }
 
@@ -535,7 +554,7 @@ export function useConfirmChatCommand(shopId: string | undefined) {
       api.post(`/api/backend/shops/${shopId}/stock/chat-command/${pendingId}/confirm`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chat', shopId] });
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      invalidateStockAndSales(queryClient);
     },
   });
 }

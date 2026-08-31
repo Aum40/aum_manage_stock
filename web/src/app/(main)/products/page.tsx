@@ -855,7 +855,13 @@ function EditProductDialog({
             <Button
               type="button"
               variant="outline"
-              disabled={updatePricing.isPending || sellPrice === ""}
+              disabled={
+                updatePricing.isPending ||
+                sellPrice === "" ||
+                // ทุนว่างแล้วบันทึก Number("") จะกลายเป็น 0 เงียบๆ
+                // ซึ่งทำให้กำไรขั้นต้นบนแดชบอร์ดเพี้ยนตามโดยไม่มีใครรู้
+                costPrice === ""
+              }
               onClick={() =>
                 run(
                   "price",
