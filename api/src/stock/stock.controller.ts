@@ -22,6 +22,8 @@ import type {
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import { adjustStockSchema } from './dto/adjust-stock.dto';
 import type { AdjustStockDto } from './dto/adjust-stock.dto';
+import { transferStockSchema } from './dto/transfer-stock.dto';
+import type { TransferStockDto } from './dto/transfer-stock.dto';
 import { StockService } from './stock.service';
 import { STOCK_AUTHORIZATION_PORT } from './ports/stock-authorization.port';
 import type { StockAuthorizationPort } from './ports/stock-authorization.port';
@@ -47,6 +49,19 @@ export class StockController {
       actorId,
       ...body,
       source: 'WEB',
+    });
+  }
+
+  @Post('transfer')
+  transfer(
+    @Param('shopId', new ZodValidationPipe(uuidSchema)) shopId: string,
+    @CurrentUser('sub') actorId: string,
+    @Body(new ZodValidationPipe(transferStockSchema)) body: TransferStockDto,
+  ) {
+    return this.stock.transfer({
+      fromShopId: shopId,
+      actorId,
+      ...body,
     });
   }
 
