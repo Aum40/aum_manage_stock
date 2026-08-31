@@ -24,6 +24,13 @@ export interface CreateNotificationInput {
   shopId?: string | null;
   payload?: Prisma.InputJsonValue | null;
   dedupeWhileUnread?: boolean;
+  /**
+   * ใช้คู่กับ dedupeWhileUnread เมื่อ (userId, type, shopId) หยาบเกินไป
+   *
+   * LOW_STOCK เป็นตัวอย่างชัดสุด — ถ้าไม่ระบุ shopProductId สินค้าตัวที่สอง
+   * ในร้านเดียวกันที่ใกล้หมดพร้อมกันจะถูกกลืนหายไปกับตัวแรกจนกว่าจะมีคนอ่าน
+   */
+  dedupeScope?: Record<string, string>;
 }
 
 @Injectable()
@@ -110,6 +117,13 @@ export class NotificationsService {
           type: input.type,
           shopId: input.shopId ?? null,
           readAt: null,
+          ...(input.dedupeScope
+            ? {
+                AND: Object.entries(input.dedupeScope).map(([key, value]) => ({
+                  payload: { path: [key], equals: value },
+                })),
+              }
+            : {}),
         },
         select: { id: true },
       });

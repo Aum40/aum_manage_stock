@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { StockModule } from '../stock/stock.module';
 import { ChatCommandController } from './chat-command.controller';
 import { ChatCommandService } from './chat-command.service';
@@ -10,7 +11,7 @@ import { StockChoiceService } from './stock-choice.service';
 import { StockQueryService } from './stock-query.service';
 
 @Module({
-  imports: [StockModule],
+  imports: [StockModule, NotificationsModule],
   controllers: [ChatCommandController],
   providers: [
     ChatCommandService,

@@ -1,12 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { Bell, Menu } from "lucide-react";
 import Link from "next/link";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useMobileNav } from "@/components/layout/MobileNavContext";
-import { useMarkAllNotificationsRead, useNotifications } from "@/lib/hooks/use-inventory";
+import { NotificationsDialog } from "@/components/features/notifications/NotificationsDialog";
+import { useNotifications } from "@/lib/hooks/use-inventory";
 import { useMe } from "@/lib/hooks/use-profile";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import LogoutButton from "@/components/layout/LogoutButton";
@@ -23,8 +25,8 @@ export default function TopBar({ title, readOnly, notifications = true }: TopBar
   const { locale } = useLocale();
   const meQuery = useMe();
   const notificationsQuery = useNotifications(true, notifications);
-  const markAllRead = useMarkAllNotificationsRead();
   const unreadCount = notificationsQuery.data?.items.length ?? 0;
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const currentUser = meQuery.data;
   const roleLabel = currentUser
     ? locale === "th"
@@ -58,10 +60,11 @@ export default function TopBar({ title, readOnly, notifications = true }: TopBar
           type="button"
           aria-label="Notifications"
           title={unreadCount ? `${unreadCount} unread notifications` : "Notifications"}
-          // TODO: ควรเปิดรายการแจ้งเตือน ตอนนี้ทำได้แค่ mark-all-read
-          // ปิดปุ่มเมื่อไม่มีของค้าง จะได้ไม่ยิง mutation เปล่าๆ
-          disabled={!notifications || unreadCount === 0}
-          onClick={() => markAllRead.mutate()}
+          // เดิมกดแล้ว mark-all-read ทันทีโดยไม่แสดงอะไรเลย = ทำลายข้อความ
+          // ที่ยังไม่ได้อ่านทิ้งไปโดยไม่มีทางกู้ ตอนนี้เปิดรายการให้อ่านก่อน
+          // เปิดได้แม้ไม่มีของค้าง เพราะต้องย้อนดูของเก่าได้ด้วย
+          disabled={!notifications}
+          onClick={() => setNotificationsOpen(true)}
           className="relative rounded-full p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         >
           <Bell className="size-4.5" />
@@ -84,6 +87,19 @@ export default function TopBar({ title, readOnly, notifications = true }: TopBar
         </Link>
         <LogoutButton label={locale === "th" ? "ออกจากระบบ" : "Log out"} iconOnly />
       </div>
+
+      {/*
+        เรนเดอร์เฉพาะตอนเปิดใช้แจ้งเตือน ไม่ใช่แค่ซ่อนไว้ด้วย open={false}
+        เพราะกล่องนี้เรียก useSelectedShop() ตั้งแต่ตอน render และหน้า admin
+        อยู่นอก SelectedShopProvider (provider อยู่ใน (main)/layout.tsx)
+        ถ้าเรนเดอร์ทิ้งไว้ next build จะพังตอน prerender /admin/*
+      */}
+      {notifications && (
+        <NotificationsDialog
+          open={notificationsOpen}
+          onClose={() => setNotificationsOpen(false)}
+        />
+      )}
     </header>
   );
 }

@@ -85,20 +85,52 @@ export class DashboardService {
     const ctx = await this.access.assertCanViewShopDashboard(userId, shopId);
     await this.access.assertPaidPlan(ctx.ownerId);
 
+    /**
+     * จัดกลุ่มด้วย shopProductId อย่างเดียว ห้ามใส่ productName เข้าไปด้วย
+     *
+     * productName ใน sale_items เป็น snapshot ณ ตอนขาย ไม่ใช่ชื่อปัจจุบัน
+     * ถ้าเจ้าของร้านเปลี่ยนชื่อสินค้า บิลเก่าจะเก็บชื่อเดิม บิลใหม่เก็บชื่อใหม่
+     * พอ groupBy ทั้งสองคอลัมน์ สินค้าตัวเดียวกันจะแตกเป็นหลายกลุ่ม —
+     * ยอดถูกหารกัน อันดับเพี้ยนทั้งตาราง และของที่ขายดีที่สุดอาจหลุด top N
+     * ไปเลย ส่วนฝั่งหน้าเว็บก็ได้ shopProductId ซ้ำจน React ฟ้อง duplicate key
+     */
     const grouped = await this.prisma.saleItem.groupBy({
-      by: ['shopProductId', 'productName'],
+      by: ['shopProductId'],
       where: { sale: this.completedSalesWhere(shopId, query) },
       _sum: { quantity: true, lineTotal: true },
       orderBy: { _sum: { quantity: 'desc' } },
       take: query.limit,
     });
 
+    if (grouped.length === 0) {
+      return { range: { from: query.from, to: query.to }, items: [] };
+    }
+
+    /**
+     * ชื่อที่จะแสดงคือ snapshot ของบิลล่าสุดในช่วงนี้ ไม่ใช่ชื่อปัจจุบันใน
+     * shop_products — ยังยึดกติกาเดิมของโมดูลที่ว่ารายงานย้อนหลังต้องใช้ชื่อ
+     * ณ ตอนที่ขาย เพียงแต่เลือกมาอันเดียวแทนที่จะปล่อยให้แตกเป็นหลายแถว
+     */
+    const latestNames = await this.prisma.saleItem.findMany({
+      where: {
+        shopProductId: { in: grouped.map((row) => row.shopProductId) },
+        sale: this.completedSalesWhere(shopId, query),
+      },
+      distinct: ['shopProductId'],
+      orderBy: { createdAt: 'desc' },
+      select: { shopProductId: true, productName: true },
+    });
+
+    const nameOf = new Map(
+      latestNames.map((row) => [row.shopProductId, row.productName]),
+    );
+
     return {
       range: { from: query.from, to: query.to },
       items: grouped.map((row, index) => ({
         rank: index + 1,
         shopProductId: row.shopProductId,
-        productName: row.productName,
+        productName: nameOf.get(row.shopProductId) ?? '',
         quantitySold: row._sum.quantity ?? 0,
         totalAmount: Number(row._sum.lineTotal ?? 0),
       })),
@@ -440,6 +472,10 @@ export class DashboardService {
    * นับ `itemsWithoutCost` ไปด้วย เพราะ `cost_price` มี default 0 และหน้าเพิ่ม
    * สินค้าไม่ได้บังคับกรอกทุน สินค้าที่ปล่อยว่างจะดูเหมือนกำไร 100% ฝั่งหน้าเว็บ
    * ต้องเตือนได้ว่าตัวเลขนี้ยังไม่ครบ ไม่ใช่ปล่อยให้เข้าใจผิด
+   *
+   * นับแบบ distinct ตาม shopProductId ไม่ใช่นับแถว sale_items — สินค้าตัวเดียว
+   * ที่ไม่มีทุนแต่ขายไป 50 บิลคือปัญหา 1 รายการที่ต้องไปแก้ ไม่ใช่ 50 รายการ
+   * ตัวเลขนี้ไปโผล่เป็นข้อความ "N รายการยังไม่ได้ใส่ต้นทุน" ให้ผู้ใช้ไล่แก้
    */
   private async costByShop(
     shopIds: string[],
@@ -449,8 +485,10 @@ export class DashboardService {
       string,
       { costAmount: number; itemsWithoutCost: number }
     >();
+    const noCostProducts = new Map<string, Set<string>>();
     for (const shopId of shopIds) {
       byShop.set(shopId, { costAmount: 0, itemsWithoutCost: 0 });
+      noCostProducts.set(shopId, new Set<string>());
     }
 
     if (shopIds.length === 0) return byShop;
@@ -466,6 +504,7 @@ export class DashboardService {
       select: {
         quantity: true,
         costPrice: true,
+        shopProductId: true,
         sale: { select: { shopId: true } },
       },
     });
@@ -477,11 +516,14 @@ export class DashboardService {
       const cost = Number(item.costPrice);
       bucket.costAmount += cost * item.quantity;
       // ทุน 0 แปลว่ายังไม่เคยกรอกทุนให้สินค้านั้น ไม่ใช่ของที่ได้มาฟรี
-      if (cost === 0) bucket.itemsWithoutCost += 1;
+      if (cost === 0) {
+        noCostProducts.get(item.sale.shopId)?.add(item.shopProductId);
+      }
     }
 
-    for (const bucket of byShop.values()) {
+    for (const [shopId, bucket] of byShop) {
       bucket.costAmount = this.money(bucket.costAmount);
+      bucket.itemsWithoutCost = noCostProducts.get(shopId)?.size ?? 0;
     }
 
     return byShop;

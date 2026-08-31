@@ -26,7 +26,11 @@ import {
   type ApiFailure,
 } from "@/components/shared/ApiErrorNotice";
 import { api, withQuery } from "@/lib/api-client";
-import { inventoryKeys, type Shop, type ShopProduct } from "@/lib/hooks/use-inventory";
+import {
+  invalidateStockAndSales,
+  type Shop,
+  type ShopProduct,
+} from "@/lib/hooks/use-inventory";
 
 /**
  * สองการกระทำที่ปุ่ม +/− เดิมทำแทนไม่ได้ เพราะมันเปลี่ยนแค่จำนวนโดยไม่บอกสาเหตุ
@@ -35,18 +39,17 @@ import { inventoryKeys, type Shop, type ShopProduct } from "@/lib/hooks/use-inve
  * เส้นนี้สร้าง Sale + SaleItem + ตัดสต็อกให้เองผ่าน movementType 'SALE' ครบในทีเดียว
  * ห้ามยิง stock/adjust ตามหลัง สต็อกจะถูกหักสองรอบ ยอดคิดจาก sellPrice ปัจจุบัน
  *
- * ย้ายสต็อก — ยิง stock/adjust สองครั้ง (ลดร้านต้นทาง เพิ่มร้านปลายทาง) ทั้งคู่เป็น
- * MANUAL_ADJUSTMENT จึงไม่แตะยอดขายของร้านไหนเลย ตรงตามที่ควรเป็น ของแค่ย้ายที่
- * ไม่ได้ขาย
+ * ย้ายสต็อก — ยิง POST /shops/:id/stock/transfer คำขอเดียว ฝั่ง api ลดต้นทางกับ
+ * เพิ่มปลายทางในทรานแซกชันเดียว ทั้งคู่เป็น MANUAL_ADJUSTMENT จึงไม่แตะยอดขาย
+ * ของร้านไหนเลย ตรงตามที่ควรเป็น ของแค่ย้ายที่ ไม่ได้ขาย
  *
  * ปรับสต็อก — รับของเข้า / ตัดของเสีย / แก้ตัวเลขให้ตรงกับที่นับได้จริง ยิง
  * stock/adjust ตรง ๆ ไม่ใช่การขาย จึงไม่แตะยอดรายได้
  *
- * ⚠️ การย้ายไม่ใช่ transaction — เป็นสองคำขอแยกกัน ถ้าขาที่สองล้มเหลว ของจะหาย
- * จากร้านต้นทางโดยไม่ไปถึงปลายทาง จึงมี compensating rollback คืนของกลับให้
- * อัตโนมัติ และถ้า rollback ล้มด้วยจะแจ้งเลขที่ต้องแก้มือให้ชัด
- * ทางแก้ที่ถูกจริงคือ endpoint /stock/transfer ฝั่ง api ที่ทำในทรานแซกชันเดียว
- * — เป็นของ feature/stock-movements-resource (พี่ดิว) ไม่ใช่ที่นี่
+ * เดิมหน้านี้ยิง stock/adjust สองครั้งเองพร้อม compensating rollback ฝั่ง client
+ * ซึ่งแปลว่าถ้าปิดแท็บหรือเน็ตหลุดคาระหว่างสองคำขอ ของจะหายจากต้นทางโดยไม่ถึง
+ * ปลายทาง และไม่มีอะไรตามเก็บเพราะตัวที่ต้องคืนของอยู่ในเบราว์เซอร์ที่ตายไปแล้ว
+ * ตอนนี้ย้ายไปทำที่ api หมดแล้ว หน้านี้จึงไม่ต้องรู้เรื่อง rollback อีก
  *
  * ⚠️ setSaving(false) ต้องอยู่ใน finally เสมอ ห้ามอยู่แค่ใน catch
  * ทั้งสามกล่องถูก mount ค้างไว้ในหน้า /products ตลอดเวลา (page.tsx ท้ายไฟล์)
@@ -85,12 +88,6 @@ const content = {
     cancel: "ยกเลิก",
     tooMany: "จำนวนเกินของที่มีอยู่",
     sellNote: "ขายหน้าร้าน (บันทึกจากหน้าสินค้า)",
-    transferOut: (shop: string) => `ย้ายไป ${shop}`,
-    transferIn: (shop: string) => `ย้ายมาจาก ${shop}`,
-    rollbackDone:
-      "ย้ายไม่สำเร็จ ระบบคืนของกลับร้านต้นทางให้แล้ว สต็อกไม่หายไปไหน",
-    rollbackFailed: (n: number, shop: string) =>
-      `ย้ายไม่สำเร็จ และคืนของกลับอัตโนมัติไม่ได้ด้วย — ${shop} ถูกหักไป ${n} แล้วแต่ปลายทางไม่ได้รับ กรุณาปรับคืนเองที่หน้านี้`,
     adjustTitle: "ปรับสต็อก",
     adjustDesc:
       "รับของเข้า ตัดของเสีย หรือแก้ตัวเลขให้ตรงกับที่นับได้จริง — ไม่นับเป็นยอดขาย",
@@ -124,12 +121,6 @@ const content = {
     cancel: "Cancel",
     tooMany: "More than what is on hand",
     sellNote: "Counter sale (recorded from the products page)",
-    transferOut: (shop: string) => `Moved to ${shop}`,
-    transferIn: (shop: string) => `Moved from ${shop}`,
-    rollbackDone:
-      "The move failed and the stock was returned to the source shop. Nothing was lost.",
-    rollbackFailed: (n: number, shop: string) =>
-      `The move failed and the automatic rollback failed too — ${shop} is short by ${n} and the destination never received it. Please correct it manually here.`,
     adjustTitle: "Adjust stock",
     adjustDesc:
       "Receiving goods, writing off damage, or correcting the count — never counted as revenue.",
@@ -185,10 +176,7 @@ export function SellStockDialog({
         items: [{ shopProductId: row.id, quantity }],
         note: t.sellNote,
       });
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
-      // เปิดบิลแล้วยอดขาย/จำนวนบิล/เฉลี่ยต่อบิลบนแดชบอร์ดต้องขยับตาม
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateStockAndSales(queryClient);
       close();
     } catch (caught) {
       setError(toApiFailure(caught));
@@ -315,9 +303,7 @@ export function AdjustStockDialog({
         quantity,
         note: note.trim() || t.defaultAdjustNote,
       });
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateStockAndSales(queryClient);
       close();
     } catch (caught) {
       setError(toApiFailure(caught));
@@ -494,51 +480,15 @@ export function TransferStockDialog({
     setError(null);
     setSaving(true);
 
-    const sourceName =
-      shops.find((shop) => shop.id === shopId)?.name ?? "—";
-
     try {
-      // ขาออกก่อน ถ้าขานี้ล้มก็จบ ไม่มีอะไรเสียหาย
-      await api.post(`/api/backend/shops/${shopId}/stock/adjust`, {
+      // คำขอเดียว ทรานแซกชันเดียวฝั่ง api — ถ้าล้ม Postgres คืนค่าให้ทั้งสองขาเอง
+      await api.post(`/api/backend/shops/${shopId}/stock/transfer`, {
         shopProductId: row.id,
-        operation: "DECREASE",
+        toShopId: picked.shop.id,
         quantity,
-        note: t.transferOut(picked.shop.name),
       });
 
-      try {
-        await api.post(`/api/backend/shops/${picked.shop.id}/stock/adjust`, {
-          shopProductId: picked.shopProductId,
-          operation: "INCREASE",
-          quantity,
-          note: t.transferIn(sourceName),
-        });
-      } catch (inbound) {
-        // ขาเข้าล้ม — คืนของกลับต้นทางทันที ไม่งั้นสต็อกหายเฉย ๆ
-        let restored = false;
-        try {
-          await api.post(`/api/backend/shops/${shopId}/stock/adjust`, {
-            shopProductId: row.id,
-            operation: "INCREASE",
-            quantity,
-            note: t.transferIn(picked.shop.name),
-          });
-          restored = true;
-        } catch {
-          restored = false;
-        }
-
-        // throw ต้องอยู่นอก try ของ rollback — เดิมมันอยู่ข้างใน แล้วโดน catch
-        // ของตัวเองกลืน จึงรายงาน "คืนของกลับไม่ได้" ทุกครั้งแม้คืนสำเร็จ
-        throw new Error(
-          restored
-            ? `${t.rollbackDone} (${toApiFailure(inbound).message})`
-            : t.rollbackFailed(quantity, sourceName),
-        );
-      }
-
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      invalidateStockAndSales(queryClient);
       close();
     } catch (caught) {
       setError(toApiFailure(caught));
