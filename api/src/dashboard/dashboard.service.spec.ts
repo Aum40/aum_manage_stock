@@ -223,16 +223,13 @@ describe('DashboardService', () => {
   describe('getBestSellers', () => {
     it('จัดอันดับตามจำนวนที่ขายได้ และใช้ชื่อสินค้าที่ snapshot ไว้', async () => {
       prisma.saleItem.groupBy.mockResolvedValue([
-        {
-          shopProductId: 'sp1',
-          productName: 'โค้ก 325ml',
-          _sum: { quantity: 40, lineTotal: 600 },
-        },
-        {
-          shopProductId: 'sp2',
-          productName: 'น้ำเปล่า 600ml',
-          _sum: { quantity: 12, lineTotal: 84 },
-        },
+        { shopProductId: 'sp1', _sum: { quantity: 40, lineTotal: 600 } },
+        { shopProductId: 'sp2', _sum: { quantity: 12, lineTotal: 84 } },
+      ]);
+      // ชื่อมาจากคิวรีที่สอง — snapshot ของบิลล่าสุดในช่วงนั้น
+      prisma.saleItem.findMany.mockResolvedValue([
+        { shopProductId: 'sp1', productName: 'โค้ก 325ml' },
+        { shopProductId: 'sp2', productName: 'น้ำเปล่า 600ml' },
       ]);
 
       const result = await service.getBestSellers(OWNER, SHOP, {
@@ -264,6 +261,43 @@ describe('DashboardService', () => {
       await service.getBestSellers(OWNER, SHOP, { ...RANGE, limit: 10 });
 
       expect(access.assertPaidPlan).toHaveBeenCalledWith(OWNER);
+    });
+
+    /**
+     * กันบั๊กเดิมกลับมา — เคยจัดกลุ่มด้วย ['shopProductId', 'productName']
+     * ทำให้สินค้าที่ถูกเปลี่ยนชื่อแตกเป็นสองแถว ยอดถูกหารกันจนอันดับเพี้ยน
+     * และหน้าเว็บได้ key ซ้ำ
+     */
+    it('จัดกลุ่มด้วย shopProductId เท่านั้น ห้ามรวม productName ที่เป็น snapshot', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([]);
+
+      await service.getBestSellers(OWNER, SHOP, { ...RANGE, limit: 10 });
+
+      expect(prisma.saleItem.groupBy).toHaveBeenCalledWith(
+        containing({ by: ['shopProductId'] }),
+      );
+    });
+
+    it('สินค้าที่ถูกเปลี่ยนชื่อยังเป็นแถวเดียว และใช้ชื่อจากบิลล่าสุด', async () => {
+      // DB รวมให้แล้วเพราะจัดกลุ่มด้วย shopProductId อย่างเดียว
+      prisma.saleItem.groupBy.mockResolvedValue([
+        { shopProductId: 'sp1', _sum: { quantity: 100, lineTotal: 1500 } },
+      ]);
+      prisma.saleItem.findMany.mockResolvedValue([
+        { shopProductId: 'sp1', productName: 'โค้ก 325ml (สูตรใหม่)' },
+      ]);
+
+      const result = await service.getBestSellers(OWNER, SHOP, {
+        ...RANGE,
+        limit: 10,
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].quantitySold).toBe(100);
+      expect(result.items[0].productName).toBe('โค้ก 325ml (สูตรใหม่)');
+      expect(prisma.saleItem.findMany).toHaveBeenCalledWith(
+        containing({ distinct: ['shopProductId'] }),
+      );
     });
 
     it('แพ็กเกจ Free ถูกปฏิเสธก่อนแตะฐานข้อมูล', async () => {

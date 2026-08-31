@@ -85,20 +85,52 @@ export class DashboardService {
     const ctx = await this.access.assertCanViewShopDashboard(userId, shopId);
     await this.access.assertPaidPlan(ctx.ownerId);
 
+    /**
+     * จัดกลุ่มด้วย shopProductId อย่างเดียว ห้ามใส่ productName เข้าไปด้วย
+     *
+     * productName ใน sale_items เป็น snapshot ณ ตอนขาย ไม่ใช่ชื่อปัจจุบัน
+     * ถ้าเจ้าของร้านเปลี่ยนชื่อสินค้า บิลเก่าจะเก็บชื่อเดิม บิลใหม่เก็บชื่อใหม่
+     * พอ groupBy ทั้งสองคอลัมน์ สินค้าตัวเดียวกันจะแตกเป็นหลายกลุ่ม —
+     * ยอดถูกหารกัน อันดับเพี้ยนทั้งตาราง และของที่ขายดีที่สุดอาจหลุด top N
+     * ไปเลย ส่วนฝั่งหน้าเว็บก็ได้ shopProductId ซ้ำจน React ฟ้อง duplicate key
+     */
     const grouped = await this.prisma.saleItem.groupBy({
-      by: ['shopProductId', 'productName'],
+      by: ['shopProductId'],
       where: { sale: this.completedSalesWhere(shopId, query) },
       _sum: { quantity: true, lineTotal: true },
       orderBy: { _sum: { quantity: 'desc' } },
       take: query.limit,
     });
 
+    if (grouped.length === 0) {
+      return { range: { from: query.from, to: query.to }, items: [] };
+    }
+
+    /**
+     * ชื่อที่จะแสดงคือ snapshot ของบิลล่าสุดในช่วงนี้ ไม่ใช่ชื่อปัจจุบันใน
+     * shop_products — ยังยึดกติกาเดิมของโมดูลที่ว่ารายงานย้อนหลังต้องใช้ชื่อ
+     * ณ ตอนที่ขาย เพียงแต่เลือกมาอันเดียวแทนที่จะปล่อยให้แตกเป็นหลายแถว
+     */
+    const latestNames = await this.prisma.saleItem.findMany({
+      where: {
+        shopProductId: { in: grouped.map((row) => row.shopProductId) },
+        sale: this.completedSalesWhere(shopId, query),
+      },
+      distinct: ['shopProductId'],
+      orderBy: { createdAt: 'desc' },
+      select: { shopProductId: true, productName: true },
+    });
+
+    const nameOf = new Map(
+      latestNames.map((row) => [row.shopProductId, row.productName]),
+    );
+
     return {
       range: { from: query.from, to: query.to },
       items: grouped.map((row, index) => ({
         rank: index + 1,
         shopProductId: row.shopProductId,
-        productName: row.productName,
+        productName: nameOf.get(row.shopProductId) ?? '',
         quantitySold: row._sum.quantity ?? 0,
         totalAmount: Number(row._sum.lineTotal ?? 0),
       })),
