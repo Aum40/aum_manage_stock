@@ -3,7 +3,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/lib/api-client';
-import { inventoryKeys } from '@/lib/hooks/use-inventory';
+import {
+  inventoryKeys,
+  invalidateStockAndSales,
+} from '@/lib/hooks/use-inventory';
 
 /**
  * [อั้ม] hook ของ ChatbotModule ที่ use-inventory.ts ยังไม่มี — แยกไฟล์เพื่อไม่ให้
@@ -36,8 +39,9 @@ export function useApplyChatCommand(shopId: string | undefined) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chat', shopId] });
-      // ยืนยันแล้วสต็อกเปลี่ยนจริง หน้าสินค้า/แดชบอร์ดต้องโหลดใหม่ด้วย
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      // ยืนยันแล้วสต็อกเปลี่ยนจริง — ต้องล้างครบทั้งสินค้า แดชบอร์ด และกระดิ่ง
+      // ก่อนหน้านี้ล้างแค่ inventoryKeys ของใกล้หมดจากแชทเลยไม่ขึ้นจนกว่าจะรีเฟรช
+      invalidateStockAndSales(queryClient);
     },
   });
 }

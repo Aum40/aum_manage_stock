@@ -38,7 +38,7 @@ import {
 import { ProductScopeTabs } from "@/components/shared/ProductScopeTabs";
 import { ApiError, api } from "@/lib/api-client";
 import {
-  inventoryKeys,
+  invalidateStockAndSales,
   useAdjustStock,
   useCategories,
   useShopProducts,
@@ -271,8 +271,8 @@ export default function ProductsStockPage() {
         costPrice: Number(row.costPrice),
         lowStockThreshold: row.lowStockThreshold,
       }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all }),
+    // กู้คืนสินค้ากลับเข้าร้าน = จำนวนสินค้าที่ขายอยู่บนแดชบอร์ดเปลี่ยนด้วย
+    onSuccess: () => invalidateStockAndSales(queryClient),
   });
 
 
@@ -640,8 +640,11 @@ function EditProductDialog({
 
   const adjustStock = useAdjustStock(shopId);
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+  /**
+   * ครอบทั้งแก้ราคา แก้ข้อมูลสินค้า และเอาออกจากร้าน — ทั้งสามอย่างขยับตัวเลข
+   * บนแดชบอร์ด และการแก้จุดแจ้งเตือนยังเปลี่ยนได้ว่าสินค้านับเป็นของใกล้หมดไหม
+   */
+  const invalidate = () => invalidateStockAndSales(queryClient);
 
   const updatePricing = useMutation({
     mutationFn: (input: {

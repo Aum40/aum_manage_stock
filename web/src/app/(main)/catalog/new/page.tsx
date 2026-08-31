@@ -23,7 +23,7 @@ import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog
 import BarcodeScanner from "@/components/features/barcode/BarcodeScanner";
 import { ApiError, api } from "@/lib/api-client";
 import {
-  inventoryKeys,
+  invalidateStockAndSales,
   useCategories,
   useCreateProduct,
   useMySubscription,
@@ -313,8 +313,7 @@ export default function AddProductFullPage() {
         }
       }
 
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      invalidateStockAndSales(queryClient);
       router.push(enabledShops.length > 0 ? "/products" : "/catalog");
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));

@@ -569,15 +569,3 @@ export function useSendChatMessage(shopId: string | undefined) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['chat', shopId] }),
   });
 }
-
-export function useConfirmChatCommand(shopId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (pendingId: string) =>
-      api.post(`/api/backend/shops/${shopId}/stock/chat-command/${pendingId}/confirm`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['chat', shopId] });
-      invalidateStockAndSales(queryClient);
-    },
-  });
-}
