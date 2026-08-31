@@ -21,7 +21,10 @@ import {
   type ApiFailure,
 } from "@/components/shared/ApiErrorNotice";
 import { api, withQuery } from "@/lib/api-client";
-import { inventoryKeys, type Shop } from "@/lib/hooks/use-inventory";
+import {
+  invalidateStockAndSales,
+  type Shop,
+} from "@/lib/hooks/use-inventory";
 
 /**
  * แก้สต็อกของสินค้าหนึ่งตัวข้ามทุกร้านในกล่องเดียว และลงร้านใหม่พร้อมกำหนดจำนวน
@@ -332,10 +335,7 @@ export function ShopStockDialog({
         });
       }
 
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      // เปิดบิลแล้วยอดขาย/จำนวนบิล/เฉลี่ยต่อบิลบนแดชบอร์ดต้องขยับตาม
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      invalidateStockAndSales(queryClient);
       closeAll();
     } catch (caught) {
       setError(toApiFailure(caught));
