@@ -56,14 +56,18 @@ describe('SalesService', () => {
       assertSalesEnabled: jest.fn().mockResolvedValue(undefined),
       assertBarcodeEnabled: jest.fn().mockResolvedValue(undefined),
     };
+    const lowStock = {
+      notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new SalesService(
       prisma as never,
       movements as never,
       products,
       staff,
       subscriptions,
+      lowStock as never,
     );
-    return { service, tx, movements, products, staff, subscriptions };
+    return { service, tx, movements, products, staff, subscriptions, lowStock };
   }
 
   it('creates sale, decreases stock, and records movement in one transaction', async () => {

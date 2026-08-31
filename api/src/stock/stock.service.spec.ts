@@ -2,6 +2,7 @@ import { StockMovementsService } from '../stock-movements/stock-movements.servic
 import { PrismaService } from '../database/prisma.service';
 import type { StockAuthorizationPort } from './ports/stock-authorization.port';
 import type { StockInventoryPort } from './ports/stock-inventory.port';
+import { LowStockNotifier } from '../notifications/low-stock.notifier';
 import { StockService } from './stock.service';
 
 describe('StockService', () => {
@@ -29,11 +30,15 @@ describe('StockService', () => {
     const movements = {
       create: createMovementMock,
     } as unknown as StockMovementsService;
+    const lowStock = {
+      notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
+    } as unknown as LowStockNotifier;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
+      lowStock,
     );
 
     await expect(
@@ -87,11 +92,15 @@ describe('StockService', () => {
     const movements = {
       create: createMovementMock,
     } as unknown as StockMovementsService;
+    const lowStock = {
+      notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
+    } as unknown as LowStockNotifier;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
+      lowStock,
     );
 
     await expect(
@@ -132,11 +141,15 @@ describe('StockService', () => {
     const movements = {
       create: createMovementMock,
     } as unknown as StockMovementsService;
+    const lowStock = {
+      notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
+    } as unknown as LowStockNotifier;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
+      lowStock,
     );
 
     await service.adjustInTransaction(tx as never, {

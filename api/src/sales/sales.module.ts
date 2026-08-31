@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { StockModule } from '../stock/stock.module';
 import { SalesController } from './sales.controller';
 import { SalesService } from './sales.service';
@@ -23,7 +24,7 @@ const isSalesMockMode = (config: ConfigService) =>
   config.get<string>('SALES_MOCK_MODE')?.trim().toLowerCase() === 'true';
 
 @Module({
-  imports: [StockModule],
+  imports: [StockModule, NotificationsModule],
   controllers: [SalesController],
   providers: [
     SalesService,

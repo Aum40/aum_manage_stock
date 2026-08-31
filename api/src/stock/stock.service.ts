@@ -5,6 +5,7 @@ import {
   StockMovementSource,
 } from '../database/generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { LowStockNotifier } from '../notifications/low-stock.notifier';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import { STOCK_AUTHORIZATION_PORT } from './ports/stock-authorization.port';
 import type { StockAuthorizationPort } from './ports/stock-authorization.port';
@@ -32,13 +33,29 @@ export class StockService {
     private readonly inventory: StockInventoryPort,
     @Inject(STOCK_AUTHORIZATION_PORT)
     private readonly authorization: StockAuthorizationPort,
+    private readonly lowStock: LowStockNotifier,
   ) {}
 
-  adjust(input: ExecuteAdjustmentInput) {
-    return this.prisma.$transaction(
+  async adjust(input: ExecuteAdjustmentInput) {
+    const result = await this.prisma.$transaction(
       async (tx) => this.adjustInTransaction(tx, input),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+
+    /**
+     * แจ้งเตือนหลัง commit เท่านั้น ถ้ายิงอยู่ในทรานแซกชันแล้วมันถูก rollback
+     * การแจ้งเตือนจะหายไปด้วย และ notifier ก็กลืน error เองอยู่แล้ว
+     * การปรับสต็อกจึงไม่มีวันล้มเพราะการแจ้งเตือนล้ม
+     */
+    await this.lowStock.notifyIfCrossed([
+      {
+        shopProductId: input.shopProductId,
+        quantityBefore: result.stock.quantityBefore,
+        quantityAfter: result.stock.quantityAfter,
+      },
+    ]);
+
+    return result;
   }
 
   async adjustInTransaction(
