@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import { StockController } from './stock.controller';
 import { StockService } from './stock.service';
@@ -8,6 +9,7 @@ import { PrismaStockInventoryAdapter } from './ports/prisma-stock-inventory.adap
 import { PrismaStockAuthorizationAdapter } from './ports/prisma-stock-authorization.adapter';
 
 @Module({
+  imports: [NotificationsModule],
   controllers: [StockController],
   providers: [
     StockService,
