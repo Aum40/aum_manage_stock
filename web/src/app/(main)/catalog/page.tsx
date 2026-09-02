@@ -35,6 +35,7 @@ import { ShopStockDialog } from "@/components/features/catalog/ShopStockDialog";
 import { ApiError, api, withQuery } from "@/lib/api-client";
 import {
   inventoryKeys,
+  invalidateStockAndSales,
   useCategories,
   useMySubscription,
   useProducts,
@@ -270,8 +271,7 @@ export default function ProductCatalogPage() {
     mutationFn: (productId: string) =>
       api.delete(`/api/backend/products/${productId}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      invalidateStockAndSales(queryClient);
       queryClient.invalidateQueries({ queryKey: ["subscriptions", "me"] });
     },
   });

@@ -7,6 +7,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '../database/generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import type { StockChange } from '../notifications/low-stock.notifier';
+import { LowStockNotifier } from '../notifications/low-stock.notifier';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
 import type { CreateSaleDto, SaleQueryDto } from './dto/sales.dto';
 import {
@@ -29,6 +31,7 @@ export class SalesService {
     @Inject(SALES_STAFF_PORT) private readonly staff: SalesStaffPort,
     @Inject(SALES_SUBSCRIPTION_PORT)
     private readonly subscriptions: SalesSubscriptionPort,
+    private readonly lowStock: LowStockNotifier,
   ) {}
 
   scan(shopId: string, staffId: string, barcode: string) {
@@ -39,11 +42,21 @@ export class SalesService {
     });
   }
 
-  create(shopId: string, staffId: string, input: CreateSaleDto) {
-    return this.prisma.$transaction(
+  /**
+   * ปิดการขาย — ประตูที่ใช้คือ assertSalesEnabled ไม่ใช่ assertBarcodeEnabled
+   *
+   * สิ่งที่แพ็กเกจล็อกไว้คือ "การสแกนบาร์โค้ด" ไม่ใช่ "การขาย" — ตารางแพ็กเกจ
+   * ให้ Basic Dashboard กับ Free ซึ่งเป็นแดชบอร์ดที่แสดงยอดขาย ถ้า Free เปิดบิล
+   * ไม่ได้เลยแดชบอร์ดนั้นจะว่างตลอดกาล และ void() ก็ใช้ assertSalesEnabled อยู่
+   * แล้ว การให้ยกเลิกบิลได้แต่สร้างบิลไม่ได้เป็นสถานะที่ขัดกันในตัวเอง
+   *
+   * ลูกค้า Free จึงพิมพ์รายการขายเองได้ แต่ใช้กล้องสแกนไม่ได้ (ดู scan())
+   */
+  async create(shopId: string, staffId: string, input: CreateSaleDto) {
+    const { sale, stockChanges } = await this.prisma.$transaction(
       async (tx) => {
         await this.assertAccess(tx, shopId, staffId);
-        await this.subscriptions.assertBarcodeEnabled(tx, shopId);
+        await this.subscriptions.assertSalesEnabled(tx, shopId);
         const requested = new Map<string, number>();
         for (const item of input.items)
           requested.set(
@@ -97,11 +110,17 @@ export class SalesService {
           include: { items: true },
         });
 
+        const stockChanges: StockChange[] = [];
         for (const item of items) {
           const stock = await this.products.adjustStock(tx, {
             shopId,
             shopProductId: item.shopProductId,
             quantityDelta: -item.quantity,
+          });
+          stockChanges.push({
+            shopProductId: item.shopProductId,
+            quantityBefore: stock.quantityBefore,
+            quantityAfter: stock.quantityAfter,
           });
           await this.movements.create(tx, {
             shopId,
@@ -119,10 +138,15 @@ export class SalesService {
             )!.id,
           });
         }
-        return sale;
+        return { sale, stockChanges };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+
+    // นอกทรานแซกชัน — ดูเหตุผลใน StockService.adjust()
+    await this.lowStock.notifyIfCrossed(stockChanges);
+
+    return sale;
   }
 
   list(shopId: string, staffId: string, query: SaleQueryDto) {

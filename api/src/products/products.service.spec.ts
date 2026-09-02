@@ -57,6 +57,13 @@ describe('ProductsService', () => {
 
   beforeEach(() => {
     prisma = createPrismaMock();
+    // create() นับโควตาซ้ำในทรานแซกชันเดียวกับการสร้าง เพื่อกันการยิงพร้อมกัน
+    // แซงโควตา — mock จึงต้องส่ง client ตัวเดิมเข้า callback ให้
+    prisma.$transaction.mockImplementation((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: PrismaMock) => unknown)(prisma)
+        : arg,
+    );
     quota = { getMaxActiveProducts: jest.fn().mockResolvedValue(100) };
     accountContext = {
       resolve: jest
@@ -275,6 +282,7 @@ describe('ProductsService', () => {
       shopStaff: { findFirst: jest.Mock };
       subscription: { findUnique: jest.Mock };
       product: { create: jest.Mock; findFirst: jest.Mock; count: jest.Mock };
+      $transaction: jest.Mock;
     };
     let realContext: AccountContextService;
     let staffService: ProductsService;
@@ -289,7 +297,13 @@ describe('ProductsService', () => {
           findFirst: jest.fn().mockResolvedValue(null),
           count: jest.fn().mockResolvedValue(0),
         },
+        $transaction: jest.fn(),
       };
+      realPrisma.$transaction.mockImplementation((arg: unknown) =>
+        typeof arg === 'function'
+          ? (arg as (tx: typeof realPrisma) => unknown)(realPrisma)
+          : arg,
+      );
       realContext = new AccountContextService(
         realPrisma as unknown as PrismaService,
       );

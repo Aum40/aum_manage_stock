@@ -14,7 +14,7 @@ import { useLocale } from "@/components/i18n/LocaleContext";
 import { useSelectedShop } from "@/components/shared/SelectedShopContext";
 import { ApiError, api } from "@/lib/api-client";
 import {
-  inventoryKeys,
+  invalidateStockAndSales,
   useShopProducts,
   useShops,
   type ShopProduct,
@@ -233,7 +233,7 @@ export default function StockInPage() {
         });
       }
 
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      invalidateStockAndSales(queryClient);
       setLines([]);
       setHint(null);
       setSaved(true);

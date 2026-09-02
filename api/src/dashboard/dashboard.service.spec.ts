@@ -22,7 +22,7 @@ const RANGE = {
 function createPrismaMock() {
   return {
     sale: { aggregate: jest.fn(), groupBy: jest.fn(), findMany: jest.fn() },
-    saleItem: { groupBy: jest.fn() },
+    saleItem: { groupBy: jest.fn(), findMany: jest.fn() },
     shopProduct: {
       count: jest.fn(),
       findMany: jest.fn(),
@@ -47,6 +47,9 @@ describe('DashboardService', () => {
 
   beforeEach(() => {
     prisma = createPrismaMock();
+    // เส้นทางส่วนใหญ่ไม่สนใจต้นทุน ให้ค่าเริ่มต้นเป็นไม่มีรายการขาย
+    // เทสต์ที่ตรวจกำไรจะ mock ทับเอง
+    prisma.saleItem.findMany.mockResolvedValue([]);
     access = {
       assertCanViewShopDashboard: jest.fn().mockResolvedValue(OWNER_CTX),
       assertCanViewAccountDashboard: jest.fn().mockResolvedValue(OWNER_CTX),
@@ -76,12 +79,105 @@ describe('DashboardService', () => {
         totalAmount: 1500,
         saleCount: 6,
         averageSaleAmount: 250,
+        costAmount: 0,
+        grossProfit: 1500,
+        itemsWithoutCost: 0,
       });
       expect(result.stock).toEqual({
         activeProducts: 42,
         lowStock: 3,
         outOfStock: 1,
       });
+    });
+
+    it('กำไรขั้นต้น = ยอดขาย − ทุนที่ snapshot ไว้ตอนเปิดบิล', async () => {
+      prisma.sale.aggregate.mockResolvedValue({
+        _sum: { totalAmount: 1000 },
+        _count: { _all: 2 },
+      });
+      prisma.shopProduct.count.mockResolvedValue(0);
+      prisma.saleItem.findMany.mockResolvedValue([
+        {
+          quantity: 50,
+          costPrice: 6,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+        {
+          quantity: 10,
+          costPrice: 20,
+          shopProductId: 'sp-2',
+          sale: { shopId: SHOP },
+        },
+      ]);
+
+      const result = await service.getShopDashboard(OWNER, SHOP, RANGE);
+
+      expect(result.sales.costAmount).toBe(500);
+      expect(result.sales.grossProfit).toBe(500);
+      expect(result.sales.itemsWithoutCost).toBe(0);
+    });
+
+    it('รายการที่ยังไม่ได้กรอกทุนถูกนับไว้ ไม่ใช่เงียบไป', async () => {
+      prisma.sale.aggregate.mockResolvedValue({
+        _sum: { totalAmount: 400 },
+        _count: { _all: 1 },
+      });
+      prisma.shopProduct.count.mockResolvedValue(0);
+      prisma.saleItem.findMany.mockResolvedValue([
+        {
+          quantity: 4,
+          costPrice: 25,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+        // ทุน 0 = ยังไม่เคยกรอก ไม่ใช่ของฟรี
+        {
+          quantity: 3,
+          costPrice: 0,
+          shopProductId: 'sp-2',
+          sale: { shopId: SHOP },
+        },
+      ]);
+
+      const result = await service.getShopDashboard(OWNER, SHOP, RANGE);
+
+      expect(result.sales.costAmount).toBe(100);
+      expect(result.sales.grossProfit).toBe(300);
+      expect(result.sales.itemsWithoutCost).toBe(1);
+    });
+
+    it('สินค้าไม่มีทุนตัวเดียวที่ขายหลายบิล นับเป็น 1 รายการ ไม่ใช่หลายรายการ', async () => {
+      prisma.sale.aggregate.mockResolvedValue({
+        _sum: { totalAmount: 300 },
+        _count: { _all: 3 },
+      });
+      prisma.shopProduct.count.mockResolvedValue(0);
+      // สินค้าตัวเดียวกัน (sp-1) ขายไป 3 บิล ทุกบิลยังไม่มีทุน
+      prisma.saleItem.findMany.mockResolvedValue([
+        {
+          quantity: 1,
+          costPrice: 0,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+        {
+          quantity: 1,
+          costPrice: 0,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+        {
+          quantity: 1,
+          costPrice: 0,
+          shopProductId: 'sp-1',
+          sale: { shopId: SHOP },
+        },
+      ]);
+
+      const result = await service.getShopDashboard(OWNER, SHOP, RANGE);
+
+      expect(result.sales.itemsWithoutCost).toBe(1);
     });
 
     it('ไม่มีบิลเลย averageSaleAmount ต้องเป็น 0 ไม่ใช่ NaN', async () => {
@@ -127,16 +223,13 @@ describe('DashboardService', () => {
   describe('getBestSellers', () => {
     it('จัดอันดับตามจำนวนที่ขายได้ และใช้ชื่อสินค้าที่ snapshot ไว้', async () => {
       prisma.saleItem.groupBy.mockResolvedValue([
-        {
-          shopProductId: 'sp1',
-          productName: 'โค้ก 325ml',
-          _sum: { quantity: 40, lineTotal: 600 },
-        },
-        {
-          shopProductId: 'sp2',
-          productName: 'น้ำเปล่า 600ml',
-          _sum: { quantity: 12, lineTotal: 84 },
-        },
+        { shopProductId: 'sp1', _sum: { quantity: 40, lineTotal: 600 } },
+        { shopProductId: 'sp2', _sum: { quantity: 12, lineTotal: 84 } },
+      ]);
+      // ชื่อมาจากคิวรีที่สอง — snapshot ของบิลล่าสุดในช่วงนั้น
+      prisma.saleItem.findMany.mockResolvedValue([
+        { shopProductId: 'sp1', productName: 'โค้ก 325ml' },
+        { shopProductId: 'sp2', productName: 'น้ำเปล่า 600ml' },
       ]);
 
       const result = await service.getBestSellers(OWNER, SHOP, {
@@ -168,6 +261,43 @@ describe('DashboardService', () => {
       await service.getBestSellers(OWNER, SHOP, { ...RANGE, limit: 10 });
 
       expect(access.assertPaidPlan).toHaveBeenCalledWith(OWNER);
+    });
+
+    /**
+     * กันบั๊กเดิมกลับมา — เคยจัดกลุ่มด้วย ['shopProductId', 'productName']
+     * ทำให้สินค้าที่ถูกเปลี่ยนชื่อแตกเป็นสองแถว ยอดถูกหารกันจนอันดับเพี้ยน
+     * และหน้าเว็บได้ key ซ้ำ
+     */
+    it('จัดกลุ่มด้วย shopProductId เท่านั้น ห้ามรวม productName ที่เป็น snapshot', async () => {
+      prisma.saleItem.groupBy.mockResolvedValue([]);
+
+      await service.getBestSellers(OWNER, SHOP, { ...RANGE, limit: 10 });
+
+      expect(prisma.saleItem.groupBy).toHaveBeenCalledWith(
+        containing({ by: ['shopProductId'] }),
+      );
+    });
+
+    it('สินค้าที่ถูกเปลี่ยนชื่อยังเป็นแถวเดียว และใช้ชื่อจากบิลล่าสุด', async () => {
+      // DB รวมให้แล้วเพราะจัดกลุ่มด้วย shopProductId อย่างเดียว
+      prisma.saleItem.groupBy.mockResolvedValue([
+        { shopProductId: 'sp1', _sum: { quantity: 100, lineTotal: 1500 } },
+      ]);
+      prisma.saleItem.findMany.mockResolvedValue([
+        { shopProductId: 'sp1', productName: 'โค้ก 325ml (สูตรใหม่)' },
+      ]);
+
+      const result = await service.getBestSellers(OWNER, SHOP, {
+        ...RANGE,
+        limit: 10,
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].quantitySold).toBe(100);
+      expect(result.items[0].productName).toBe('โค้ก 325ml (สูตรใหม่)');
+      expect(prisma.saleItem.findMany).toHaveBeenCalledWith(
+        containing({ distinct: ['shopProductId'] }),
+      );
     });
 
     it('แพ็กเกจ Free ถูกปฏิเสธก่อนแตะฐานข้อมูล', async () => {
@@ -251,6 +381,9 @@ describe('DashboardService', () => {
         totalAmount: 1200,
         saleCount: 7,
         shopCount: 2,
+        costAmount: 0,
+        grossProfit: 1200,
+        itemsWithoutCost: 0,
       });
       expect(result.shops[0].lowStock).toBe(4);
       expect(result.shops[1].lowStock).toBe(0);

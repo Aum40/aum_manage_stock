@@ -43,7 +43,15 @@ export const BestSellersQuerySchema = z
   })
   .refine((value) => value.from <= value.to, {
     message: 'from ต้องไม่อยู่หลัง to',
-  });
+  })
+  // เพดานเดียวกับ endpoint อื่นในโมดูล เดิมตกหล่นไปเส้นเดียว ทำให้ขอช่วง
+  // กี่ปีก็ได้แล้วลากทั้งตาราง sale_items มาจัดกลุ่มในหน่วยความจำ
+  .refine(
+    (value) =>
+      value.to.getTime() - value.from.getTime() <=
+      MAX_RANGE_DAYS * 24 * 60 * 60 * 1000,
+    { message: `ช่วงเวลาต้องไม่เกิน ${MAX_RANGE_DAYS} วัน` },
+  );
 export type BestSellersQueryDto = z.infer<typeof BestSellersQuerySchema>;
 
 export const DeadStockQuerySchema = z.object({

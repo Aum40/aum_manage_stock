@@ -23,7 +23,7 @@ import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog
 import BarcodeScanner from "@/components/features/barcode/BarcodeScanner";
 import { ApiError, api } from "@/lib/api-client";
 import {
-  inventoryKeys,
+  invalidateStockAndSales,
   useCategories,
   useCreateProduct,
   useMySubscription,
@@ -113,6 +113,8 @@ const content = {
     saving: "กำลังบันทึก…",
     cancelBtn: "ยกเลิก",
     required: "กรอกชื่อสินค้าและหน่วยนับก่อน",
+    resumeHint:
+      "สินค้าถูกสร้างไว้แล้ว การกดบันทึกอีกครั้งจะทำต่อเฉพาะร้านที่ยังไม่สำเร็จ ไม่สร้างสินค้าซ้ำ",
     requiredPrice: "ร้านที่เปิดสวิตช์ไว้ต้องใส่ราคาขาย",
   },
   en: {
@@ -163,6 +165,8 @@ const content = {
     saving: "Saving…",
     cancelBtn: "Cancel",
     required: "Fill in the product name and unit first",
+    resumeHint:
+      "The product was already created — saving again continues with the remaining shops instead of creating a duplicate.",
     requiredPrice: "Every switched-on shop needs a sell price",
   },
 };
@@ -182,9 +186,30 @@ export default function AddProductFullPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const [rows, setRows] = useState<Record<string, ShopRow>>({});
   const [error, setError] = useState<string | null>(null);
+  /** ล้มหลังสร้างสินค้าไปแล้ว — ใช้เรนเดอร์คำอธิบาย จึงเป็น state ไม่ใช่ ref */
+  const [partiallySaved, setPartiallySaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * ความคืบหน้าของการบันทึกรอบก่อน — ต้องอยู่ข้ามการกดซ้ำ
+   *
+   * การบันทึกหนึ่งครั้งคือหลายคำขอเรียงกัน (สร้างสินค้า → ลงทีละร้าน → ยิงสต็อก
+   * เริ่มต้น) ไม่ใช่ทรานแซกชันเดียว ถ้าล้มที่ร้านที่สอง สินค้ากับร้านแรกถูกบันทึก
+   * ไปแล้วจริง ๆ แต่ผู้ใช้เห็นแค่ error กับปุ่มที่กดซ้ำได้
+   *
+   * ถ้าไม่จำอะไรไว้ การกดซ้ำจะเรียก createProduct ใหม่ตั้งแต่ต้น ได้สินค้าซ้ำ
+   * อีกแถวในแคตตาล็อกและกินโควตาเพิ่มอีกช่อง (products.service.ts นับ product
+   * ต่อ ownerId ตรง ๆ) แพ็กเกจ Free มีแค่ 100 ช่อง
+   *
+   * useRef ไม่ใช่ useState เพราะค่าเหล่านี้ไม่ได้ใช้เรนเดอร์ และต้องอ่านได้ทันที
+   * ในลูป async ที่กำลังทำงานอยู่ ไม่ใช่รอ re-render รอบถัดไป
+   */
+  const createdProductId = useRef<string | null>(null);
+  const shopProgress = useRef(
+    new Map<string, { shopProductId: string; stocked: boolean }>(),
+  );
 
   const categoriesQuery = useCategories();
   const shopsQuery = useShops();
@@ -241,42 +266,58 @@ export default function AddProductFullPage() {
     setSaving(true);
 
     try {
-      const product = await createProduct.mutateAsync({
-        name: name.trim(),
-        unit: unit.trim(),
-        barcode: barcode.trim() || undefined,
-        categoryId: categoryId || undefined,
-        imageUrl: imageUrl || undefined,
-      });
+      // รอบก่อนสร้างสินค้าไปแล้ว — ใช้ตัวเดิม ห้ามสร้างใหม่
+      const productId =
+        createdProductId.current ??
+        (
+          await createProduct.mutateAsync({
+            name: name.trim(),
+            unit: unit.trim(),
+            barcode: barcode.trim() || undefined,
+            categoryId: categoryId || undefined,
+            imageUrl: imageUrl || undefined,
+          })
+        ).id;
+      createdProductId.current = productId;
 
       for (const shop of enabledShops) {
         const row = rowOf(shop.id);
-        const shopProduct = await api.post<{ id: string }>(
-          `/api/backend/shops/${shop.id}/products`,
-          {
-            productId: product.id,
-            sellPrice: Number(row.sellPrice),
-            costPrice: Number(row.costPrice || 0),
-            lowStockThreshold: Number(row.threshold || 0),
-          },
-        );
 
+        // ลงร้านนี้แล้วหรือยัง — ยิงซ้ำจะโดน SHOP_PRODUCT_ALREADY_EXISTS
+        let progress = shopProgress.current.get(shop.id);
+        if (!progress) {
+          const shopProduct = await api.post<{ id: string }>(
+            `/api/backend/shops/${shop.id}/products`,
+            {
+              productId,
+              sellPrice: Number(row.sellPrice),
+              costPrice: Number(row.costPrice || 0),
+              lowStockThreshold: Number(row.threshold || 0),
+            },
+          );
+          progress = { shopProductId: shopProduct.id, stocked: false };
+          shopProgress.current.set(shop.id, progress);
+        }
+
+        // แยกจากขั้นบน เพราะถ้ารอบก่อนลงร้านผ่านแต่ยิงสต็อกไม่ผ่าน
+        // รอบนี้ต้องข้ามการลงร้านแล้วมายิงสต็อกอย่างเดียว
         const initialStock = Number(row.stock || 0);
-        if (initialStock > 0) {
+        if (initialStock > 0 && !progress.stocked) {
           await api.post(`/api/backend/shops/${shop.id}/stock/adjust`, {
-            shopProductId: shopProduct.id,
+            shopProductId: progress.shopProductId,
             operation: "INCREASE",
             quantity: initialStock,
             note: locale === "th" ? "สต็อกเริ่มต้น" : "Initial stock",
           });
+          progress.stocked = true;
         }
       }
 
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      invalidateStockAndSales(queryClient);
       router.push(enabledShops.length > 0 ? "/products" : "/catalog");
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
+      setPartiallySaved(createdProductId.current !== null);
       setSaving(false);
     }
   };
@@ -657,9 +698,12 @@ export default function AddProductFullPage() {
           </div>
 
           {error && (
-            <p className="mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {error}
-            </p>
+            <div className="mt-4 rounded-xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <p>{error}</p>
+              {partiallySaved && (
+                <p className="mt-1.5 text-[13px] opacity-90">{t.resumeHint}</p>
+              )}
+            </div>
           )}
 
           <div className="mt-5 flex flex-wrap items-center gap-3">

@@ -1,5 +1,6 @@
 import { AccountContextService } from '@/common/access/account-context.service';
 import { EnvVariable } from '@/config/env.validation';
+import { Prisma } from '@/database/generated/prisma/client';
 import { PrismaService } from '@/database/prisma.service';
 import { User } from '@/database/generated/prisma/client';
 import { UserRole } from '@/database/generated/prisma/enums';
@@ -436,20 +437,32 @@ export class UsersService {
   // =====================================================================
 
   async createStaff(ownerId: string, dto: CreateStaffDto) {
-    await this.assertStaffQuotaAvailable(ownerId);
+    // read-only เป็นสถานะระดับบัญชี อ่านนอกทรานแซกชันได้ ไม่ต้องกันการแข่งกัน
+    await this.accountContext.assertNotReadOnly(ownerId);
 
+    // bcrypt ช้าหลักร้อยมิลลิวินาที ต้องทำให้เสร็จก่อนเปิดทรานแซกชัน
+    // ไม่งั้นล็อก Serializable จะถูกถือค้างไว้ตลอดเวลาที่แฮชอยู่
     const hash = await this.bcryptService.hash(dto.password);
+
     try {
-      const staff = await this.prisma.user.create({
-        data: {
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          username: dto.username,
-          password: hash,
-          role: UserRole.SHOP_STAFF,
-          ownerId,
+      const staff = await this.prisma.$transaction(
+        async (tx) => {
+          // นับแล้วสร้างต้องอยู่ทรานแซกชันเดียวกัน ไม่งั้นยิงพร้อมกันสองรีเควสต์
+          // จะนับได้เท่ากันแล้วผ่านทั้งคู่ = พนักงานเกินโควตาที่จ่ายเงินมา
+          await this.assertStaffQuotaAvailable(ownerId, tx);
+          return tx.user.create({
+            data: {
+              firstName: dto.firstName,
+              lastName: dto.lastName,
+              username: dto.username,
+              password: hash,
+              role: UserRole.SHOP_STAFF,
+              ownerId,
+            },
+          });
         },
-      });
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
       return this.sanitize(staff);
     } catch (error) {
       throw this.toConflictIfDuplicate(error, 'Username already taken');
@@ -632,15 +645,21 @@ export class UsersService {
    * TODO(subscriptions): ย้ายไปเรียก SubscriptionsService เมื่อ
    * feature/subscriptions-resource เปิด API ให้ใช้ข้ามโมดูลได้
    */
-  private async assertStaffQuotaAvailable(ownerId: string) {
-    // SRS §123 — แพ็กเกจหมดอายุแล้วต้องเป็น read-only สร้างอะไรใหม่ไม่ได้
-    //
-    // เช็ค status !== 'ACTIVE' อย่างเดียวไม่พอ เพราะไม่มี cron ที่คอยพลิก
-    // status เป็น EXPIRED ให้ แถวที่ expires_at เลยมาแล้วจึงยังเป็น ACTIVE อยู่
-    // read-only เป็นสถานะที่คำนวณจาก status/expires_at เสมอ (ดู AGENTS.md)
-    await this.accountContext.assertNotReadOnly(ownerId);
-
-    const subscription = await this.prisma.subscription.findUnique({
+  /**
+   * SRS §123 — แพ็กเกจหมดอายุแล้วต้องเป็น read-only สร้างอะไรใหม่ไม่ได้
+   *
+   * เช็ค status !== 'ACTIVE' อย่างเดียวไม่พอ เพราะแถวที่ expires_at เลยมาแล้ว
+   * ยังเป็น ACTIVE อยู่จนกว่า cron จะพลิกให้ — read-only เป็นสถานะที่คำนวณจาก
+   * status/expires_at เสมอ ผู้เรียกจึงต้องผ่าน assertNotReadOnly() มาก่อน
+   *
+   * รับ tx เข้ามาเพื่อให้การนับเกิดในทรานแซกชันเดียวกับการสร้าง ไม่งั้นโควตา
+   * ถูกแซงได้ด้วยการยิงพร้อมกัน
+   */
+  private async assertStaffQuotaAvailable(
+    ownerId: string,
+    tx: Prisma.TransactionClient,
+  ) {
+    const subscription = await tx.subscription.findUnique({
       where: { userId: ownerId },
       include: { plan: true },
     });
@@ -649,7 +668,7 @@ export class UsersService {
       throw new ForbiddenException('No active subscription');
     }
 
-    const used = await this.prisma.user.count({
+    const used = await tx.user.count({
       where: { ownerId, role: UserRole.SHOP_STAFF, deletedAt: null },
     });
 

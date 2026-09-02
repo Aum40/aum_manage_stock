@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '../database/generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AccountContextService } from '../common/access/account-context.service';
 import {
@@ -36,21 +37,46 @@ export class ProductsService {
     await this.accountContext.assertCanManageCatalog(ctx);
 
     const ownerId = ctx.ownerId;
+    // แจ้งเตือน "สินค้าเต็มโควตา" ต้องส่งนอกทรานแซกชัน — ถ้าส่งข้างในแล้ว
+    // ทรานแซกชันถูก rollback (ซึ่งเกิดแน่นอนเพราะเราโยน error ต่อ) การแจ้งเตือน
+    // จะหายไปด้วย ผู้ใช้เลยไม่มีทางรู้ว่าทำไมเพิ่มสินค้าไม่ได้
     await this.assertQuotaAvailable(ownerId);
     await this.assertBarcodeIsFree(ownerId, dto.barcode ?? null);
     if (dto.categoryId)
       await this.assertCategoryBelongsToOwner(ownerId, dto.categoryId);
 
-    return this.prisma.product.create({
-      data: {
-        ownerId,
-        name: dto.name,
-        unit: dto.unit,
-        categoryId: dto.categoryId ?? null,
-        barcode: dto.barcode ?? null,
-        imageUrl: dto.imageUrl ?? null,
+    // นับซ้ำในทรานแซกชันเดียวกับการสร้าง เพื่อกันการยิงพร้อมกันแซงโควตา
+    // (การเช็คด้านบนยังต้องมีอยู่ เพราะเป็นตัวที่ส่งแจ้งเตือนให้ผู้ใช้)
+    return this.prisma.$transaction(
+      async (tx) => {
+        const max = await this.quota.getMaxActiveProducts(ownerId);
+        if (max !== null) {
+          const activeCount = await tx.product.count({
+            where: { ownerId, deletedAt: null },
+          });
+          if (activeCount >= max) {
+            throw new ForbiddenException({
+              message: `จำนวนสินค้าถึงขีดจำกัดของแพ็กเกจแล้ว (${max} รายการ) กรุณาอัปเกรดแพ็กเกจเพื่อเพิ่มสินค้า`,
+              code: 'PRODUCT_QUOTA_EXCEEDED',
+              limit: max,
+              used: activeCount,
+            });
+          }
+        }
+
+        return tx.product.create({
+          data: {
+            ownerId,
+            name: dto.name,
+            unit: dto.unit,
+            categoryId: dto.categoryId ?? null,
+            barcode: dto.barcode ?? null,
+            imageUrl: dto.imageUrl ?? null,
+          },
+        });
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async findAll(userId: string, query: ListProductQueryDto) {

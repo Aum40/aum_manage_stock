@@ -21,8 +21,20 @@ const USER = '0199a0e0-0000-7000-8000-000000000001';
 const OTHER = '0199a0e0-0000-7000-8000-000000000002';
 const PAYMENT = '0199a0e0-0000-7000-8000-000000000100';
 const SUB = '0199a0e0-0000-7000-8000-000000000200';
+const NOW = new Date('2026-08-28T00:00:00.000Z');
+/** แพ็กเกจปัจจุบันยังเหลืออายุอีกครึ่งปี */
+const FUTURE = new Date('2027-02-28T00:00:00.000Z');
 
-const FREE = { id: 'p-free', code: 'FREE', includedShopQuota: 1 };
+const FREE = {
+  id: 'p-free',
+  code: 'FREE',
+  nameTh: 'ฟรี',
+  priceThb: 0,
+  durationMonths: null,
+  includedShopQuota: 1,
+  isFree: true,
+  isActive: true,
+};
 const PLUS = {
   id: 'p-plus',
   code: 'PLUS',
@@ -77,7 +89,9 @@ describe('PaymentsService', () => {
   beforeEach(() => {
     prisma = {
       payment: {
-        create: jest.fn().mockResolvedValue({ id: PAYMENT }),
+        // createdAt ต้องมีจริง — listMyPayments()/createSubscriptionPaymentIntent()
+        // ใช้คำนวณหน้าต่าง 24 ชม. ของใบชำระเงิน
+        create: jest.fn().mockResolvedValue({ id: PAYMENT, createdAt: NOW }),
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
@@ -117,11 +131,21 @@ describe('PaymentsService', () => {
   }
 
   describe('createSubscriptionPaymentIntent', () => {
-    function onPlan(plan: typeof FREE | typeof PLUS | typeof PRO) {
+    function onPlan(
+      plan: typeof FREE | typeof PLUS | typeof PRO,
+      overrides: { status?: string; expiresAt?: Date | null } = {},
+    ) {
       subscriptions.getSubscriptionWithPlanOrThrow.mockResolvedValue({
         id: SUB,
         planId: plan.id,
         plan,
+        status: overrides.status ?? 'ACTIVE',
+        expiresAt:
+          overrides.expiresAt === undefined
+            ? plan.isFree
+              ? null
+              : FUTURE
+            : overrides.expiresAt,
       });
     }
 
@@ -195,6 +219,7 @@ describe('PaymentsService', () => {
         userId: USER,
         planCode: 'PLUS',
         purpose: PaymentPurpose.NEW_SUBSCRIPTION,
+        keepExpiry: 'false',
       });
     });
 
@@ -207,7 +232,72 @@ describe('PaymentsService', () => {
       ).resolves.toEqual({
         paymentId: PAYMENT,
         clientSecret: 'pi_test_1_secret',
+        amountThb: 2499,
+        fullPriceThb: 2499,
+        prorated: false,
+        expiresAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1000).toISOString(),
       });
+    });
+
+    /**
+     * ทีมเลือกรูปแบบ "จ่ายส่วนต่าง วันหมดอายุคงเดิม" สำหรับการอัปเกรดระหว่าง
+     * แพ็กเกจที่เสียเงินด้วยกัน — ราคาที่เก็บกับวันหมดอายุต้องไปด้วยกันเสมอ
+     * จึงส่ง keepExpiry ไปกับ intent แทนการให้ applyUpgrade() คำนวณเองภายหลัง
+     */
+    it('PLUS -> PRO ที่ยังไม่หมดอายุ = เก็บเฉพาะส่วนต่าง และคงวันหมดอายุเดิม', async () => {
+      onPlan(PLUS);
+      prisma.subscriptionPlan.findUnique.mockResolvedValue(PRO);
+
+      const result = await service.createSubscriptionPaymentIntent(USER, 'PRO');
+
+      expect(stripe.createCardPaymentIntent).toHaveBeenCalledWith(1000, {
+        userId: USER,
+        planCode: 'PRO',
+        purpose: PaymentPurpose.NEW_SUBSCRIPTION,
+        keepExpiry: 'true',
+      });
+      expect(result).toEqual(
+        containing({ amountThb: 1000, fullPriceThb: 3499, prorated: true }),
+      );
+      expect(prisma.payment.create).toHaveBeenCalledWith(
+        containing({ data: containing({ amountThb: 1000 }) }),
+      );
+    });
+
+    it('FREE -> PRO = จ่ายเต็ม เพราะไม่เคยจ่ายอะไรมาก่อน', async () => {
+      onPlan(FREE);
+      prisma.subscriptionPlan.findUnique.mockResolvedValue(PRO);
+
+      await service.createSubscriptionPaymentIntent(USER, 'PRO');
+
+      expect(stripe.createCardPaymentIntent).toHaveBeenCalledWith(
+        3499,
+        containing({ keepExpiry: 'false' }),
+      );
+    });
+
+    it('PLUS ที่หมดอายุแล้ว -> PRO = จ่ายเต็ม เพราะไม่เหลือสิทธิ์ให้หัก', async () => {
+      onPlan(PLUS, { expiresAt: new Date('2026-01-01T00:00:00.000Z') });
+      prisma.subscriptionPlan.findUnique.mockResolvedValue(PRO);
+
+      await service.createSubscriptionPaymentIntent(USER, 'PRO');
+
+      expect(stripe.createCardPaymentIntent).toHaveBeenCalledWith(
+        3499,
+        containing({ keepExpiry: 'false' }),
+      );
+    });
+
+    it('ต่ออายุแพ็กเกจเดิม = จ่ายเต็ม ไม่ใช่ส่วนต่าง', async () => {
+      onPlan(PLUS);
+      prisma.subscriptionPlan.findUnique.mockResolvedValue(PLUS);
+
+      await service.createSubscriptionPaymentIntent(USER, 'PLUS');
+
+      expect(stripe.createCardPaymentIntent).toHaveBeenCalledWith(
+        2499,
+        containing({ keepExpiry: 'false', purpose: PaymentPurpose.RENEWAL }),
+      );
     });
 
     // ใบเก่าที่ค้างคือต้นเหตุของเคส "จ่ายใบ PLUS เก่าหลังอัปเป็น PRO ไปแล้ว"
@@ -313,6 +403,9 @@ describe('PaymentsService', () => {
         USER,
         'PLUS',
         prisma,
+        // metadata ของ intent ในเทสต์นี้ไม่มี keepExpiry = จ่ายเต็ม จึงต้องได้
+        // รอบใหม่เต็มระยะเวลา ไม่ใช่คงวันหมดอายุเดิม
+        { keepExpiry: false },
       );
     });
 
@@ -327,38 +420,38 @@ describe('PaymentsService', () => {
     });
   });
 
-  describe('handleWebhook — payment_intent.succeeded', () => {
+  /**
+   * ระบบนี้ไม่ใช้ Stripe webhook — เส้นทางจริงที่ปิดยอดคือ
+   * POST /payments/:id/confirm ซึ่งฟอร์มบัตรเรียกทันทีหลัง
+   * stripe.confirmCardPayment() ผ่าน
+   */
+  describe('ยืนยันการชำระเงิน — POST /payments/:id/confirm', () => {
     function pending(overrides: Record<string, unknown> = {}) {
       return {
         id: PAYMENT,
         userId: USER,
+        // ต้องตรงกับ amount_received ของ intent() (249900 สตางค์)
+        amountThb: 2499,
+        providerRef: 'pi_test_1',
         status: PaymentStatus.PENDING,
         purpose: PaymentPurpose.NEW_SUBSCRIPTION,
         ...overrides,
       };
     }
 
+    /** confirm อ่านแถวด้วย findFirst ส่วน fulfill อ่านซ้ำด้วย findUnique */
+    function givenPayment(row: unknown) {
+      prisma.payment.findFirst.mockResolvedValue(row);
+      prisma.payment.findUnique.mockResolvedValue(row);
+    }
+
     async function fulfill(object = intent()) {
-      // เรียกผ่าน handleWebhook เพื่อครอบ flow จริงตั้งแต่ตรวจลายเซ็น
-      const stripeService = {
-        ...stripe,
-        constructEvent: jest.fn(() => ({
-          type: 'payment_intent.succeeded',
-          data: { object },
-        })),
-      };
-      service = new PaymentsService(
-        prisma as never,
-        stripeService as never,
-        subscriptions as never,
-        { get: jest.fn(() => 'https://app.example.com') } as never,
-      );
-      errorLog = silenceLogger(service);
-      return service.handleWebhook(Buffer.from('{}'), 'sig');
+      stripe.retrievePaymentIntent.mockResolvedValue(object);
+      return service.confirmPaymentIntent(USER, PAYMENT);
     }
 
     it('เปลี่ยนแพ็กเกจและปิดยอดในทรานแซกชันเดียว', async () => {
-      prisma.payment.findUnique.mockResolvedValue(pending());
+      givenPayment(pending());
 
       await fulfill();
 
@@ -371,13 +464,14 @@ describe('PaymentsService', () => {
         USER,
         'PLUS',
         prisma,
+        // metadata ของ intent ในเทสต์นี้ไม่มี keepExpiry = จ่ายเต็ม จึงต้องได้
+        // รอบใหม่เต็มระยะเวลา ไม่ใช่คงวันหมดอายุเดิม
+        { keepExpiry: false },
       );
     });
 
     it('purpose RENEWAL เรียกต่ออายุ ไม่ใช่อัปเกรด', async () => {
-      prisma.payment.findUnique.mockResolvedValue(
-        pending({ purpose: PaymentPurpose.RENEWAL }),
-      );
+      givenPayment(pending({ purpose: PaymentPurpose.RENEWAL }));
 
       await fulfill();
 
@@ -385,19 +479,20 @@ describe('PaymentsService', () => {
       expect(subscriptions.applyUpgrade).not.toHaveBeenCalled();
     });
 
-    it('Stripe ส่ง event ซ้ำ (แถวปิดยอดไปแล้ว) ต้องไม่ต่ออายุซ้ำ', async () => {
-      prisma.payment.findUnique.mockResolvedValue(
-        pending({ status: PaymentStatus.PAID }),
-      );
+    // ผู้ใช้กด confirm ซ้ำ หรือ listMyPayments() ตามเก็บไปแล้ว
+    it('ยืนยันซ้ำหลังปิดยอดไปแล้ว ต้องไม่ต่ออายุซ้ำ', async () => {
+      givenPayment(pending({ status: PaymentStatus.PAID }));
 
-      await expect(fulfill()).resolves.toEqual({ received: true });
+      await expect(fulfill()).resolves.toEqual({
+        message: 'รายการนี้ชำระเงินแล้ว',
+      });
       expect(subscriptions.applyUpgrade).not.toHaveBeenCalled();
     });
 
-    // สอง webhook ที่วิ่งพร้อมกันจะอ่านเจอ PENDING ทั้งคู่ ตัวที่จองแถวไม่ทัน
-    // จะได้ count = 0 แล้วต้องถอยออกโดยไม่ต่ออายุให้อีกรอบ
-    it('กัน webhook ซ้ำที่วิ่งพร้อมกันด้วยการจองแถวใน tx', async () => {
-      prisma.payment.findUnique.mockResolvedValue(pending());
+    // confirm กับ listMyPayments() ที่วิ่งพร้อมกันจะอ่านเจอ PENDING ทั้งคู่
+    // ตัวที่จองแถวไม่ทันจะได้ count = 0 แล้วต้องถอยออกโดยไม่ต่ออายุให้อีกรอบ
+    it('กันการปิดยอดซ้ำที่วิ่งพร้อมกันด้วยการจองแถวใน tx', async () => {
+      givenPayment(pending());
       prisma.payment.updateMany.mockResolvedValue({ count: 0 });
 
       await fulfill();
@@ -405,22 +500,23 @@ describe('PaymentsService', () => {
       expect(subscriptions.applyUpgrade).not.toHaveBeenCalled();
     });
 
-    it('ไม่พัง เมื่อไม่พบ payment ของ intent นี้', async () => {
-      prisma.payment.findUnique.mockResolvedValue(null);
+    it('ตอบ 404 เมื่อไม่พบรายการชำระเงินนี้', async () => {
+      givenPayment(null);
 
-      await expect(fulfill()).resolves.toEqual({ received: true });
+      await expect(fulfill()).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     // เงินถูกตัดแล้วแต่เปลี่ยนแพ็กเกจไม่ได้ (เช่นจ่ายใบ PLUS เก่าหลังอัปเป็น
-    // PRO ไปแล้ว) retry อีกกี่ครั้งก็ไม่ผ่าน — ต้องบันทึกไว้แล้วตอบ 200
-    it('บันทึกเป็น PAID + ตอบ 200 เมื่อจ่ายแล้วแต่เปลี่ยนแพ็กเกจไม่ได้', async () => {
-      prisma.payment.findUnique.mockResolvedValue(pending());
+    // PRO ไปแล้ว) ลองใหม่อีกกี่ครั้งก็ไม่ผ่าน — ต้องบันทึกไว้ว่าจ่ายแล้ว
+    // ไม่ใช่ปล่อยให้ค้าง PENDING เหมือนไม่เคยจ่าย
+    it('บันทึกเป็น PAID เมื่อจ่ายแล้วแต่เปลี่ยนแพ็กเกจไม่ได้', async () => {
+      givenPayment(pending());
       subscriptions.applyUpgrade.mockRejectedValue(
         new ConflictException('ลดแพ็กเกจไม่ได้'),
       );
 
-      await expect(fulfill()).resolves.toEqual({ received: true });
+      await expect(fulfill()).resolves.toEqual({ message: 'ชำระเงินสำเร็จ' });
 
       expect(prisma.payment.updateMany).toHaveBeenLastCalledWith({
         where: { id: PAYMENT, status: PaymentStatus.PENDING },
@@ -430,9 +526,9 @@ describe('PaymentsService', () => {
     });
 
     // ตรงข้ามกัน: DB ล่ม/timeout เป็นความผิดพลาดชั่วคราว ต้องปล่อยให้ throw
-    // เพื่อให้ Stripe retry ตามปกติ
-    it('โยน error ต่อเมื่อเป็นความผิดพลาดชั่วคราว เพื่อให้ Stripe retry', async () => {
-      prisma.payment.findUnique.mockResolvedValue(pending());
+    // ผู้ใช้จะได้กด "ชำระอีกครั้ง" แล้วปิดยอดสำเร็จในรอบถัดไป
+    it('โยน error ต่อเมื่อเป็นความผิดพลาดชั่วคราว', async () => {
+      givenPayment(pending());
       subscriptions.applyUpgrade.mockRejectedValue(new Error('DB timeout'));
 
       await expect(fulfill()).rejects.toThrow('DB timeout');
