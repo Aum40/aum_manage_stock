@@ -12,7 +12,17 @@ describe('SalesService', () => {
       id: saleId,
       saleNo: 'S-TEST0001',
       status: 'COMPLETED',
-      items: [{ id: itemId, shopProductId: productId, quantity: 2 }],
+      // sale_items.cost_price เป็น NOT NULL ในฐานข้อมูล แถวที่ไม่มีทุนจึงไม่มีจริง
+      // ก่อนหน้านี้ fixture ไม่ใส่ ทำให้ตอนยกเลิกบิลส่ง NaN เข้า lots.receive
+      // โดยไม่มีเทสต์ไหนจับได้
+      items: [
+        {
+          id: itemId,
+          shopProductId: productId,
+          quantity: 2,
+          costPrice: new Prisma.Decimal('9.00'),
+        },
+      ],
       ...saleOverrides,
     };
     const tx = {
@@ -69,7 +79,7 @@ describe('SalesService', () => {
         picked: [],
         quantityWithoutLot: 0,
       }),
-      receive: jest.fn().mockResolvedValue(undefined),
+      receive: jest.fn().mockResolvedValue({ unitCost: new Prisma.Decimal(0) }),
       ensureOpeningLot: jest.fn().mockResolvedValue(undefined),
     };
     const service = new SalesService(
@@ -134,6 +144,8 @@ describe('SalesService', () => {
         movementType: 'SALE',
         saleId,
         referenceId: itemId,
+        // 9.00 = ทุนจากล็อต ไม่ใช่ 8.00 ที่เป็น cost_price ปัจจุบันของสินค้า
+        unitCost: new Prisma.Decimal('9.00'),
       }),
     );
   });
@@ -152,6 +164,8 @@ describe('SalesService', () => {
         movementType: 'SALE_VOID',
         saleId,
         referenceId: itemId,
+        // ของกลับเข้ามาด้วยทุนเดียวกับตอนที่มันออกไป
+        unitCost: new Prisma.Decimal('9.00'),
       }),
     );
     expect(tx.sale.update).toHaveBeenCalled();
