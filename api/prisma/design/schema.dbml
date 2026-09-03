@@ -96,6 +96,14 @@ Enum pending_action_status {
   FAILED
 }
 
+// [อั้ม] แชทบอททำได้ 3 อย่างที่ต้องยืนยันก่อน — แยก intent ไว้เพราะปลายทาง
+// ตอนกดยืนยันคนละเส้นทางกันคนละโมดูล
+Enum pending_action_intent {
+  ADJUST_STOCK   // ปรับสต็อกเฉยๆ ไม่มีเงินเกี่ยวข้อง
+  SELL           // ตัดสต็อกพร้อมคิดเงิน สร้าง sales + sale_items
+  TRANSFER_STOCK // ย้ายไปร้านอื่นของเจ้าของคนเดียวกัน
+}
+
 Enum chat_channel {
   WEB
   LINE
@@ -641,6 +649,8 @@ Table pending_stock_actions {
   channel chat_channel [not null]
   raw_text text [not null, note: 'ข้อความดิบที่ผู้ใช้พิมพ์ เช่น "เพิ่มโค้ก10"']
   parsed_items jsonb [not null, note: 'ผลการตีความ: shop_product_id, product_name, qty_change ต่อรายการ']
+  intent pending_action_intent [not null, default: 'ADJUST_STOCK']
+  destination_shop_id uuid [null, note: 'ร้านปลายทาง มีค่าเมื่อ intent = TRANSFER_STOCK เท่านั้น']
   status pending_action_status [not null, default: 'PENDING']
   error_reason text [null, note: 'ตีความไม่สำเร็จ / ไม่พบสินค้า']
   expires_at timestamptz [not null, note: 'กันผู้ใช้กดยืนยันของเก่าข้ามวัน']
@@ -791,6 +801,9 @@ Ref: sale_items.shop_product_id > shop_products.id [delete: restrict]
 
 // AI
 Ref: pending_stock_actions.shop_id > shops.id [delete: cascade]
+// [อั้ม] restrict ไม่ใช่ cascade — ลบร้านปลายทางทิ้งแล้วคำสั่งย้ายที่ค้างอยู่
+// ต้องไม่หายเงียบ ๆ ไปด้วย ประวัติการสั่งต้องอ่านย้อนได้เสมอ
+Ref: pending_stock_actions.destination_shop_id > shops.id [delete: restrict]
 Ref: pending_stock_actions.user_id > users.id [delete: restrict]
 Ref: chat_messages.shop_id > shops.id [delete: cascade]
 Ref: chat_messages.user_id > users.id [delete: restrict]

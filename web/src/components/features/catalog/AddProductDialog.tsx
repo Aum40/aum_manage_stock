@@ -2,11 +2,16 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
-import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -32,7 +37,13 @@ import {
 import { useUploadImage } from "@/lib/hooks/use-uploads";
 
 /**
- * หน้านี้ต่างจาก /products/new ตรงที่ลงได้หลายร้านในครั้งเดียว
+ * [อั้ม] กล่องเพิ่มสินค้า — ทางเดียวที่สร้างสินค้าได้ในระบบ
+ *
+ * เดิมเป็นหน้าเต็ม /catalog/new ย้ายมาเป็น modal บนหน้าแคตตาล็อกกลาง เพราะการ
+ * เพิ่มสินค้าต้องเห็นภาพรวมทุกร้านอยู่แล้ว การเด้งออกไปอีกหน้าทำให้หลุดบริบท
+ *
+ * เลย์เอาต์เป็นคอลัมน์เดียวเสมอ (ของเดิมเป็นสองคอลัมน์ ฟอร์ม + สรุปด้านขวา)
+ * การ์ดสรุปกับโควตาจึงย้ายลงล่างสุด
  *
  * ลำดับที่ยิง api — สามขั้น เพราะข้อมูลอยู่คนละชั้นจริง ๆ
  *   1. POST /products                      สร้างในคลังกลาง 1 ครั้ง
@@ -171,10 +182,15 @@ const content = {
   },
 };
 
-export default function AddProductFullPage() {
+export default function AddProductDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const { locale } = useLocale();
   const t = content[locale];
-  const router = useRouter();
   const queryClient = useQueryClient();
 
   const [name, setName] = useState("");
@@ -259,6 +275,28 @@ export default function AddProductFullPage() {
   const canSubmit =
     name.trim().length > 0 && unit.trim().length > 0 && !missingPrice;
 
+  /**
+   * ล้างฟอร์มให้หมดหลังบันทึกสำเร็จ
+   *
+   * **ต้องล้าง ref ทั้งสองตัวด้วย ไม่ใช่แค่ state** — createdProductId ถูกจำไว้เพื่อ
+   * กันสร้างสินค้าซ้ำตอนกดบันทึกใหม่หลังพลาดกลางคัน ตอนเป็นหน้าเต็มมันหายเองเพราะ
+   * เปลี่ยนหน้าแล้วคอมโพเนนต์ถูกถอด แต่ modal อยู่ในหน้าเดิมตลอด ถ้าไม่ล้าง สินค้า
+   * ตัวถัดไปจะถูก "ลงร้าน" ทับ id ของสินค้าตัวก่อน = ได้สินค้าผิดตัวโดยไม่มีใครรู้
+   */
+  const resetForm = () => {
+    setName("");
+    setBarcode("");
+    setUnit("");
+    setCategoryId("");
+    setImageUrl("");
+    setRows({});
+    setError(null);
+    setPartiallySaved(false);
+    setScanOpen(false);
+    createdProductId.current = null;
+    shopProgress.current = new Map();
+  };
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit || saving) return;
@@ -314,7 +352,8 @@ export default function AddProductFullPage() {
       }
 
       invalidateStockAndSales(queryClient);
-      router.push(enabledShops.length > 0 ? "/products" : "/catalog");
+      resetForm();
+      onOpenChange(false);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
       setPartiallySaved(createdProductId.current !== null);
@@ -323,11 +362,49 @@ export default function AddProductFullPage() {
   };
 
   return (
-    <>
-      <TopBar title={t.title} />
-      <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // ปิดกลางคันแล้วเปิดใหม่ ต้องได้ฟอร์มเปล่า ไม่ใช่ของค้างจากรอบก่อน
+        if (!next) resetForm();
+        onOpenChange(next);
+      }}
+    >
+      {/*
+        ตัว popup เองห้ามเลื่อน — ให้กล่องข้างในเลื่อนแทน
+
+        DialogContent ตั้งต้นเป็น rounded-xl + overflow-y-auto สกรอลล์บาร์จึงถูกวาด
+        ทับมุมโค้งด้านขวา ทำให้ขอบขวาดูเป็นเหลี่ยมข้างเดียว พอย้ายการเลื่อนเข้าไป
+        ข้างใน มุมโค้งของ popup จะ clip สกรอลล์บาร์ให้เอง ขอบทั้งสองข้างเลยโค้งเท่ากัน
+
+        ใส่ทั้ง overflow-hidden และ overflow-y-hidden เพราะ tailwind-merge นับ
+        overflow กับ overflow-y เป็นคนละกลุ่ม ถ้าใส่ตัวเดียว overflow-y-auto เดิม
+        อาจรอดมาแล้วสกรอลล์บาร์กลับไปอยู่ที่เดิม
+      */}
+      {/*
+        กว้าง 4xl (896px) เพื่อให้แถวตั้งราคารายร้านแสดงครบโดยไม่ต้องเลื่อนแนวนอน
+
+        คิดจาก: 896 − 32 (p-4 ของกล่องใน) − 32 (px-4 ในการ์ด) = 832px ที่ใช้ได้จริง
+        ส่วนแถวต้องการ 13rem (ชื่อร้าน) + 4×7rem (ช่องกรอก) + 4×0.5rem (gap) = 688px
+      */}
+      <DialogContent className="overflow-hidden overflow-y-hidden p-0 sm:max-w-4xl">
+        {/*
+          ต้องกำหนด max-h ให้กล่องนี้ตรง ๆ ห้ามพึ่ง max-h ของ popup
+
+          popup เป็น grid ที่แถวขยายตามเนื้อหา กล่องนี้จึงสูงเท่าฟอร์มทั้งหมด
+          แล้วส่วนเกินถูก popup ตัดทิ้ง (overflow hidden) — ผลคือเนื้อหาหาย
+          และเลื่อนไม่ได้เลย เพราะไม่มีอะไรล้นในสายตาของกล่องนี้
+
+          85vh ต้องตรงกับ max-h ของ popup ถ้าแก้ที่ใดที่หนึ่งต้องแก้ทั้งคู่
+        */}
+        <div className="grid max-h-[85vh] gap-4 overflow-y-auto p-4">
+        <DialogHeader>
+          <DialogTitle>{t.title}</DialogTitle>
+          <DialogDescription>{t.card1Sub}</DialogDescription>
+        </DialogHeader>
+
         <form onSubmit={onSubmit}>
-          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="grid grid-cols-1 items-start gap-5">
             <div className="flex flex-col gap-5">
               <Card>
                 <div className="px-4">
@@ -536,6 +613,17 @@ export default function AddProductFullPage() {
                 </div>
 
                 <div className="px-4">
+                  {/*
+                    คอลัมน์ชื่อร้านกว้างคงที่ (13rem) ไม่ใช่ 1fr
+
+                    1fr จะยุบลงเหลือเท่าความยาวชื่อร้านเมื่อพื้นที่ไม่พอ และแต่ละ
+                    แถวเป็น grid ของตัวเอง ชื่อร้านยาวไม่เท่ากันช่องกรอกจึงเหลื่อม
+                    กันทุกแถว — ตรึงความกว้างไว้แล้วทุกแถวตรงกันเสมอ
+
+                    overflow-x-auto เหลือไว้เป็นตาข่ายกันตก ที่ความกว้างปกติของ
+                    modal เนื้อหาพอดีอยู่แล้วจึงไม่มีแถบเลื่อน จะโผล่ก็ต่อเมื่อ
+                    หน้าจอแคบกว่า modal เอง (max-w-[calc(100%-2rem)])
+                  */}
                   {shops.length === 0 ? (
                     <div className="flex flex-col items-start gap-3 py-6">
                       <p className="text-sm text-muted-foreground">{t.noShops}</p>
@@ -549,21 +637,14 @@ export default function AddProductFullPage() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex flex-col">
-                      <div className="hidden gap-2 pb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:grid sm:grid-cols-[1fr_repeat(4,7rem)]">
-                        <span />
-                        <span className="text-right">{t.priceLabel}</span>
-                        <span className="text-right">{t.costLabel}</span>
-                        <span className="text-right">{t.stockLabel}</span>
-                        <span className="text-right">{t.alertLabel}</span>
-                      </div>
-
+                    <div className="overflow-x-auto">
+                      <div className="flex flex-col sm:min-w-172">
                       {shops.map((shop, index) => {
                         const row = rowOf(shop.id);
                         return (
                           <div
                             key={shop.id}
-                            className={`grid grid-cols-1 items-center gap-2 py-3 sm:grid-cols-[1fr_repeat(4,7rem)] ${
+                            className={`grid grid-cols-1 items-center gap-2 py-3 sm:grid-cols-[13rem_repeat(4,7rem)] ${
                               index < shops.length - 1
                                 ? "border-b border-border"
                                 : ""
@@ -599,20 +680,32 @@ export default function AddProductFullPage() {
                                 onChange={(event) =>
                                   patchRow(shop.id, { [field]: event.target.value })
                                 }
-                                placeholder="0"
+                                /*
+                                  placeholder ทำหน้าที่แทนหัวตาราง — แถวหัวข้อถูกถอด
+                                  ออกไปแล้วเพราะซ้ำซ้อน ถ้าเปลี่ยนกลับเป็น "0"
+                                  ทั้งสี่ช่อง จะไม่เหลืออะไรบอกเลยว่าช่องไหนคือราคา
+                                  ช่องไหนคือสต็อก
+
+                                  title กับ aria-label ยังอยู่ เพราะ placeholder
+                                  หายไปทันทีที่ผู้ใช้พิมพ์ตัวแรก
+                                */
+                                placeholder={label}
                                 disabled={!row.enabled}
                                 title={label}
-                                className="text-right font-mono disabled:opacity-40"
+                                className="text-center font-mono disabled:opacity-40"
                               />
                             ))}
                           </div>
                         );
                       })}
-
-                      <p className="mt-3 rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
-                        {t.stockNote}
-                      </p>
+                      </div>
                     </div>
+                  )}
+
+                  {shops.length > 0 && (
+                    <p className="mt-3 rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
+                      {t.stockNote}
+                    </p>
                   )}
                 </div>
               </Card>
@@ -710,7 +803,14 @@ export default function AddProductFullPage() {
             <Button type="submit" variant="gradient" disabled={!canSubmit || saving}>
               {saving ? t.saving : t.saveBtn}
             </Button>
-            <Button variant="ghost" render={<Link href="/catalog" />}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                resetForm();
+                onOpenChange(false);
+              }}
+            >
               {t.cancelBtn}
             </Button>
             {!canSubmit && (
@@ -720,16 +820,17 @@ export default function AddProductFullPage() {
             )}
           </div>
         </form>
-      </main>
 
-      <CategoryManagerDialog
-        open={categoryManagerOpen}
-        onClose={() => setCategoryManagerOpen(false)}
-        onCategoryDeleted={(deletedId) => {
-          // ถ้าหมวดที่เลือกไว้ในฟอร์มถูกลบ ต้องเคลียร์ ไม่งั้นจะส่ง id ที่ไม่มีอยู่ไป api
-          setCategoryId((current) => (current === deletedId ? "" : current));
-        }}
-      />
-    </>
+        <CategoryManagerDialog
+          open={categoryManagerOpen}
+          onClose={() => setCategoryManagerOpen(false)}
+          onCategoryDeleted={(deletedId) => {
+            // ถ้าหมวดที่เลือกไว้ในฟอร์มถูกลบ ต้องเคลียร์ ไม่งั้นจะส่ง id ที่ไม่มีอยู่ไป api
+            setCategoryId((current) => (current === deletedId ? "" : current));
+          }}
+        />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
