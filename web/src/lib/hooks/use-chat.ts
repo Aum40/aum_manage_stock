@@ -1,9 +1,12 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/lib/api-client';
-import { inventoryKeys } from '@/lib/hooks/use-inventory';
+import {
+  inventoryKeys,
+  invalidateStockAndSales,
+} from '@/lib/hooks/use-inventory';
 
 /**
  * [อั้ม] hook ของ ChatbotModule ที่ use-inventory.ts ยังไม่มี — แยกไฟล์เพื่อไม่ให้
@@ -36,8 +39,9 @@ export function useApplyChatCommand(shopId: string | undefined) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chat', shopId] });
-      // ยืนยันแล้วสต็อกเปลี่ยนจริง หน้าสินค้า/แดชบอร์ดต้องโหลดใหม่ด้วย
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      // ยืนยันแล้วสต็อกเปลี่ยนจริง — ต้องล้างครบทั้งสินค้า แดชบอร์ด และกระดิ่ง
+      // ก่อนหน้านี้ล้างแค่ inventoryKeys ของใกล้หมดจากแชทเลยไม่ขึ้นจนกว่าจะรีเฟรช
+      invalidateStockAndSales(queryClient);
     },
   });
 }
@@ -102,5 +106,27 @@ export function useUpdateChatCommand(shopId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: ['chat', shopId] });
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
     },
+  });
+}
+
+export interface LineBotInvite {
+  basicId: string;
+  displayName: string;
+  addFriendUrl: string;
+  qrCodeDataUrl: string;
+}
+
+/**
+ * [อั้ม] ข้อมูลเพิ่มบอท LINE เป็นเพื่อน — ใช้ตอนผู้ใช้เผลอลบห้องแชททิ้ง
+ *
+ * staleTime: Infinity เพราะข้อมูลบอทไม่เปลี่ยนระหว่างที่เปิดเว็บอยู่ และฝั่ง api
+ * ก็ cache ไว้อีกชั้น ไม่มีเหตุให้ยิงซ้ำทุกครั้งที่สลับหน้าโปรไฟล์กับหน้าแชทบอท
+ */
+export function useLineBotInvite(enabled = true) {
+  return useQuery({
+    queryKey: ['line', 'bot-invite'],
+    queryFn: () => api.get<LineBotInvite>('/api/backend/line/bot-invite'),
+    staleTime: Infinity,
+    enabled,
   });
 }

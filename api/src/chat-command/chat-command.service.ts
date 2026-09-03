@@ -16,6 +16,7 @@ import {
 } from '../database/generated/prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../database/prisma.service';
+import { LowStockNotifier } from '../notifications/low-stock.notifier';
 import { StockService } from '../stock/stock.service';
 import { STOCK_INVENTORY_PORT } from '../stock/ports/stock-inventory.port';
 import type { StockInventoryPort } from '../stock/ports/stock-inventory.port';
@@ -24,6 +25,7 @@ import type { StockAuthorizationPort } from '../stock/ports/stock-authorization.
 import { UpdatePendingActionDto } from './dto/chat-command.dto';
 import { STOCK_COMMAND_PARSER } from './parsers/stock-command-parser';
 import type { StockCommandParser } from './parsers/stock-command-parser';
+import { StockQueryRequestedError } from './stock-query-requested.error';
 
 const persistedItemSchema = z.object({
   id: z.string().uuid(),
@@ -41,6 +43,7 @@ export class ChatCommandService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly stock: StockService,
+    private readonly lowStock: LowStockNotifier,
     @Inject(STOCK_COMMAND_PARSER)
     private readonly parser: StockCommandParser,
     @Inject(STOCK_INVENTORY_PORT)
@@ -69,6 +72,16 @@ export class ChatCommandService {
     const parsedItems = await Promise.all(
       commandLines.map(async (line) => {
         const parsed = await this.parser.parse(line);
+
+        /**
+         * [อั้ม] PendingAction เก็บได้เฉพาะคำสั่งปรับสต็อก (ต้องมี operation
+         * กับ quantity) การ "ถามยอดคงเหลือ" ต้องถูกดักไปตอบก่อนถึงจะมาถึงตรงนี้
+         * — ดู StockQueryService ที่ฝั่ง WEB/LINE เรียกก่อนเสมอ
+         */
+        if (parsed.intent !== 'ADJUST_STOCK') {
+          throw new StockQueryRequestedError(parsed.productQuery);
+        }
+
         const product = await this.inventory.resolveProduct(
           input.shopId,
           parsed.productQuery,
@@ -235,7 +248,27 @@ export class ChatCommandService {
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         ),
-      );
+      )
+      .then(async (result) => {
+        /**
+         * แจ้งเตือนของใกล้หมดหลัง commit เหมือน StockService.adjust()
+         *
+         * ยิงในทรานแซกชันไม่ได้ เพราะถ้ามัน rollback การแจ้งเตือนจะหายไปด้วย
+         * และ notifier กลืน error เองอยู่แล้ว การยืนยันคำสั่งจึงไม่มีวันล้ม
+         * เพราะการแจ้งเตือนล้ม
+         *
+         * ก่อนหน้านี้เส้นทางนี้ไม่ยิงเลย ลดสต็อกผ่านแชทบอท/LINE จนต่ำกว่าเส้น
+         * แล้วกระดิ่งไม่ขึ้น ต่างจากการปรับสต็อกหน้าเว็บที่ยิงมาตั้งแต่แรก
+         */
+        await this.lowStock.notifyIfCrossed(
+          result.items.map((entry) => ({
+            shopProductId: entry.movement.shopProductId,
+            quantityBefore: entry.stock.quantityBefore,
+            quantityAfter: entry.stock.quantityAfter,
+          })),
+        );
+        return result;
+      });
   }
 
   private assertChatbotAccess(shopId: string, actorId: string) {

@@ -21,6 +21,18 @@ export async function GET(request: Request) {
     redirect_uri: `${origin}/api/auth/line/callback`,
     state,
     scope: 'profile openid',
+    /**
+     * [อั้ม] ชวนให้แอดบอทเป็นเพื่อนในขั้นตอนเดียวกับการผูกบัญชี
+     *
+     * ผูกบัญชีสำเร็จแต่ไม่ได้แอดบอท = บอททักกลับไม่ได้ ซึ่งเป็นขั้นที่คนลืมบ่อยที่สุด
+     * 'aggressive' แสดงเป็นหน้าแยกที่ถามชัด ๆ ส่วน 'normal' เป็นแค่ช่องติ๊กเล็ก ๆ
+     * บนหน้า consent ที่คนกดผ่านโดยไม่ทันสังเกต
+     *
+     * **ทำงานได้ก็ต่อเมื่อ LINE Login channel ผูก Official Account ไว้แล้ว**
+     * (Console → Basic settings → Add friend option) ถ้ายังไม่ผูก LINE จะเมิน
+     * พารามิเตอร์นี้เงียบ ๆ ไม่มี error ให้เห็นเลย
+     */
+    bot_prompt: 'aggressive',
   });
 
   const response = NextResponse.redirect(

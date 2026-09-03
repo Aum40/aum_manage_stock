@@ -2,6 +2,7 @@ import { StockMovementsService } from '../stock-movements/stock-movements.servic
 import { PrismaService } from '../database/prisma.service';
 import type { StockAuthorizationPort } from './ports/stock-authorization.port';
 import type { StockInventoryPort } from './ports/stock-inventory.port';
+import { LowStockNotifier } from '../notifications/low-stock.notifier';
 import { StockService } from './stock.service';
 
 describe('StockService', () => {
@@ -29,11 +30,15 @@ describe('StockService', () => {
     const movements = {
       create: createMovementMock,
     } as unknown as StockMovementsService;
+    const lowStock = {
+      notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
+    } as unknown as LowStockNotifier;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
+      lowStock,
     );
 
     await expect(
@@ -87,11 +92,15 @@ describe('StockService', () => {
     const movements = {
       create: createMovementMock,
     } as unknown as StockMovementsService;
+    const lowStock = {
+      notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
+    } as unknown as LowStockNotifier;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
+      lowStock,
     );
 
     await expect(
@@ -132,11 +141,15 @@ describe('StockService', () => {
     const movements = {
       create: createMovementMock,
     } as unknown as StockMovementsService;
+    const lowStock = {
+      notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
+    } as unknown as LowStockNotifier;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
+      lowStock,
     );
 
     await service.adjustInTransaction(tx as never, {
@@ -161,5 +174,195 @@ describe('StockService', () => {
         referenceType: 'PENDING_ACTION',
       }),
     );
+  });
+});
+
+describe('StockService.transfer', () => {
+  const FROM = 'shop-from';
+  const TO = 'shop-to';
+  const ACTOR = 'actor-1';
+
+  function setup(destination: unknown) {
+    const findFirst = jest
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'sp-from',
+        productId: 'product-1',
+        product: { name: 'ไข่ไก่ เบอร์ 2' },
+        shop: { name: 'สาขาหนึ่ง', ownerId: 'owner-1' },
+      })
+      .mockResolvedValueOnce(destination);
+    const tx = { shopProduct: { findFirst } };
+    const transactionMock = jest.fn((callback: (value: unknown) => unknown) =>
+      callback(tx),
+    );
+    const prisma = {
+      $transaction: transactionMock,
+    } as unknown as PrismaService;
+    const authorizeMock = jest.fn().mockResolvedValue(undefined);
+    const authorization = {
+      assertCanAdjustStock: authorizeMock,
+      assertCanUseChatbot: jest.fn(),
+    } as StockAuthorizationPort;
+    const adjustMock = jest
+      .fn()
+      .mockResolvedValueOnce({ quantityBefore: 20, quantityAfter: 15 })
+      .mockResolvedValueOnce({ quantityBefore: 3, quantityAfter: 8 });
+    const inventory = {
+      adjustStock: adjustMock,
+    } as unknown as StockInventoryPort;
+    const createMovementMock = jest
+      .fn()
+      .mockResolvedValue({ id: 'movement-id' });
+    const movements = {
+      create: createMovementMock,
+    } as unknown as StockMovementsService;
+    const notifyMock = jest.fn().mockResolvedValue(undefined);
+    const lowStock = {
+      notifyIfCrossed: notifyMock,
+    } as unknown as LowStockNotifier;
+
+    const service = new StockService(
+      prisma,
+      movements,
+      inventory,
+      authorization,
+      lowStock,
+    );
+    return {
+      service,
+      transactionMock,
+      authorizeMock,
+      adjustMock,
+      createMovementMock,
+      notifyMock,
+      findFirst,
+    };
+  }
+
+  const activeDestination = {
+    id: 'sp-to',
+    shop: { name: 'สาขาสอง', ownerId: 'owner-1' },
+  };
+
+  it('ลดต้นทางและเพิ่มปลายทางในทรานแซกชันเดียว', async () => {
+    const { service, transactionMock, adjustMock, createMovementMock } =
+      setup(activeDestination);
+
+    const result = await service.transfer({
+      fromShopId: FROM,
+      toShopId: TO,
+      shopProductId: 'sp-from',
+      actorId: ACTOR,
+      quantity: 5,
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(adjustMock).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({ shopId: FROM, quantityDelta: -5 }),
+    );
+    expect(adjustMock).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({ shopId: TO, quantityDelta: 5 }),
+    );
+    expect(createMovementMock).toHaveBeenCalledTimes(2);
+    expect(result.from.stock.quantityAfter).toBe(15);
+    expect(result.to.stock.quantityAfter).toBe(8);
+  });
+
+  it('บันทึกเจตนา "ย้าย" ไว้ในหมายเหตุของทั้งสองฝั่ง', async () => {
+    const { service, createMovementMock } = setup(activeDestination);
+
+    await service.transfer({
+      fromShopId: FROM,
+      toShopId: TO,
+      shopProductId: 'sp-from',
+      actorId: ACTOR,
+      quantity: 5,
+    });
+
+    expect(createMovementMock).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({ note: 'ย้ายไป สาขาสอง' }),
+    );
+    expect(createMovementMock).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({ note: 'ย้ายมาจาก สาขาหนึ่ง' }),
+    );
+  });
+
+  it('ต้องมีสิทธิ์ปรับสต็อกทั้งร้านต้นทางและปลายทาง', async () => {
+    const { service, authorizeMock } = setup(activeDestination);
+
+    await service.transfer({
+      fromShopId: FROM,
+      toShopId: TO,
+      shopProductId: 'sp-from',
+      actorId: ACTOR,
+      quantity: 5,
+    });
+
+    expect(authorizeMock).toHaveBeenCalledTimes(2);
+    expect(authorizeMock).toHaveBeenCalledWith(expect.anything(), {
+      shopId: FROM,
+      actorId: ACTOR,
+    });
+    expect(authorizeMock).toHaveBeenCalledWith(expect.anything(), {
+      shopId: TO,
+      actorId: ACTOR,
+    });
+  });
+
+  it('ย้ายเข้าร้านตัวเองถูกปฏิเสธก่อนแตะฐานข้อมูล', async () => {
+    const { service, transactionMock } = setup(activeDestination);
+
+    await expect(
+      service.transfer({
+        fromShopId: FROM,
+        toShopId: FROM,
+        shopProductId: 'sp-from',
+        actorId: ACTOR,
+        quantity: 5,
+      }),
+    ).rejects.toThrow();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('ปลายทางยังไม่มีสินค้าตัวนี้ ต้องไม่ตัดสต็อกต้นทางเลย', async () => {
+    const { service, adjustMock } = setup(null);
+
+    await expect(
+      service.transfer({
+        fromShopId: FROM,
+        toShopId: TO,
+        shopProductId: 'sp-from',
+        actorId: ACTOR,
+        quantity: 5,
+      }),
+    ).rejects.toThrow();
+    expect(adjustMock).not.toHaveBeenCalled();
+  });
+
+  it('ย้ายข้ามเจ้าของร้านไม่ได้', async () => {
+    const { service, adjustMock } = setup({
+      id: 'sp-to',
+      shop: { name: 'ร้านคนอื่น', ownerId: 'owner-2' },
+    });
+
+    await expect(
+      service.transfer({
+        fromShopId: FROM,
+        toShopId: TO,
+        shopProductId: 'sp-from',
+        actorId: ACTOR,
+        quantity: 5,
+      }),
+    ).rejects.toThrow();
+    expect(adjustMock).not.toHaveBeenCalled();
   });
 });

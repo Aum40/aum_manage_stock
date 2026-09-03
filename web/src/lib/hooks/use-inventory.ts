@@ -1,6 +1,11 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 
 import { api, withQuery } from '@/lib/api-client';
 
@@ -74,6 +79,30 @@ type Paginated<T> = {
   items: T[];
   meta: { page: number; limit: number; total: number; totalPages: number };
 };
+
+/**
+ * ทุกอย่างที่ทำให้สต็อกหรือยอดขายเปลี่ยน ต้องล้างแคชสองก้อน ไม่ใช่ก้อนเดียว
+ *
+ * แดชบอร์ดใช้ queryKey ขึ้นต้นด้วย 'dashboard' คนละต้นไม้กับ inventoryKeys
+ * และ QueryClient ตั้ง staleTime ไว้ 30 วินาที (query-provider.tsx) ถ้าล้างแค่
+ * inventory ผู้ใช้ที่ขายของที่ POS แล้วกดไปหน้าแดชบอร์ดทันทีจะเห็นยอดเก่า
+ * ค้างอยู่ครึ่งนาที เหมือนระบบไม่ได้บันทึกบิลให้
+ *
+ * เขียนเป็นฟังก์ชันกลางเพื่อไม่ให้ต้องจำว่าต้องล้างอะไรบ้างในทุก mutation
+ * ที่จะเพิ่มเข้ามาทีหลัง — **ทุกที่ที่ทำให้สต็อกเปลี่ยนต้องเรียกตัวนี้**
+ * ไม่ใช่ไล่ล้างเองทีละ key เพราะพอมี key ใหม่เพิ่มเข้ามาแล้วจะตกหล่นทันที
+ * (เคยเกิดมาแล้วตอนเพิ่ม 'notifications' — hook อัปเดตแต่กล่องต่างๆ ไม่ได้ตาม)
+ */
+export function invalidateStockAndSales(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+  queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+  queryClient.invalidateQueries({ queryKey: ['catalog'] });
+  /**
+   * สต็อกที่ตกข้ามจุดแจ้งเตือนทำให้ api สร้าง LOW_STOCK ขึ้นมาเงียบๆ ฝั่งนี้
+   * ไม่มีทางรู้ ถ้าไม่ล้างแคชกระดิ่งด้วย ตัวเลขจะค้างจนกว่าจะรีเฟรชหน้า
+   */
+  queryClient.invalidateQueries({ queryKey: ['notifications'] });
+}
 
 export const inventoryKeys = {
   all: ['inventory'] as const,
@@ -265,9 +294,7 @@ export function useAdjustStock(shopId: string | undefined) {
       quantity: number;
       note?: string;
     }) => api.post(`/api/backend/shops/${shopId}/stock/adjust`, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-    },
+    onSuccess: () => invalidateStockAndSales(queryClient),
   });
 }
 
@@ -277,6 +304,7 @@ export type SellableProduct = {
   unitPrice: number | string;
 };
 
+// สแกนอย่างเดียวยังไม่เปิดบิล ไม่มีอะไรเปลี่ยนในฐานข้อมูล จึงไม่ต้องล้างแคช
 export function useScanSale(shopId: string | undefined) {
   return useMutation({
     mutationFn: (barcode: string) =>
@@ -290,9 +318,7 @@ export function useCreateSale(shopId: string | undefined) {
   return useMutation({
     mutationFn: (input: { items: { shopProductId: string; quantity: number }[] }) =>
       api.post(`/api/backend/shops/${shopId}/sales`, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-    },
+    onSuccess: () => invalidateStockAndSales(queryClient),
   });
 }
 
@@ -419,6 +445,8 @@ export type Notification = {
   message: string;
   readAt: string | null;
   createdAt: string;
+  /** ใช้สลับร้านให้ตรงตอนกดเปิดรายการ — api ส่งมาอยู่แล้ว */
+  shopId: string | null;
 };
 
 export type ChatMessage = {
@@ -480,9 +508,23 @@ export function useSetStaffPermissions(shopId: string | undefined, staffId: stri
  * `enabled` มีไว้ปิดตอนอยู่หน้า admin — บัญชี admin ไม่มีร้าน @OwnerId() ฝั่ง api
  * จึงตอบ 403 ทุกครั้ง ยิงไปก็ได้แค่ error แดงใน console
  */
+/**
+ * ดึงซ้ำทุกนาที เพราะการแจ้งเตือนเกิดที่ฝั่งเซิร์ฟเวอร์และไม่มี push channel
+ * (socket.io ในโปรเจกต์ทำเฉพาะ ai-recommendations)
+ *
+ * การ invalidate ตอน mutation ช่วยได้เฉพาะแท็บที่เป็นคนกดขายเอง แต่เคสจริงคือ
+ * พนักงานขายอยู่หน้าร้านแล้วเจ้าของร้านเปิดจออีกเครื่อง ซึ่งเป็นตอนที่การแจ้งเตือน
+ * มีประโยชน์ที่สุด — แท็บนั้นต้องรู้เองโดยไม่มีใครมาบอก
+ *
+ * TanStack ตั้ง refetchIntervalInBackground เป็น false อยู่แล้ว แท็บที่ไม่ได้
+ * เปิดอยู่จึงไม่ยิง
+ */
+const NOTIFICATION_POLL_MS = 60_000;
+
 export function useNotifications(unreadOnly = false, enabled = true) {
   return useQuery({
     enabled,
+    refetchInterval: NOTIFICATION_POLL_MS,
     queryKey: ['notifications', { unreadOnly }],
     queryFn: () =>
       api.get<{ items: Notification[]; meta: unknown }>(
@@ -525,17 +567,5 @@ export function useSendChatMessage(shopId: string | undefined) {
         { content },
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['chat', shopId] }),
-  });
-}
-
-export function useConfirmChatCommand(shopId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (pendingId: string) =>
-      api.post(`/api/backend/shops/${shopId}/stock/chat-command/${pendingId}/confirm`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['chat', shopId] });
-      queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
-    },
   });
 }

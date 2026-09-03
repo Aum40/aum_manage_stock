@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { LineUserMessageError } from '../line-user-message.error';
-import { LineIdentityPort } from './line-identity.port';
+import { LineIdentityPort, LineIdentityResult } from './line-identity.port';
 
 type ResolvedShop = { id: string; name: string };
 
@@ -15,7 +15,7 @@ export class PrismaLineIdentityAdapter implements LineIdentityPort {
     destination: string;
     lineUserId: string;
     message: string;
-  }): Promise<{ shopId: string; actorId?: string; message: string }> {
+  }): Promise<LineIdentityResult> {
     const user = await this.prisma.user.findFirst({
       where: { lineUserId: input.lineUserId, deletedAt: null },
       select: { id: true, role: true, status: true },
@@ -49,7 +49,12 @@ export class PrismaLineIdentityAdapter implements LineIdentityPort {
     }
 
     if (shops.length === 1) {
-      return { shopId: shops[0].id, actorId: user.id, message: input.message };
+      return {
+        kind: 'RESOLVED',
+        shopId: shops[0].id,
+        actorId: user.id,
+        message: input.message,
+      };
     }
 
     return this.resolveAmongManyShops(shops, user.id, input.message);
@@ -64,7 +69,7 @@ export class PrismaLineIdentityAdapter implements LineIdentityPort {
     shops: ResolvedShop[],
     actorId: string,
     message: string,
-  ): { shopId: string; actorId: string; message: string } {
+  ): LineIdentityResult {
     const normalized = message.trim();
     const matched = shops
       .filter((shop) =>
@@ -74,10 +79,13 @@ export class PrismaLineIdentityAdapter implements LineIdentityPort {
       .sort((a, b) => b.name.length - a.name.length)[0];
 
     if (!matched) {
-      const list = shops.map((shop) => `• ${shop.name}`).join('\n');
-      throw new LineUserMessageError(
-        `บัญชีนี้มีหลายร้าน กรุณาพิมพ์ชื่อร้านนำหน้าคำสั่งด้วย\n\nร้านของคุณ:\n${list}\n\nตัวอย่าง: "${shops[0].name} เพิ่มโค้ก 10"`,
-      );
+      /**
+       * [อั้ม] เดิมโยน error ทิ้งตรงนี้ บังคับให้ผู้ใช้พิมพ์ชื่อร้านนำหน้าเอง
+       * ซึ่งต้องจำชื่อร้านให้ตรงเป๊ะ ตอนนี้คืนรายชื่อร้านออกไปให้ผู้เรียกถาม
+       * เป็นตัวเลือกมีเลขกำกับแทน (ทางลัดพิมพ์ชื่อร้านนำหน้ายังใช้ได้เหมือนเดิม
+       * ตามเงื่อนไข matched ข้างบน)
+       */
+      return { kind: 'NEEDS_SHOP', actorId, message, shops };
     }
 
     const rest = normalized.slice(matched.name.trim().length).trim();
@@ -88,7 +96,7 @@ export class PrismaLineIdentityAdapter implements LineIdentityPort {
       );
     }
 
-    return { shopId: matched.id, actorId, message: rest };
+    return { kind: 'RESOLVED', shopId: matched.id, actorId, message: rest };
   }
 
   private async loadShops(
@@ -112,5 +120,27 @@ export class PrismaLineIdentityAdapter implements LineIdentityPort {
       where: { ownerId: userId, deletedAt: null, status: 'ACTIVE' },
       select: { id: true, name: true },
     });
+  }
+
+  /**
+   * แปลงเลขที่ผู้ใช้พิมพ์กลับเป็นร้าน — โหลดรายชื่อร้านใหม่แล้วตรวจสิทธิ์ซ้ำทุกครั้ง
+   * ไม่เชื่อรายการที่เคยส่งไป เพราะระหว่างรอผู้ใช้ตอบ ร้านอาจถูกลบ ถูกพัก หรือ
+   * พนักงานอาจถูกถอดออกจากร้านไปแล้ว
+   */
+  async selectShop(input: {
+    actorId: string;
+    index: number;
+  }): Promise<{ shopId: string; shopName: string } | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: input.actorId, deletedAt: null },
+      select: { id: true, role: true },
+    });
+
+    if (!user) return null;
+
+    const shops = await this.loadShops(user.id, user.role === 'SHOP_STAFF');
+    const chosen = shops[input.index - 1];
+
+    return chosen ? { shopId: chosen.id, shopName: chosen.name } : null;
   }
 }

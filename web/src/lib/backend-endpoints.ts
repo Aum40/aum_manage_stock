@@ -24,8 +24,10 @@ export const backendEndpointRules = [
   { methods: ["POST"] as const, pattern: /^payments\/[^/]+\/confirm$/ },
   { methods: ["GET"] as const, pattern: /^(?:subscription-plans|subscriptions\/me)$/ },
   { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^shops(?:\/[^/]+(?:\/(?:pause|resume))?)?$/ },
-  { methods: ["GET", "POST", "PATCH", "PUT", "DELETE"] as const, pattern: /^shops\/[^/]+\/(?:staff(?:\/[^/]+\/permissions)?|products(?:\/[^/]+)?|stock(?:\/adjust|\/recent|\/movements|\/chat-command(?:\/[^/]+(?:\/confirm)?)?)?|sales(?:\/scan|\/[^/]+(?:\/void)?)?|chat\/messages|ai\/recommendations(?:\/generate)?|dashboard(?:\/best-sellers|\/dead-stock|\/reports\/(?:sales-trend|by-category))?)$/ },
+  { methods: ["GET", "POST", "PATCH", "PUT", "DELETE"] as const, pattern: /^shops\/[^/]+\/(?:staff(?:\/[^/]+\/permissions)?|products(?:\/[^/]+)?|stock(?:\/adjust|\/transfer|\/recent|\/movements|\/chat-command(?:\/[^/]+(?:\/confirm)?)?)?|sales(?:\/scan|\/[^/]+(?:\/void)?)?|chat\/messages|ai\/recommendations(?:\/generate)?|dashboard(?:\/best-sellers|\/dead-stock|\/reports\/(?:sales-trend|by-category))?)$/ },
   { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^staff(?:\/quota|\/[^/]+(?:\/assign(?:\/[^/]+)?|\/shops)?)?$/ },
+  // [อั้ม] ข้อมูลเพิ่มบอท LINE เป็นเพื่อน (QR) — อ่านอย่างเดียว ไม่ผูกกับร้าน
+  { methods: ["GET"] as const, pattern: /^line\/bot-invite$/ },
   { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^categories(?:\/[^/]+)?$/ },
   { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^products(?:\/search|\/[^/]+)?$/ },
   { methods: ["GET", "POST", "PATCH", "DELETE"] as const, pattern: /^stock(?:\/.*)?$/ },
