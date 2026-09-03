@@ -28,6 +28,7 @@ import {
   useUnlinkLine,
   useUpdateProfile,
 } from "@/lib/hooks/use-profile";
+import { useMySubscription } from "@/lib/hooks/use-inventory";
 import {
   changePasswordSchema,
   profileSchema,
@@ -149,6 +150,7 @@ export default function ProfilePage() {
   const router = useRouter();
 
   const { data: me, isPending, error } = useMe();
+  const subscriptionQuery = useMySubscription();
   const updateProfile = useUpdateProfile();
   const changePassword = useChangePassword();
   const setFirstPassword = useSetFirstPassword();
@@ -157,6 +159,13 @@ export default function ProfilePage() {
   const unlinkGoogle = useUnlinkGoogle();
 
   const isStaff = me?.role === "SHOP_STAFF";
+  /**
+   * ใช้ flag ของแพ็กเกจที่ api ส่งมา ไม่ใช่เทียบรหัสแพ็กเกจเอง — สิทธิ์ของแต่ละ
+   * แพ็กเกจเป็นข้อมูลในตาราง subscription_plans ถ้ามาฮาร์ดโค้ด "PLUS"/"PRO" ไว้
+   * ในหน้าเว็บ วันที่ทีมปรับสิทธิ์ในฐานข้อมูล หน้านี้จะเป็นที่เดียวที่ไม่เปลี่ยนตาม
+   */
+  const canUseChatbot =
+    subscriptionQuery.data?.subscription.plan.chatbotEnabled ?? false;
   const loginMethodCount =
     Number(Boolean(me?.hasPassword)) +
     Number(Boolean(me?.lineUserId)) +
@@ -470,7 +479,15 @@ export default function ProfilePage() {
                   </Alert>
                 )}
 
-                <div className="flex items-center justify-between py-3.5">
+                {/*
+                  เส้นคั่นอยู่ที่บล็อกเชิญบอทด้านล่าง ถ้าบล็อกนั้นถูกซ่อน (Free)
+                  แถว LINE กับ Google จะติดกันเป็นพืดจนอ่านไม่ออกว่าคนละอัน
+                */}
+                <div
+                  className={`flex items-center justify-between py-3.5 ${
+                    canUseChatbot ? "" : "border-b border-border"
+                  }`}
+                >
                   <div>
                     <div className="text-sm font-semibold">LINE</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
@@ -502,9 +519,17 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                <div className="border-b border-border pb-3.5">
-                  <LineBotInviteDialog />
-                </div>
+                {/*
+                  แชทบอทเป็นสิทธิ์ของ Plus/Pro — บัญชี Free กดเข้าไปก็ใช้บอทไม่ได้
+                  ทางลัดกลับเข้าห้องแชทจึงไม่ควรโผล่ให้เห็นตั้งแต่แรก
+                  (AGENTS.md: AI Chat = Plus และ Pro ส่วน AI Recommendations = Pro
+                  อย่างเดียว คนละ flag กัน อย่าเอามาปนกัน)
+                */}
+                {canUseChatbot && (
+                  <div className="border-b border-border pb-3.5">
+                    <LineBotInviteDialog />
+                  </div>
+                )}
 
                 {/*
                   บัญชีพนักงานผูก Google ไม่ได้ — POST /users/me/link-google ถูกกั้น
