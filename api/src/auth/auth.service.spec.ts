@@ -50,6 +50,10 @@ describe('AuthService', () => {
   let google: { exchangeCodeForProfile: jest.Mock };
   let challenge: { sign: jest.Mock; verify: jest.Mock };
   let recovery: Record<string, jest.Mock>;
+  let mail: {
+    sendPasswordResetEmail: jest.Mock;
+    sendEmailVerification: jest.Mock;
+  };
   let service: AuthService;
 
   beforeEach(() => {
@@ -94,6 +98,11 @@ describe('AuthService', () => {
       revokeAllForUser: jest.fn(),
     };
 
+    mail = {
+      sendPasswordResetEmail: jest.fn(),
+      sendEmailVerification: jest.fn(),
+    };
+
     service = new AuthService(
       users as never,
       bcrypt as never,
@@ -102,10 +111,7 @@ describe('AuthService', () => {
       line as never,
       google as never,
       { issue: jest.fn(), findValid: jest.fn(), markUsed: jest.fn() } as never,
-      {
-        sendPasswordResetEmail: jest.fn(),
-        sendEmailVerification: jest.fn(),
-      } as never,
+      mail as never,
       {
         encrypt: jest.fn((v: string) => v),
         decrypt: jest.fn((v: string) => v),
@@ -115,6 +121,41 @@ describe('AuthService', () => {
       { issue: jest.fn(), findValid: jest.fn(), markUsed: jest.fn() } as never,
       { get: jest.fn(() => 'https://app.example.com') } as never,
     );
+  });
+
+  describe('register', () => {
+    it('บอกว่าส่งเมลสำเร็จเมื่อส่งผ่าน', async () => {
+      users.createUser.mockResolvedValue(makeUser());
+
+      await expect(
+        service.register({
+          firstName: 'พร',
+          lastName: 'ทดสอบ',
+          email: 'praew@example.com',
+          password: 'secret',
+        }),
+      ).resolves.toEqual({ emailSent: true });
+    });
+
+    // เดิมกลืน error เงียบสนิท ผู้ใช้เห็นว่า "ส่งลิงก์แล้ว" ทั้งที่ไม่มีเมลออกไปเลย
+    // แล้วนั่งรอจนเข้าใจว่าสมัครไม่ผ่าน — บัญชีสร้างสำเร็จ จึงห้ามโยน error ทิ้ง
+    // แต่ต้องรายงานกลับไปว่าส่งไม่ออก
+    it('บัญชียังถูกสร้าง แต่รายงานว่าส่งเมลไม่ออก เมื่อผู้ให้บริการเมลล้ม', async () => {
+      users.createUser.mockResolvedValue(makeUser());
+      mail.sendEmailVerification.mockRejectedValue(
+        new Error('Brevo ตอบกลับ 401'),
+      );
+
+      await expect(
+        service.register({
+          firstName: 'พร',
+          lastName: 'ทดสอบ',
+          email: 'praew@example.com',
+          password: 'secret',
+        }),
+      ).resolves.toEqual({ emailSent: false });
+      expect(users.createUser).toHaveBeenCalled();
+    });
   });
 
   describe('login ด้วยอีเมล/username', () => {

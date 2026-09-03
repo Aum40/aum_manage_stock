@@ -76,7 +76,8 @@ export class AuthService {
       ...dto,
       role: UserRole.SHOP_OWNER,
     });
-    await this.sendVerificationEmail(user.id, dto.email);
+    const emailSent = await this.sendVerificationEmail(user.id, dto.email);
+    return { emailSent };
   }
 
   async login(dto: LoginDto) {
@@ -236,16 +237,24 @@ export class AuthService {
   }
 
   /**
-   * บัญชีถูกสร้าง/token ถูกออกไปแล้วก่อนถึงขั้นส่งเมล ถ้า SMTP ล้มแล้วปล่อยให้
-   * throw ผู้ใช้จะเห็น 500 ทั้งที่สมัครสำเร็จ จึงกลืน error ไว้แล้ว log แทน
-   * ผู้ใช้ขอลิงก์ใหม่ได้ที่ POST /auth/resend-verification
+   * บัญชีถูกสร้าง/token ถูกออกไปแล้วก่อนถึงขั้นส่งเมล ถ้าผู้ให้บริการเมลล้ม
+   * แล้วปล่อยให้ throw ผู้ใช้จะเห็น 500 ทั้งที่สมัครสำเร็จ จึงยังกลืน error ไว้
+   *
+   * แต่ "กลืนแล้วเงียบ" เคยทำให้ทั้งทีมงงอยู่หลายวัน — สมัครผ่าน หน้าเว็บบอกว่า
+   * ส่งลิงก์แล้ว แต่ไม่มีเมลมาสักฉบับและไม่มีอะไรฟ้อง จึงคืนค่าว่าส่งสำเร็จไหม
+   * ให้ผู้เรียกเอาไปบอกผู้ใช้ต่อได้ ว่าให้กดขอลิงก์ใหม่แทนการนั่งรอเปล่าๆ
    */
-  private async sendVerificationEmail(userId: string, email: string) {
+  private async sendVerificationEmail(
+    userId: string,
+    email: string,
+  ): Promise<boolean> {
     const token = await this.emailVerificationTokenService.issue(userId);
     try {
       await this.mailService.sendEmailVerification(email, token);
+      return true;
     } catch (error) {
       this.logger.error(`Failed to send verification email to ${email}`, error);
+      return false;
     }
   }
 
@@ -267,7 +276,12 @@ export class AuthService {
     }
   }
 
-  /** ตอบ 200 เสมอไม่ว่าอีเมลจะมีจริงไหม กันการไล่เดาว่าอีเมลไหนสมัครไว้แล้ว */
+  /**
+   * ตอบ 200 เสมอไม่ว่าอีเมลจะมีจริงไหม กันการไล่เดาว่าอีเมลไหนสมัครไว้แล้ว
+   *
+   * ที่นี่ไม่คืนสถานะการส่งกลับไปแบบ register เพราะ "ส่งไม่สำเร็จ" จะแปลว่า
+   * อีเมลนี้มีอยู่จริง ซึ่งเป็นสิ่งเดียวกับที่ตั้งใจปิดไว้ตั้งแต่แรก
+   */
   async resendVerificationEmail(email: string) {
     const user = await this.userService.findUnverifiedByEmail(email);
     if (!user?.email) {

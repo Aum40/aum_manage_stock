@@ -24,11 +24,16 @@ const envSchema = z.object({
   LINE_LOGIN_CHANNEL_SECRET: z.string().min(1),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
-  SMTP_HOST: z.string().min(1),
-  SMTP_PORT: z.coerce.number().int().positive(),
-  SMTP_USER: z.string().min(1),
-  SMTP_PASS: z.string().min(1),
+  // ส่งเมลผ่าน HTTP API ของ Brevo ไม่ใช่ SMTP — Railway ปิด outbound SMTP
+  // ทุกแพลนยกเว้น Pro (ดู MailService) ค่า SMTP_* เดิมไม่ถูกใช้แล้ว
+  //
+  // optional แบบเดียวกับ STRIPE_SECRET_KEY: ไม่ใส่ก็ boot ขึ้น แต่ MailService
+  // จะโยน 503 ตอนถูกเรียกจริง คนที่ไม่ได้แตะเรื่องเมลจึงไม่ต้องหา key มาใส่
+  BREVO_API_KEY: z.string().min(1).optional(),
   MAIL_FROM: z.string().min(1),
+  // ชื่อผู้ส่งที่ผู้รับเห็น — ไม่ใส่จะดึงจากส่วนหน้าของ MAIL_FROM
+  // ถ้าเขียนเป็นรูป `ชื่อ <a@b.com>` ไม่งั้นใช้ค่าตั้งต้น
+  MAIL_FROM_NAME: z.string().min(1).optional(),
   TWO_FACTOR_ENCRYPTION_KEY: z.string().length(64),
   TWO_FACTOR_CHALLENGE_SECRET: z.string().min(32),
   RESET_TOKEN_EXPIRES_IN: z.coerce.number().int().positive(),
