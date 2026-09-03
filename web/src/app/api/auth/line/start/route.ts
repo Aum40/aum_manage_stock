@@ -21,6 +21,9 @@ export async function GET(request: Request) {
     redirect_uri: `${origin}/api/auth/line/callback`,
     state,
     scope: 'profile openid',
+    // [อั้ม] ชวนแอดบอทตั้งแต่ล็อกอินครั้งแรก ไม่ต้องให้ไปแอดเองทีหลัง
+    // เหตุผลและเงื่อนไขเต็ม ๆ อยู่ที่ api/users/link-line/start/route.ts
+    bot_prompt: 'aggressive',
   });
 
   const response = NextResponse.redirect(

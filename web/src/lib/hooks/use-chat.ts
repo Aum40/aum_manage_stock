@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/lib/api-client';
 import {
@@ -106,5 +106,27 @@ export function useUpdateChatCommand(shopId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: ['chat', shopId] });
       queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
     },
+  });
+}
+
+export interface LineBotInvite {
+  basicId: string;
+  displayName: string;
+  addFriendUrl: string;
+  qrCodeDataUrl: string;
+}
+
+/**
+ * [อั้ม] ข้อมูลเพิ่มบอท LINE เป็นเพื่อน — ใช้ตอนผู้ใช้เผลอลบห้องแชททิ้ง
+ *
+ * staleTime: Infinity เพราะข้อมูลบอทไม่เปลี่ยนระหว่างที่เปิดเว็บอยู่ และฝั่ง api
+ * ก็ cache ไว้อีกชั้น ไม่มีเหตุให้ยิงซ้ำทุกครั้งที่สลับหน้าโปรไฟล์กับหน้าแชทบอท
+ */
+export function useLineBotInvite(enabled = true) {
+  return useQuery({
+    queryKey: ['line', 'bot-invite'],
+    queryFn: () => api.get<LineBotInvite>('/api/backend/line/bot-invite'),
+    staleTime: Infinity,
+    enabled,
   });
 }

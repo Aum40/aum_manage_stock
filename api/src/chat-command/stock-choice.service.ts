@@ -118,6 +118,10 @@ export class StockChoiceService {
     message: string;
   }) {
     const parsed = await this.parser.parse(input.message);
+
+    // คำถามยอดคงเหลือไม่ต้องเลือกอะไร — ตอบไปเลยทุกตัวที่ตรง (StockQueryService)
+    if (parsed.intent !== 'ADJUST_STOCK') return null;
+
     const { candidates, totalMatches } = await this.findCandidates(
       input.shopId,
       parsed.productQuery,

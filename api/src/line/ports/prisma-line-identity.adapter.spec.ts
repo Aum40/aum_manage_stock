@@ -84,6 +84,7 @@ describe('PrismaLineIdentityAdapter', () => {
       prisma.shop.findMany.mockResolvedValue([{ id: 's1', name: 'ร้านเดียว' }]);
 
       await expect(resolve('เพิ่มโค้ก10')).resolves.toEqual({
+        kind: 'RESOLVED',
         shopId: 's1',
         actorId: 'owner1',
         message: 'เพิ่มโค้ก10',
@@ -102,9 +103,17 @@ describe('PrismaLineIdentityAdapter', () => {
         { id: 'sb', name: 'สาขาB' },
       ]);
 
-      await expect(resolve('เพิ่มโค้ก10')).rejects.toThrow(
-        /มีหลายร้าน[\s\S]*สาขาA[\s\S]*สาขาB/,
-      );
+      // [อั้ม] เดิมโยน error ทิ้ง บังคับให้ผู้ใช้พิมพ์ชื่อร้านนำหน้าเอง ตอนนี้คืน
+      // รายชื่อร้านออกมา ให้ LineWebhookService ไปถามเป็นตัวเลือกมีเลขกำกับแทน
+      await expect(resolve('เพิ่มโค้ก10')).resolves.toEqual({
+        kind: 'NEEDS_SHOP',
+        actorId: 'owner1',
+        message: 'เพิ่มโค้ก10',
+        shops: [
+          { id: 'sa', name: 'สาขาA' },
+          { id: 'sb', name: 'สาขาB' },
+        ],
+      });
     });
 
     it('หลายร้าน ระบุชื่อนำหน้า → เลือกร้านถูกและตัดชื่อร้านออกจากคำสั่ง', async () => {
@@ -114,6 +123,7 @@ describe('PrismaLineIdentityAdapter', () => {
       ]);
 
       await expect(resolve('สาขาB เพิ่มโค้ก 10')).resolves.toEqual({
+        kind: 'RESOLVED',
         shopId: 'sb',
         actorId: 'owner1',
         message: 'เพิ่มโค้ก 10',
