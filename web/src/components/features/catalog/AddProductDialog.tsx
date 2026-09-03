@@ -370,7 +370,34 @@ export default function AddProductDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-2xl">
+      {/*
+        ตัว popup เองห้ามเลื่อน — ให้กล่องข้างในเลื่อนแทน
+
+        DialogContent ตั้งต้นเป็น rounded-xl + overflow-y-auto สกรอลล์บาร์จึงถูกวาด
+        ทับมุมโค้งด้านขวา ทำให้ขอบขวาดูเป็นเหลี่ยมข้างเดียว พอย้ายการเลื่อนเข้าไป
+        ข้างใน มุมโค้งของ popup จะ clip สกรอลล์บาร์ให้เอง ขอบทั้งสองข้างเลยโค้งเท่ากัน
+
+        ใส่ทั้ง overflow-hidden และ overflow-y-hidden เพราะ tailwind-merge นับ
+        overflow กับ overflow-y เป็นคนละกลุ่ม ถ้าใส่ตัวเดียว overflow-y-auto เดิม
+        อาจรอดมาแล้วสกรอลล์บาร์กลับไปอยู่ที่เดิม
+      */}
+      {/*
+        กว้าง 4xl (896px) เพื่อให้แถวตั้งราคารายร้านแสดงครบโดยไม่ต้องเลื่อนแนวนอน
+
+        คิดจาก: 896 − 32 (p-4 ของกล่องใน) − 32 (px-4 ในการ์ด) = 832px ที่ใช้ได้จริง
+        ส่วนแถวต้องการ 13rem (ชื่อร้าน) + 4×7rem (ช่องกรอก) + 4×0.5rem (gap) = 688px
+      */}
+      <DialogContent className="overflow-hidden overflow-y-hidden p-0 sm:max-w-4xl">
+        {/*
+          ต้องกำหนด max-h ให้กล่องนี้ตรง ๆ ห้ามพึ่ง max-h ของ popup
+
+          popup เป็น grid ที่แถวขยายตามเนื้อหา กล่องนี้จึงสูงเท่าฟอร์มทั้งหมด
+          แล้วส่วนเกินถูก popup ตัดทิ้ง (overflow hidden) — ผลคือเนื้อหาหาย
+          และเลื่อนไม่ได้เลย เพราะไม่มีอะไรล้นในสายตาของกล่องนี้
+
+          85vh ต้องตรงกับ max-h ของ popup ถ้าแก้ที่ใดที่หนึ่งต้องแก้ทั้งคู่
+        */}
+        <div className="grid max-h-[85vh] gap-4 overflow-y-auto p-4">
         <DialogHeader>
           <DialogTitle>{t.title}</DialogTitle>
           <DialogDescription>{t.card1Sub}</DialogDescription>
@@ -586,6 +613,17 @@ export default function AddProductDialog({
                 </div>
 
                 <div className="px-4">
+                  {/*
+                    คอลัมน์ชื่อร้านกว้างคงที่ (13rem) ไม่ใช่ 1fr
+
+                    1fr จะยุบลงเหลือเท่าความยาวชื่อร้านเมื่อพื้นที่ไม่พอ และแต่ละ
+                    แถวเป็น grid ของตัวเอง ชื่อร้านยาวไม่เท่ากันช่องกรอกจึงเหลื่อม
+                    กันทุกแถว — ตรึงความกว้างไว้แล้วทุกแถวตรงกันเสมอ
+
+                    overflow-x-auto เหลือไว้เป็นตาข่ายกันตก ที่ความกว้างปกติของ
+                    modal เนื้อหาพอดีอยู่แล้วจึงไม่มีแถบเลื่อน จะโผล่ก็ต่อเมื่อ
+                    หน้าจอแคบกว่า modal เอง (max-w-[calc(100%-2rem)])
+                  */}
                   {shops.length === 0 ? (
                     <div className="flex flex-col items-start gap-3 py-6">
                       <p className="text-sm text-muted-foreground">{t.noShops}</p>
@@ -599,21 +637,14 @@ export default function AddProductDialog({
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex flex-col">
-                      <div className="hidden gap-2 pb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase sm:grid sm:grid-cols-[1fr_repeat(4,7rem)]">
-                        <span />
-                        <span className="text-right">{t.priceLabel}</span>
-                        <span className="text-right">{t.costLabel}</span>
-                        <span className="text-right">{t.stockLabel}</span>
-                        <span className="text-right">{t.alertLabel}</span>
-                      </div>
-
+                    <div className="overflow-x-auto">
+                      <div className="flex flex-col sm:min-w-172">
                       {shops.map((shop, index) => {
                         const row = rowOf(shop.id);
                         return (
                           <div
                             key={shop.id}
-                            className={`grid grid-cols-1 items-center gap-2 py-3 sm:grid-cols-[1fr_repeat(4,7rem)] ${
+                            className={`grid grid-cols-1 items-center gap-2 py-3 sm:grid-cols-[13rem_repeat(4,7rem)] ${
                               index < shops.length - 1
                                 ? "border-b border-border"
                                 : ""
@@ -650,25 +681,31 @@ export default function AddProductDialog({
                                   patchRow(shop.id, { [field]: event.target.value })
                                 }
                                 /*
-                                  บนมือถือแถวหัวตารางถูกซ่อน (hidden sm:grid) และ
-                                  ช่องกรอกเรียงลงมาสี่ช่องติดกัน ถ้า placeholder เป็น "0"
-                                  ทั้งสี่ช่อง ผู้ใช้จะไม่มีทางรู้เลยว่าช่องไหนคือราคา
-                                  ช่องไหนคือสต็อก — ใช้ชื่อฟิลด์เป็น placeholder แทน
+                                  placeholder ทำหน้าที่แทนหัวตาราง — แถวหัวข้อถูกถอด
+                                  ออกไปแล้วเพราะซ้ำซ้อน ถ้าเปลี่ยนกลับเป็น "0"
+                                  ทั้งสี่ช่อง จะไม่เหลืออะไรบอกเลยว่าช่องไหนคือราคา
+                                  ช่องไหนคือสต็อก
+
+                                  title กับ aria-label ยังอยู่ เพราะ placeholder
+                                  หายไปทันทีที่ผู้ใช้พิมพ์ตัวแรก
                                 */
                                 placeholder={label}
                                 disabled={!row.enabled}
                                 title={label}
-                                className="text-right font-mono disabled:opacity-40"
+                                className="text-center font-mono disabled:opacity-40"
                               />
                             ))}
                           </div>
                         );
                       })}
-
-                      <p className="mt-3 rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
-                        {t.stockNote}
-                      </p>
+                      </div>
                     </div>
+                  )}
+
+                  {shops.length > 0 && (
+                    <p className="mt-3 rounded-xl bg-muted px-3 py-2 text-xs text-muted-foreground">
+                      {t.stockNote}
+                    </p>
                   )}
                 </div>
               </Card>
@@ -792,6 +829,7 @@ export default function AddProductDialog({
             setCategoryId((current) => (current === deletedId ? "" : current));
           }}
         />
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -367,7 +367,15 @@ export default function ProductCatalogPage() {
           </div>
 
           <Card className="overflow-x-auto p-0">
-            <table className="w-full min-w-200 table-fixed border-collapse text-sm">
+            {/*
+              min-w ต้องมากกว่าผลรวมของคอลัมน์ที่กำหนดความกว้างตายตัว มิฉะนั้น
+              table-fixed จะบีบทุกคอลัมน์ลงตามสัดส่วน แล้วคอลัมน์แรกที่ไม่ได้
+              กำหนดความกว้าง (ชื่อสินค้า) จะเหลือแทบศูนย์ — ชื่อกลายเป็น "น้ำ."
+
+              44+44+28+72+56 = 244 (976px) + เผื่อชื่อสินค้าอีก 76 (304px) = 320
+              แก้ความกว้างคอลัมน์ไหนก็ต้องมาบวกใหม่ที่นี่ด้วย
+            */}
+            <table className="w-full min-w-320 table-fixed border-collapse text-sm">
               <colgroup>
                 <col />
                 <col className="w-44" />
