@@ -625,8 +625,24 @@ describe('PaymentsService', () => {
       await service.listMyPayments(USER);
 
       expect(prisma.payment.findMany).toHaveBeenCalledWith(
-        containing({ where: { userId: USER } }),
+        containing({
+          where: containing({ userId: USER }),
+        }),
       );
+    });
+
+    /**
+     * ต้องตัดที่คิวรี ไม่ใช่ไปกรองฝั่งเว็บ — take: 5 นับก่อนกรอง คนที่กดยกเลิก
+     * ไป 5 ครั้งจะเห็นประวัติว่างเปล่าทั้งที่มีใบที่จ่ายสำเร็จอยู่ถัดไป
+     */
+    it('listMyPayments ไม่เอาใบที่ถูกยกเลิกมาตั้งแต่ตอนคิวรี', async () => {
+      await service.listMyPayments(USER);
+
+      const [args] = prisma.payment.findMany.mock.calls.at(-1) as [
+        { where: { status?: { not?: string } }; take?: number },
+      ];
+      expect(args.where.status?.not).toBe('CANCELLED');
+      expect(args.take).toBe(5);
     });
   });
 });

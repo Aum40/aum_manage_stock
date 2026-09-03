@@ -188,7 +188,14 @@ export class PaymentsService {
     await this.expireStalePaymentsForUser(userId);
 
     const payments = await this.prisma.payment.findMany({
-      where: { userId },
+      // ใบที่ผู้ใช้กดยกเลิกเองไม่ใช่ประวัติการซื้อ มันคือรายการที่ตั้งใจไม่ให้
+      // เกิดขึ้น และไม่เหลืออะไรให้ทำต่อ — ต้องตัดตรงนี้ ไม่ใช่ไปกรองฝั่งเว็บ
+      // เพราะ take: 5 นับก่อนกรอง คนที่กดยกเลิกไป 5 ครั้งจะเห็นประวัติว่างเปล่า
+      // ทั้งที่มีรายการที่จ่ายสำเร็จอยู่ถัดไป
+      //
+      // FAILED ยังอยู่ — ใบที่หมดเวลา 24 ชม. ถูกพลิกเป็น FAILED (expirePayment)
+      // ไม่ได้หายไปไหน ผู้ใช้ต้องเห็นว่าความพยายามครั้งนั้นจบยังไง
+      where: { userId, status: { not: PaymentStatus.CANCELLED } },
       orderBy: { createdAt: 'desc' },
       take: 5,
       include: { subscription: { include: { plan: true } } },
