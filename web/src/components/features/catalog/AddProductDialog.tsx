@@ -2,11 +2,16 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
-import TopBar from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -32,7 +37,13 @@ import {
 import { useUploadImage } from "@/lib/hooks/use-uploads";
 
 /**
- * หน้านี้ต่างจาก /products/new ตรงที่ลงได้หลายร้านในครั้งเดียว
+ * [อั้ม] กล่องเพิ่มสินค้า — ทางเดียวที่สร้างสินค้าได้ในระบบ
+ *
+ * เดิมเป็นหน้าเต็ม /catalog/new ย้ายมาเป็น modal บนหน้าแคตตาล็อกกลาง เพราะการ
+ * เพิ่มสินค้าต้องเห็นภาพรวมทุกร้านอยู่แล้ว การเด้งออกไปอีกหน้าทำให้หลุดบริบท
+ *
+ * เลย์เอาต์เป็นคอลัมน์เดียวเสมอ (ของเดิมเป็นสองคอลัมน์ ฟอร์ม + สรุปด้านขวา)
+ * การ์ดสรุปกับโควตาจึงย้ายลงล่างสุด
  *
  * ลำดับที่ยิง api — สามขั้น เพราะข้อมูลอยู่คนละชั้นจริง ๆ
  *   1. POST /products                      สร้างในคลังกลาง 1 ครั้ง
@@ -171,10 +182,15 @@ const content = {
   },
 };
 
-export default function AddProductFullPage() {
+export default function AddProductDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const { locale } = useLocale();
   const t = content[locale];
-  const router = useRouter();
   const queryClient = useQueryClient();
 
   const [name, setName] = useState("");
@@ -259,6 +275,28 @@ export default function AddProductFullPage() {
   const canSubmit =
     name.trim().length > 0 && unit.trim().length > 0 && !missingPrice;
 
+  /**
+   * ล้างฟอร์มให้หมดหลังบันทึกสำเร็จ
+   *
+   * **ต้องล้าง ref ทั้งสองตัวด้วย ไม่ใช่แค่ state** — createdProductId ถูกจำไว้เพื่อ
+   * กันสร้างสินค้าซ้ำตอนกดบันทึกใหม่หลังพลาดกลางคัน ตอนเป็นหน้าเต็มมันหายเองเพราะ
+   * เปลี่ยนหน้าแล้วคอมโพเนนต์ถูกถอด แต่ modal อยู่ในหน้าเดิมตลอด ถ้าไม่ล้าง สินค้า
+   * ตัวถัดไปจะถูก "ลงร้าน" ทับ id ของสินค้าตัวก่อน = ได้สินค้าผิดตัวโดยไม่มีใครรู้
+   */
+  const resetForm = () => {
+    setName("");
+    setBarcode("");
+    setUnit("");
+    setCategoryId("");
+    setImageUrl("");
+    setRows({});
+    setError(null);
+    setPartiallySaved(false);
+    setScanOpen(false);
+    createdProductId.current = null;
+    shopProgress.current = new Map();
+  };
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit || saving) return;
@@ -314,7 +352,8 @@ export default function AddProductFullPage() {
       }
 
       invalidateStockAndSales(queryClient);
-      router.push(enabledShops.length > 0 ? "/products" : "/catalog");
+      resetForm();
+      onOpenChange(false);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : String(caught));
       setPartiallySaved(createdProductId.current !== null);
@@ -323,11 +362,22 @@ export default function AddProductFullPage() {
   };
 
   return (
-    <>
-      <TopBar title={t.title} />
-      <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-9 lg:py-8">
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // ปิดกลางคันแล้วเปิดใหม่ ต้องได้ฟอร์มเปล่า ไม่ใช่ของค้างจากรอบก่อน
+        if (!next) resetForm();
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t.title}</DialogTitle>
+          <DialogDescription>{t.card1Sub}</DialogDescription>
+        </DialogHeader>
+
         <form onSubmit={onSubmit}>
-          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="grid grid-cols-1 items-start gap-5">
             <div className="flex flex-col gap-5">
               <Card>
                 <div className="px-4">
@@ -599,7 +649,13 @@ export default function AddProductFullPage() {
                                 onChange={(event) =>
                                   patchRow(shop.id, { [field]: event.target.value })
                                 }
-                                placeholder="0"
+                                /*
+                                  บนมือถือแถวหัวตารางถูกซ่อน (hidden sm:grid) และ
+                                  ช่องกรอกเรียงลงมาสี่ช่องติดกัน ถ้า placeholder เป็น "0"
+                                  ทั้งสี่ช่อง ผู้ใช้จะไม่มีทางรู้เลยว่าช่องไหนคือราคา
+                                  ช่องไหนคือสต็อก — ใช้ชื่อฟิลด์เป็น placeholder แทน
+                                */
+                                placeholder={label}
                                 disabled={!row.enabled}
                                 title={label}
                                 className="text-right font-mono disabled:opacity-40"
@@ -710,7 +766,14 @@ export default function AddProductFullPage() {
             <Button type="submit" variant="gradient" disabled={!canSubmit || saving}>
               {saving ? t.saving : t.saveBtn}
             </Button>
-            <Button variant="ghost" render={<Link href="/catalog" />}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                resetForm();
+                onOpenChange(false);
+              }}
+            >
               {t.cancelBtn}
             </Button>
             {!canSubmit && (
@@ -720,16 +783,16 @@ export default function AddProductFullPage() {
             )}
           </div>
         </form>
-      </main>
 
-      <CategoryManagerDialog
-        open={categoryManagerOpen}
-        onClose={() => setCategoryManagerOpen(false)}
-        onCategoryDeleted={(deletedId) => {
-          // ถ้าหมวดที่เลือกไว้ในฟอร์มถูกลบ ต้องเคลียร์ ไม่งั้นจะส่ง id ที่ไม่มีอยู่ไป api
-          setCategoryId((current) => (current === deletedId ? "" : current));
-        }}
-      />
-    </>
+        <CategoryManagerDialog
+          open={categoryManagerOpen}
+          onClose={() => setCategoryManagerOpen(false)}
+          onCategoryDeleted={(deletedId) => {
+            // ถ้าหมวดที่เลือกไว้ในฟอร์มถูกลบ ต้องเคลียร์ ไม่งั้นจะส่ง id ที่ไม่มีอยู่ไป api
+            setCategoryId((current) => (current === deletedId ? "" : current));
+          }}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import TopBar from "@/components/layout/TopBar";
@@ -71,7 +70,6 @@ const content = {
     allCategories: "ทุกหมวดหมู่",
     manageCategories: "จัดการหมวดหมู่",
     noCategory: "ไม่ระบุหมวดหมู่",
-    addBtn: "เพิ่มสินค้าใหม่ →",
     quickLabel: "ค้นหาด่วน:",
     clearSearch: "ล้างการค้นหา",
     columns: ["สินค้า", "หมวดหมู่", "บาร์โค้ด", "ราคาขาย", "คงเหลือ", "สถานะ", "จัดการสต็อก", ""],
@@ -138,7 +136,6 @@ const content = {
     allCategories: "All categories",
     manageCategories: "Manage categories",
     noCategory: "Uncategorised",
-    addBtn: "Add new product →",
     quickLabel: "Quick search:",
     clearSearch: "Clear search",
     columns: ["Product", "Category", "Barcode", "Sell price", "Stock", "Status", "Stock actions", ""],
@@ -320,9 +317,6 @@ export default function ProductsStockPage() {
               onClick={() => setCategoryManagerOpen(true)}
             >
               {t.manageCategories}
-            </Button>
-            <Button variant="dark" render={<Link href="/catalog/new" />}>
-              {t.addBtn}
             </Button>
           </div>
 

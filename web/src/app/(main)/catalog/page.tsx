@@ -31,6 +31,7 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { CategoryManagerDialog } from "@/components/shared/CategoryManagerDialog";
 import { ProductScopeTabs } from "@/components/shared/ProductScopeTabs";
+import AddProductDialog from "@/components/features/catalog/AddProductDialog";
 import { ShopStockDialog } from "@/components/features/catalog/ShopStockDialog";
 import { ApiError, api, withQuery } from "@/lib/api-client";
 import {
@@ -178,6 +179,7 @@ export default function ProductCatalogPage() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [stockFor, setStockFor] = useState<{
     id: string;
     name: string;
@@ -359,7 +361,7 @@ export default function ProductCatalogPage() {
             >
               {t.manageCategories}
             </Button>
-            <Button variant="dark" render={<Link href="/catalog/new" />}>
+            <Button variant="dark" onClick={() => setAddOpen(true)}>
               {t.addBtn}
             </Button>
           </div>
@@ -542,6 +544,9 @@ export default function ProductCatalogPage() {
         shops={shops}
         onClose={() => setStockFor(null)}
       />
+
+      {/* [อั้ม] สร้างสินค้าได้จากที่นี่ที่เดียว — หน้าร้านรายสาขาไม่มีปุ่มนี้แล้ว */}
+      <AddProductDialog open={addOpen} onOpenChange={setAddOpen} />
 
       <CategoryManagerDialog
         open={categoryManagerOpen}
