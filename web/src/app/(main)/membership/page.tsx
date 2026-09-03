@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import TopBar from "@/components/layout/TopBar";
-import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import CardPaymentDialog from "@/components/features/payment/CardPaymentDialog";
+import UpgradePlanDialog from "@/components/features/membership/UpgradePlanDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import {
@@ -116,9 +116,23 @@ const PAYMENT_STATUS_VARIANT: Record<string, "success" | "warning" | "error" | "
   REFUNDED: "neutral",
 };
 
+/**
+ * useSearchParams() บังคับให้ subtree ที่เรียกมันต้องมี Suspense ครอบ ไม่งั้น
+ * next build ล้มเพราะหน้านี้ถูก prerender เป็น static — ตัวหน้าจริงจึงอยู่ใน
+ * MembershipPageContent แล้วห่อไว้ตรงนี้ชั้นเดียว
+ */
 export default function MembershipPage() {
+  return (
+    <Suspense>
+      <MembershipPageContent />
+    </Suspense>
+  );
+}
+
+function MembershipPageContent() {
   const { locale } = useLocale();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const t = content[locale];
   const subscriptionQuery = useMySubscription();
@@ -127,6 +141,16 @@ export default function MembershipPage() {
   const retryPayment = useRetrySubscriptionPaymentIntent();
   const cancelPayment = useCancelPayment();
   const [payment, setPayment] = useState<{ paymentId: string; clientSecret: string; amount: number } | null>(null);
+  /**
+   * ทางเข้าที่เคยชี้ไป /membership/upgrade (หน้าแรก, หน้าฟีเจอร์ที่ถูกล็อก, ลิงก์
+   * ที่บุ๊กมาร์กไว้) เดี๋ยวนี้เด้งมาที่ /membership?upgrade=1 แล้วกล่องเปิดให้เลย
+   *
+   * ใช้เป็นค่าตั้งต้นของ state ไม่ใช่อ่านสดทุกรอบ — ผู้ใช้ต้องปิดกล่องได้ทั้งที่
+   * param ยังคาอยู่ใน URL
+   */
+  const [upgradeOpen, setUpgradeOpen] = useState(
+    () => searchParams.get("upgrade") === "1",
+  );
   const [renewError, setRenewError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -174,6 +198,18 @@ export default function MembershipPage() {
    * PAYMENT_ALREADY_PENDING อยู่แล้ว หน้าเว็บแค่ไม่ล่อให้กดจนโดนปฏิเสธ)
    */
   const openPayment = (paymentsQuery.data ?? []).find((row) => row.cancellable);
+
+  /**
+   * ใบที่ผู้ใช้กดยกเลิกเองไม่ต้องโชว์ — มันคือรายการที่ "ไม่ได้เกิดขึ้น" การทิ้ง
+   * ไว้ในตารางทำให้ประวัติรกด้วยความพยายามที่ล้มเลิกไปแล้ว โดยไม่มีอะไรให้ทำต่อ
+   *
+   * กรองเฉพาะ CANCELLED เท่านั้น ใบ PENDING/FAILED ยังต้องอยู่ เพราะปุ่ม
+   * "ชำระอีกครั้ง" กับ "ยกเลิก" อยู่ในแถวพวกนั้น ซ่อนแล้วผู้ใช้จะติดกับใบค้าง
+   * โดยไม่มีทางจัดการ ฝั่ง api ยังเก็บแถวไว้ครบเหมือนเดิม นี่เป็นแค่การแสดงผล
+   */
+  const visiblePayments = (paymentsQuery.data ?? []).filter(
+    (row) => row.status !== "CANCELLED",
+  );
 
   /**
    * เหลือกี่วันก่อนหมดอายุ — ปุ่มต่ออายุขึ้นเมื่อเหลือ ≤ 30 วันเท่านั้น
@@ -233,6 +269,15 @@ export default function MembershipPage() {
   return (
     <>
       <TopBar title={t.title} />
+      <UpgradePlanDialog
+        open={upgradeOpen}
+        onClose={() => setUpgradeOpen(false)}
+        onCheckoutStarted={(started) => {
+          // ปิดตารางเทียบก่อนเปิดฟอร์มบัตร ไม่ซ้อนกล่องบนกล่อง
+          setUpgradeOpen(false);
+          setPayment(started);
+        }}
+      />
       {payment && (
         <CardPaymentDialog
           clientSecret={payment.clientSecret}
@@ -315,7 +360,7 @@ export default function MembershipPage() {
                   {t.buyExtraSub}
                 </p>
                 <div className="mb-3.5 text-[13px] text-muted-foreground">{t.qtyLabel}</div>
-                <Button variant="dark" render={<Link href="/membership/upgrade" />}>{t.payBtn}</Button>
+                <Button variant="dark" onClick={() => setUpgradeOpen(true)}>{t.payBtn}</Button>
               </div>
             </Card>
           </div>
@@ -342,7 +387,7 @@ export default function MembershipPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(paymentsQuery.data ?? []).map((row) => (
+                  {visiblePayments.map((row) => (
                     <tr key={row.id} className="border-b border-border last:border-0">
                       <td className="px-5 py-3.5 font-mono text-[13px] text-muted-foreground">{new Date(row.createdAt).toLocaleDateString(locale === "th" ? "th-TH" : "en-US")}</td>
                       {/*
@@ -412,7 +457,7 @@ export default function MembershipPage() {
                       </td>
                     </tr>
                   )}
-                  {paymentsQuery.data?.length === 0 && (
+                  {paymentsQuery.isSuccess && visiblePayments.length === 0 && (
                     <tr>
                       <td colSpan={t.columns.length + 1} className="px-5 py-8 text-center text-sm text-muted-foreground">
                         {t.historyEmpty}
