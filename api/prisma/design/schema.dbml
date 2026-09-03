@@ -655,6 +655,26 @@ Table chat_messages {
   '''
 }
 
+Table chat_shop_prompts {
+  id uuid [pk]
+  user_id uuid [not null, unique]
+  original_message text [not null]
+  selected_shop_id uuid [null]
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  Note: '''
+  จำคำสั่งที่ผู้ใช้พิมพ์มา ระหว่างรอให้เลือกว่าหมายถึงร้านไหน — ใช้เฉพาะกับ
+  บัญชีที่มีหลายร้าน และเฉพาะช่องทาง LINE (ฝั่งเว็บรู้ร้านจากตัวสลับร้านอยู่แล้ว)
+
+  แยกจาก pending_stock_actions เพราะตอนถามว่า "ร้านไหน" ยังไม่รู้ shop_id
+  แต่ตารางนั้นบังคับว่าต้องมี
+
+  user_id เป็น unique โดยตั้งใจ — คนหนึ่งค้างได้คำถามเดียว คำถามใหม่ทับของเก่า
+  ด้วย upsert จึงไม่ต้องมีงานตามเก็บกวาดแถวค้าง
+  '''
+}
+
 Table ai_recommendations {
   id uuid [pk]
   shop_id uuid [not null]
@@ -746,6 +766,8 @@ Ref: pending_stock_actions.user_id > users.id [delete: restrict]
 Ref: chat_messages.shop_id > shops.id [delete: cascade]
 Ref: chat_messages.user_id > users.id [delete: restrict]
 Ref: chat_messages.pending_action_id > pending_stock_actions.id [delete: set null]
+Ref: chat_shop_prompts.user_id > users.id [delete: cascade]
+Ref: chat_shop_prompts.selected_shop_id > shops.id [delete: cascade]
 Ref: ai_recommendations.shop_id > shops.id [delete: cascade]
 Ref: ai_recommendations.shop_product_id > shop_products.id [delete: cascade]
 
