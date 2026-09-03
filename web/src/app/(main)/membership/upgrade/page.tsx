@@ -10,6 +10,7 @@ import { useLocale } from "@/components/i18n/LocaleContext";
 import {
   useCreateSubscriptionPaymentIntent,
   useMySubscription,
+  usePayments,
   useSubscriptionPlans,
   type SubscriptionPlan,
 } from "@/lib/hooks/use-inventory";
@@ -23,6 +24,8 @@ const content = {
     perYear: "ต่อปี",
     recommended: "แนะนำ",
     currentPlanBtn: "แพ็กเกจปัจจุบัน",
+    lowerPlan: "ลดแพ็กเกจไม่ได้",
+    pendingNotice: "มีรายการชำระเงินค้างอยู่ — ชำระให้เสร็จหรือกดยกเลิกที่หน้าสมาชิกก่อน",
     choosePlusBtn: "เลือก Plus →",
     chooseProBtn: "เลือก Pro →",
     footerNote:
@@ -50,6 +53,8 @@ const content = {
     perYear: "per year",
     recommended: "Recommended",
     currentPlanBtn: "Current Plan",
+    lowerPlan: "Downgrades are not available",
+    pendingNotice: "You have an unfinished payment — pay or cancel it on the membership page first.",
     choosePlusBtn: "Choose Plus →",
     chooseProBtn: "Choose Pro →",
     footerNote:
@@ -70,6 +75,9 @@ const content = {
     featAi: "AI Recommendations",
   },
 };
+
+/** ลำดับแพ็กเกจ — ใช้ตัดสินว่าอันไหนเป็นการ "ลดระดับ" ซึ่ง SRS ไม่รองรับ */
+const PLAN_RANK: Record<string, number> = { FREE: 0, PLUS: 1, PRO: 2 };
 
 function Cell({ val }: { val: string }) {
   if (val === "✓")
@@ -97,6 +105,13 @@ export default function UpgradePlanPage() {
   const [payment, setPayment] = useState<{ paymentId: string; clientSecret: string; amount: number } | null>(null);
   const plansQuery = useSubscriptionPlans();
   const subscriptionQuery = useMySubscription();
+  const paymentsQuery = usePayments();
+
+  /**
+   * ใบที่ยังค้างอยู่ — api ปฏิเสธการเปิดใบใหม่ด้วย PAYMENT_ALREADY_PENDING
+   * อยู่แล้ว ตรงนี้แค่ปิดปุ่มไว้ก่อน จะได้ไม่ต้องให้ผู้ใช้กดแล้วเจอ error
+   */
+  const hasOpenPayment = (paymentsQuery.data ?? []).some((row) => row.cancellable);
 
   const plans = plansQuery.data ?? [];
   const freePlan = plans.find((p) => p.code === "FREE");
@@ -104,6 +119,18 @@ export default function UpgradePlanPage() {
   const proPlan = plans.find((p) => p.code === "PRO");
   const currentSubscription = subscriptionQuery.data?.subscription;
   const currentPlanCode = currentSubscription?.plan.code;
+
+  /**
+   * ลำดับแพ็กเกจ — เสนอได้เฉพาะแพ็กเกจที่สูงกว่าของปัจจุบันเท่านั้น
+   *
+   * กฎเดียวกับ createSubscriptionPaymentIntent() ฝั่ง api ที่ปฏิเสธการซื้อ
+   * แพ็กเกจที่โควตาไม่มากกว่าเดิม (SRS ไม่มีเส้นทางลดแพ็กเกจ) — ก่อนหน้านี้
+   * คนที่อยู่ PRO ยังเห็นปุ่ม "เลือก Plus" ซึ่งกดแล้วได้ error กลับมาเท่านั้น
+   */
+  const currentRank = PLAN_RANK[currentPlanCode ?? "FREE"] ?? 0;
+  const isCurrentPlan = (code: string) => currentPlanCode === code;
+  const isBelowCurrent = (code: string) =>
+    currentPlanCode !== undefined && (PLAN_RANK[code] ?? 0) < currentRank;
 
   /**
    * กฎเดียวกับ resolveUpgradeCharge() ฝั่ง api — จ่ายแค่ส่วนต่างได้ก็ต่อเมื่อ
@@ -300,45 +327,65 @@ export default function UpgradePlanPage() {
                 <tr className="border-t border-border">
                   <td className="px-6 py-5" />
                   <td className="px-4 py-5 text-center">
-                    {currentPlanCode === "FREE" && (
+                    {isCurrentPlan("FREE") ? (
                       <Button variant="secondary" disabled className="opacity-50">
                         {t.currentPlanBtn}
                       </Button>
-                    )}
+                    ) : currentPlanCode !== undefined ? (
+                      <span className="text-[13px] text-muted-foreground">
+                        {t.lowerPlan}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="bg-primary/7 px-4 py-5 text-center">
-                    {currentPlanCode === "PLUS" ? (
+                    {isCurrentPlan("PLUS") ? (
                       <Button variant="secondary" disabled className="opacity-50">
                         {t.currentPlanBtn}
                       </Button>
+                    ) : isBelowCurrent("PLUS") ? (
+                      <span className="text-[13px] text-muted-foreground">
+                        {t.lowerPlan}
+                      </span>
                     ) : (
                       <>
                         <Button
                           variant="gradient"
-                          disabled={createPayment.isPending}
+                          disabled={createPayment.isPending || hasOpenPayment}
                           onClick={() => startCheckout("PLUS")}
                         >
                           {t.choosePlusBtn}
                         </Button>
-                        {upgradeHint(plusPlan)}
+                        {hasOpenPayment ? (
+                          <p className="mt-2 text-[11px] text-status-orange">{t.pendingNotice}</p>
+                        ) : (
+                          upgradeHint(plusPlan)
+                        )}
                       </>
                     )}
                   </td>
                   <td className="px-4 py-5 text-center">
-                    {currentPlanCode === "PRO" ? (
+                    {isCurrentPlan("PRO") ? (
                       <Button variant="secondary" disabled className="opacity-50">
                         {t.currentPlanBtn}
                       </Button>
+                    ) : isBelowCurrent("PRO") ? (
+                      <span className="text-[13px] text-muted-foreground">
+                        {t.lowerPlan}
+                      </span>
                     ) : (
                       <>
                         <Button
                           variant="dark"
-                          disabled={createPayment.isPending}
+                          disabled={createPayment.isPending || hasOpenPayment}
                           onClick={() => startCheckout("PRO")}
                         >
                           {t.chooseProBtn}
                         </Button>
-                        {upgradeHint(proPlan)}
+                        {hasOpenPayment ? (
+                          <p className="mt-2 text-[11px] text-status-orange">{t.pendingNotice}</p>
+                        ) : (
+                          upgradeHint(proPlan)
+                        )}
                       </>
                     )}
                   </td>

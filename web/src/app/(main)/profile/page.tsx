@@ -82,6 +82,8 @@ const content = {
     linkGoogleBtn: "เชื่อม Google",
     connCaption:
       "ระบบจะปฏิเสธการผูกบัญชี Google หรือ LINE ที่ผูกกับบัญชีอื่นอยู่แล้วในระบบ",
+    connCaptionStaff:
+      "บัญชีพนักงานผูกได้เฉพาะ LINE — ระบบจะปฏิเสธบัญชี LINE ที่ผูกกับบัญชีอื่นอยู่แล้ว",
     unlinkWarning: "กรุณากำหนดรหัสผ่านก่อนยกเลิกการเชื่อมต่อ ช่องทางนี้เป็นวิธีเข้าสู่ระบบเดียวของคุณ",
   },
   en: {
@@ -131,6 +133,8 @@ const content = {
     linkGoogleBtn: "Connect Google",
     connCaption:
       "Linking will be rejected if that Google or LINE account is already linked elsewhere in the system.",
+    connCaptionStaff:
+      "Staff accounts can link LINE only — linking is rejected if that LINE account is already used elsewhere.",
     unlinkWarning: "Please set a password before unlinking. This is your only sign-in method.",
   },
 };
@@ -496,6 +500,12 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
+                {/*
+                  บัญชีพนักงานผูก Google ไม่ได้ — POST /users/me/link-google ถูกกั้น
+                  ด้วย @Roles(SHOP_OWNER) ฝั่ง api อยู่แล้ว ถ้าปล่อยปุ่มไว้พนักงาน
+                  จะกดแล้วเจอ 403 เฉยๆ ซ่อนทั้งแถวจึงตรงกับสิ่งที่ทำได้จริง
+                */}
+                {!isStaff && (
                 <div className="flex items-center justify-between py-3.5">
                   <div>
                     <div className="text-sm font-semibold">Google</div>
@@ -527,11 +537,12 @@ export default function ProfilePage() {
                     )}
                   </div>
                 </div>
+                )}
 
                 <FormError message={unlinkLine.error?.message ?? unlinkGoogle.error?.message ?? null} />
 
                 <div className="mt-2.5">
-                  <Caption>{t.connCaption}</Caption>
+                  <Caption>{isStaff ? t.connCaptionStaff : t.connCaption}</Caption>
                 </div>
               </div>
             </Card>

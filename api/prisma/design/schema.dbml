@@ -55,7 +55,8 @@ Enum payment_purpose {
 Enum payment_status {
   PENDING
   PAID
-  FAILED
+  FAILED    // จ่ายไม่ผ่าน หรือใบหมดอายุแล้วถูก cron เก็บกวาด
+  CANCELLED // ผู้ใช้กดยกเลิกใบที่ค้างเอง — ปลดล็อกให้เปิดใบใหม่ได้
   REFUNDED
 }
 

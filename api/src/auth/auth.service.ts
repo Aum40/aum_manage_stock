@@ -139,11 +139,31 @@ export class AuthService {
 
     let user = await this.userService.findByGoogleId(profile.googleId);
     if (!user) {
-      user = await this.userService.createGoogleUser({
-        googleId: profile.googleId,
-        displayName: profile.displayName,
-        email: profile.email,
-      });
+      /**
+       * ยังไม่เคยผูก Google — ก่อนสร้างบัญชีใหม่ต้องดูก่อนว่าอีเมลนี้มีเจ้าของ
+       * อยู่แล้วไหม (สมัครด้วยอีเมล/รหัสผ่านมาก่อน)
+       *
+       * ถ้าไม่เช็ค createGoogleUser() จะไปชน uq_users_email_active แล้วพัง —
+       * คนที่สมัครด้วย Gmail แล้วยังไม่ได้ยืนยันอีเมลจะติดทางตัน: ล็อกอินด้วย
+       * รหัสผ่านก็ไม่ได้ (ยังไม่ยืนยัน) ล็อกอินด้วย Google ก็ error
+       *
+       * profile.email มีค่าเฉพาะเมื่อ Google ยืนยันอีเมลแล้ว (email_verified)
+       * การผูกด้วยอีเมลที่ตรงกันจึงปลอดภัย — ดู linkGoogleAccount()
+       */
+      const existing = profile.email
+        ? await this.userService.findOwnerByEmail(profile.email)
+        : null;
+
+      user = existing
+        ? await this.userService.linkGoogleAccount(
+            existing.id,
+            profile.googleId,
+          )
+        : await this.userService.createGoogleUser({
+            googleId: profile.googleId,
+            displayName: profile.displayName,
+            email: profile.email,
+          });
     } else if (!user.username) {
       user =
         (await this.userService.ensureUsername(
