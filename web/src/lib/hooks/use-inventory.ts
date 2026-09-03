@@ -71,6 +71,14 @@ export type StockMovement = {
   quantityDelta: number;
   quantityBefore: number;
   quantityAfter: number;
+  /**
+   * ทุนต่อชิ้นของการเคลื่อนไหวครั้งนี้ — เป็น string เพราะฝั่ง api เก็บเป็น Decimal
+   *
+   * null = รายการที่เกิดก่อนมีระบบล็อตต้นทุน ต้องแสดงเป็น "—" ไม่ใช่ ฿0.00
+   * เพราะ "ไม่มีข้อมูล" กับ "ทุนเป็นศูนย์" เป็นคนละเรื่องกัน (หลักเดียวกับที่
+   * แดชบอร์ดแยกนับ itemsWithoutCost)
+   */
+  unitCost: string | null;
   source: 'WEB' | 'LINE';
   note: string | null;
   createdAt: string;

@@ -10,6 +10,17 @@ export interface ReceiveLotInput {
   note?: string;
 }
 
+export interface ReceiveLotResult {
+  /**
+   * ทุนต่อชิ้นที่ล็อตนี้ถูกเปิดด้วยจริง
+   *
+   * คืนออกไปเพราะผู้เรียกต้องเอาไปบันทึกลง `stock_movements.unit_cost` ต่อ
+   * ถ้าปล่อยให้ผู้เรียกไปอ่าน `cost_price` มาเองอีกรอบ จะมีช่องให้ตัวเลขสองที่
+   * ไม่ตรงกันเมื่อ `cost_price` ถูกแก้ระหว่างทาง
+   */
+  unitCost: Prisma.Decimal;
+}
+
 export interface ConsumeLotsInput {
   shopProductId: string;
   quantity: number;
@@ -43,22 +54,24 @@ const ZERO = new Prisma.Decimal(0);
  * แต่ละที่คำนวณเอง จะมีสักที่ที่ลืมแน่นอน — บทเรียนเดียวกับตอนแจ้งเตือนของ
  * ใกล้หมดที่ตกหล่นไปเส้นทางหนึ่งโดยไม่มีใครรู้เป็นเดือน
  *
- * ทุกเมธอดรับ �tx` เข้ามา ไม่เปิดทรานแซกชันเอง — ผู้เรียกเป็นคนคุมขอบเขต
+ * ทุกเมธอดรับ `tx` เข้ามา ไม่เปิดทรานแซกชันเอง — ผู้เรียกเป็นคนคุมขอบเขต
  * เพราะการตัดล็อตต้องอยู่ในทรานแซกชันเดียวกับการตัด stock_qty เสมอ
  */
 @Injectable()
 export class StockLotsService {
-  /** รับของเข้า = เปิดล็อตใหม่หนึ่งใบ */
+  /** รับของเข้า = เปิดล็อตใหม่หนึ่งใบ แล้วคืนทุนที่ใช้เปิดล็อตนั้น */
   async receive(
     tx: Prisma.TransactionClient,
     input: ReceiveLotInput,
-  ): Promise<void> {
-    if (input.quantity <= 0) return;
-
+  ): Promise<ReceiveLotResult> {
     const unitCost =
       input.unitCost === undefined
         ? await this.currentCostPrice(tx, input.shopProductId)
         : new Prisma.Decimal(input.unitCost);
+
+    // หาทุนก่อนแล้วค่อยเช็คจำนวน เพื่อให้ค่าที่คืนออกไปเป็นความจริงเสมอ
+    // ผู้เรียกจะได้ไม่ต้องตีความว่า "จำนวน 0 แล้วทุนที่คืนมาแปลว่าอะไร"
+    if (input.quantity <= 0) return { unitCost };
 
     await tx.stockLot.create({
       data: {
@@ -69,6 +82,8 @@ export class StockLotsService {
         note: input.note,
       },
     });
+
+    return { unitCost };
   }
 
   /**

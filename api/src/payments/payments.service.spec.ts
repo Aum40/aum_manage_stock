@@ -625,8 +625,32 @@ describe('PaymentsService', () => {
       await service.listMyPayments(USER);
 
       expect(prisma.payment.findMany).toHaveBeenCalledWith(
-        containing({ where: { userId: USER } }),
+        containing({
+          where: containing({ userId: USER }),
+        }),
       );
+    });
+
+    it('listMyPayments ไม่เอาใบที่ถูกยกเลิกมาตั้งแต่ตอนคิวรี', async () => {
+      await service.listMyPayments(USER);
+
+      const [args] = prisma.payment.findMany.mock.calls.at(-1) as [
+        { where: { status?: { not?: string } } },
+      ];
+      expect(args.where.status?.not).toBe('CANCELLED');
+    });
+
+    /**
+     * เดิม take = 5 ซึ่งไม่ใช่การแบ่งหน้า แต่ตัดรายการที่เก่ากว่านั้นทิ้งไปเลย
+     * โดยไม่มีทางเปิดดู — ฝั่งเว็บแสดงทั้งหมดในกล่องที่เลื่อนได้แทน
+     */
+    it('listMyPayments คืนประวัติทั้งหมด ไม่ได้ตัดเหลือ 5 รายการล่าสุด', async () => {
+      await service.listMyPayments(USER);
+
+      const [args] = prisma.payment.findMany.mock.calls.at(-1) as [
+        { take?: number },
+      ];
+      expect(args.take).toBeGreaterThanOrEqual(100);
     });
   });
 });
