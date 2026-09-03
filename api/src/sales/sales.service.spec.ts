@@ -10,6 +10,7 @@ describe('SalesService', () => {
   function setup(saleOverrides: Record<string, unknown> = {}) {
     const sale = {
       id: saleId,
+      saleNo: 'S-TEST0001',
       status: 'COMPLETED',
       items: [{ id: itemId, shopProductId: productId, quantity: 2 }],
       ...saleOverrides,
@@ -59,6 +60,18 @@ describe('SalesService', () => {
     const lowStock = {
       notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
     };
+    const lots = {
+      // ทุนจากล็อต 9.00 ตั้งใจให้ต่างจาก costPrice 8.00 ที่ getForSale() คืนมา
+      // เพื่อพิสูจน์ว่าบิลใช้ทุนจากล็อต ไม่ใช่ทุนปัจจุบันของสินค้า
+      consume: jest.fn().mockResolvedValue({
+        unitCost: new Prisma.Decimal('9.00'),
+        totalCost: new Prisma.Decimal('18.00'),
+        picked: [],
+        quantityWithoutLot: 0,
+      }),
+      receive: jest.fn().mockResolvedValue(undefined),
+      ensureOpeningLot: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new SalesService(
       prisma as never,
       movements as never,
@@ -66,8 +79,18 @@ describe('SalesService', () => {
       staff,
       subscriptions,
       lowStock as never,
+      lots as never,
     );
-    return { service, tx, movements, products, staff, subscriptions, lowStock };
+    return {
+      service,
+      tx,
+      movements,
+      products,
+      staff,
+      subscriptions,
+      lowStock,
+      lots,
+    };
   }
 
   it('creates sale, decreases stock, and records movement in one transaction', async () => {
@@ -93,10 +116,13 @@ describe('SalesService', () => {
     expect(createCall[0].data.totalAmount.toString()).toBe('25');
     expect(createCall[0].data.saleNo).toMatch(/^S-[A-F0-9]{20}$/);
     expect(createCall[0].data.itemCount).toBe(2);
-    expect(createCall[0].data.items.create[0]).toMatchObject({
-      barcode: '8850000000001',
-      costPrice: new Prisma.Decimal('8.00'),
-    });
+    /**
+     * costPrice เป็น 9.00 ซึ่งมาจากล็อตที่ถูกตัด ไม่ใช่ 8.00 ที่ getForSale()
+     * อ่านมาจาก shop_products — เดิมเทสต์นี้ยืนยัน 8.00 และการที่มันเปลี่ยน
+     * คือใจความทั้งหมดของฟีเจอร์ต้นทุนแยกล็อต
+     */
+    expect(createCall[0].data.items.create[0].barcode).toBe('8850000000001');
+    expect(createCall[0].data.items.create[0].costPrice.toString()).toBe('9');
     expect(products.adjustStock).toHaveBeenCalledWith(tx, {
       shopId: 'shop',
       shopProductId: productId,
@@ -241,5 +267,70 @@ describe('SalesService', () => {
       'barcode locked',
     );
     expect(products.scan).not.toHaveBeenCalled();
+  });
+
+  it('บิลเก็บทุนจากล็อตที่ตัดจริง ไม่ใช่ cost_price ปัจจุบันของสินค้า', async () => {
+    const { service, tx, lots } = setup();
+
+    await service.create('shop-1', 'staff-1', {
+      items: [{ shopProductId: productId, quantity: 2 }],
+    });
+
+    expect(lots.consume).toHaveBeenCalledWith(tx, {
+      shopProductId: productId,
+      quantity: 2,
+    });
+    const [createCall] = tx.sale.create.mock.calls as unknown as [
+      [{ data: { items: { create: Array<{ costPrice: Prisma.Decimal }> } } }],
+    ];
+    expect(createCall[0].data.items.create[0].costPrice.toString()).toBe('9');
+  });
+
+  it('ตัด stock_qty ก่อนตัดล็อต เพื่อให้ด่านเช็คของไม่พอทำงานก่อน', async () => {
+    const { service, products, lots } = setup();
+    const order: string[] = [];
+    products.adjustStock.mockImplementation(() => {
+      order.push('stock');
+      return Promise.resolve({ quantityBefore: 10, quantityAfter: 8 });
+    });
+    lots.consume.mockImplementation(() => {
+      order.push('lots');
+      return Promise.resolve({
+        unitCost: new Prisma.Decimal('9.00'),
+        totalCost: new Prisma.Decimal('18.00'),
+        picked: [],
+        quantityWithoutLot: 0,
+      });
+    });
+
+    await service.create('shop-1', 'staff-1', {
+      items: [{ shopProductId: productId, quantity: 2 }],
+    });
+
+    expect(order).toEqual(['stock', 'lots']);
+  });
+
+  it('ยกเลิกบิลแล้วคืนของเป็นล็อตใหม่ด้วยทุนที่ snapshot ไว้ในบิล', async () => {
+    const { service, tx, lots } = setup({
+      items: [
+        {
+          id: itemId,
+          shopProductId: productId,
+          quantity: 2,
+          costPrice: new Prisma.Decimal('9.00'),
+        },
+      ],
+    });
+
+    await service.void('shop-1', 'staff-1', saleId, 'ลูกค้าคืนของ');
+
+    expect(lots.receive).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        shopProductId: productId,
+        quantity: 2,
+        unitCost: 9,
+      }),
+    );
   });
 });
