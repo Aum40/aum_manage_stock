@@ -364,9 +364,17 @@ function MembershipPageContent() {
             <div className="mb-3 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
               {t.historyHeading}
             </div>
-            <Card className="overflow-x-auto p-0">
+            <Card className="p-0">
+              {/*
+                api คืนประวัติมาทั้งหมด กล่องนี้สูงประมาณ 5 แถวแล้วเลื่อนดูที่เหลือ
+                — ตัดให้เหลือ 5 รายการไปเลยแปลว่ารายการเก่ากว่านั้นหายไปจากสายตา
+                ผู้ใช้ถาวร ทั้งที่เป็นหลักฐานการจ่ายเงินของเขาเอง
+                หัวตารางต้องค้างไว้ (sticky) ไม่งั้นเลื่อนลงไปแล้วไม่รู้ว่าคอลัมน์
+                ไหนคืออะไร และต้องทึบด้วย ไม่งั้นแถวจะไหลทะลุขึ้นมาซ้อน
+              */}
+              <div className="max-h-80 overflow-auto">
               <table className="w-full min-w-125 border-collapse text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-secondary shadow-[inset_0_-1px_0_var(--border)]">
                   <tr className="border-b border-border">
                     {t.columns.map((h, i) => (
                       <th
@@ -461,6 +469,7 @@ function MembershipPageContent() {
                   )}
                 </tbody>
               </table>
+              </div>
             </Card>
           </div>
         </div>

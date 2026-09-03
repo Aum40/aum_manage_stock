@@ -631,18 +631,26 @@ describe('PaymentsService', () => {
       );
     });
 
-    /**
-     * ต้องตัดที่คิวรี ไม่ใช่ไปกรองฝั่งเว็บ — take: 5 นับก่อนกรอง คนที่กดยกเลิก
-     * ไป 5 ครั้งจะเห็นประวัติว่างเปล่าทั้งที่มีใบที่จ่ายสำเร็จอยู่ถัดไป
-     */
     it('listMyPayments ไม่เอาใบที่ถูกยกเลิกมาตั้งแต่ตอนคิวรี', async () => {
       await service.listMyPayments(USER);
 
       const [args] = prisma.payment.findMany.mock.calls.at(-1) as [
-        { where: { status?: { not?: string } }; take?: number },
+        { where: { status?: { not?: string } } },
       ];
       expect(args.where.status?.not).toBe('CANCELLED');
-      expect(args.take).toBe(5);
+    });
+
+    /**
+     * เดิม take = 5 ซึ่งไม่ใช่การแบ่งหน้า แต่ตัดรายการที่เก่ากว่านั้นทิ้งไปเลย
+     * โดยไม่มีทางเปิดดู — ฝั่งเว็บแสดงทั้งหมดในกล่องที่เลื่อนได้แทน
+     */
+    it('listMyPayments คืนประวัติทั้งหมด ไม่ได้ตัดเหลือ 5 รายการล่าสุด', async () => {
+      await service.listMyPayments(USER);
+
+      const [args] = prisma.payment.findMany.mock.calls.at(-1) as [
+        { take?: number },
+      ];
+      expect(args.take).toBeGreaterThanOrEqual(100);
     });
   });
 });
