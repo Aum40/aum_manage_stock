@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import TopBar from "@/components/layout/TopBar";
-import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import CardPaymentDialog from "@/components/features/payment/CardPaymentDialog";
+import UpgradePlanDialog from "@/components/features/membership/UpgradePlanDialog";
 import { useLocale } from "@/components/i18n/LocaleContext";
 import { ApiError } from "@/lib/api-client";
 import {
@@ -116,9 +116,23 @@ const PAYMENT_STATUS_VARIANT: Record<string, "success" | "warning" | "error" | "
   REFUNDED: "neutral",
 };
 
+/**
+ * useSearchParams() บังคับให้ subtree ที่เรียกมันต้องมี Suspense ครอบ ไม่งั้น
+ * next build ล้มเพราะหน้านี้ถูก prerender เป็น static — ตัวหน้าจริงจึงอยู่ใน
+ * MembershipPageContent แล้วห่อไว้ตรงนี้ชั้นเดียว
+ */
 export default function MembershipPage() {
+  return (
+    <Suspense>
+      <MembershipPageContent />
+    </Suspense>
+  );
+}
+
+function MembershipPageContent() {
   const { locale } = useLocale();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const t = content[locale];
   const subscriptionQuery = useMySubscription();
@@ -127,6 +141,16 @@ export default function MembershipPage() {
   const retryPayment = useRetrySubscriptionPaymentIntent();
   const cancelPayment = useCancelPayment();
   const [payment, setPayment] = useState<{ paymentId: string; clientSecret: string; amount: number } | null>(null);
+  /**
+   * ทางเข้าที่เคยชี้ไป /membership/upgrade (หน้าแรก, หน้าฟีเจอร์ที่ถูกล็อก, ลิงก์
+   * ที่บุ๊กมาร์กไว้) เดี๋ยวนี้เด้งมาที่ /membership?upgrade=1 แล้วกล่องเปิดให้เลย
+   *
+   * ใช้เป็นค่าตั้งต้นของ state ไม่ใช่อ่านสดทุกรอบ — ผู้ใช้ต้องปิดกล่องได้ทั้งที่
+   * param ยังคาอยู่ใน URL
+   */
+  const [upgradeOpen, setUpgradeOpen] = useState(
+    () => searchParams.get("upgrade") === "1",
+  );
   const [renewError, setRenewError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -174,6 +198,13 @@ export default function MembershipPage() {
    * PAYMENT_ALREADY_PENDING อยู่แล้ว หน้าเว็บแค่ไม่ล่อให้กดจนโดนปฏิเสธ)
    */
   const openPayment = (paymentsQuery.data ?? []).find((row) => row.cancellable);
+
+  /**
+   * ใบที่ถูกยกเลิกถูกตัดออกตั้งแต่ฝั่ง api แล้ว (listMyPayments) ไม่ได้กรองซ้ำ
+   * ตรงนี้ — api ตัด 5 รายการล่าสุด "หลัง" กรองแล้ว ถ้ามากรองอีกทีข้างนอก
+   * ตารางจะว่างเปล่าเมื่อผู้ใช้เพิ่งยกเลิกไปติดกัน 5 ครั้ง
+   */
+  const visiblePayments = paymentsQuery.data ?? [];
 
   /**
    * เหลือกี่วันก่อนหมดอายุ — ปุ่มต่ออายุขึ้นเมื่อเหลือ ≤ 30 วันเท่านั้น
@@ -233,6 +264,15 @@ export default function MembershipPage() {
   return (
     <>
       <TopBar title={t.title} />
+      <UpgradePlanDialog
+        open={upgradeOpen}
+        onClose={() => setUpgradeOpen(false)}
+        onCheckoutStarted={(started) => {
+          // ปิดตารางเทียบก่อนเปิดฟอร์มบัตร ไม่ซ้อนกล่องบนกล่อง
+          setUpgradeOpen(false);
+          setPayment(started);
+        }}
+      />
       {payment && (
         <CardPaymentDialog
           clientSecret={payment.clientSecret}
@@ -315,7 +355,7 @@ export default function MembershipPage() {
                   {t.buyExtraSub}
                 </p>
                 <div className="mb-3.5 text-[13px] text-muted-foreground">{t.qtyLabel}</div>
-                <Button variant="dark" render={<Link href="/membership/upgrade" />}>{t.payBtn}</Button>
+                <Button variant="dark" onClick={() => setUpgradeOpen(true)}>{t.payBtn}</Button>
               </div>
             </Card>
           </div>
@@ -324,9 +364,17 @@ export default function MembershipPage() {
             <div className="mb-3 font-heading text-xs font-bold tracking-[0.12em] text-foreground uppercase">
               {t.historyHeading}
             </div>
-            <Card className="overflow-x-auto p-0">
+            <Card className="p-0">
+              {/*
+                api คืนประวัติมาทั้งหมด กล่องนี้สูงประมาณ 5 แถวแล้วเลื่อนดูที่เหลือ
+                — ตัดให้เหลือ 5 รายการไปเลยแปลว่ารายการเก่ากว่านั้นหายไปจากสายตา
+                ผู้ใช้ถาวร ทั้งที่เป็นหลักฐานการจ่ายเงินของเขาเอง
+                หัวตารางต้องค้างไว้ (sticky) ไม่งั้นเลื่อนลงไปแล้วไม่รู้ว่าคอลัมน์
+                ไหนคืออะไร และต้องทึบด้วย ไม่งั้นแถวจะไหลทะลุขึ้นมาซ้อน
+              */}
+              <div className="max-h-80 overflow-auto">
               <table className="w-full min-w-125 border-collapse text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-secondary shadow-[inset_0_-1px_0_var(--border)]">
                   <tr className="border-b border-border">
                     {t.columns.map((h, i) => (
                       <th
@@ -342,7 +390,7 @@ export default function MembershipPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(paymentsQuery.data ?? []).map((row) => (
+                  {visiblePayments.map((row) => (
                     <tr key={row.id} className="border-b border-border last:border-0">
                       <td className="px-5 py-3.5 font-mono text-[13px] text-muted-foreground">{new Date(row.createdAt).toLocaleDateString(locale === "th" ? "th-TH" : "en-US")}</td>
                       {/*
@@ -412,7 +460,7 @@ export default function MembershipPage() {
                       </td>
                     </tr>
                   )}
-                  {paymentsQuery.data?.length === 0 && (
+                  {paymentsQuery.isSuccess && visiblePayments.length === 0 && (
                     <tr>
                       <td colSpan={t.columns.length + 1} className="px-5 py-8 text-center text-sm text-muted-foreground">
                         {t.historyEmpty}
@@ -421,6 +469,7 @@ export default function MembershipPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </Card>
           </div>
         </div>

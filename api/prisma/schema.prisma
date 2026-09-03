@@ -218,6 +218,7 @@ model User {
   salesVoided             Sale[]                   @relation("SaleVoidedBy")
   // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
   chatMessages            ChatMessage[]
+  chatShopPrompt          ChatShopPrompt? // [อั้ม] feature/chatbot-resource — ค้างได้คนละ 1 คำถาม
 
   @@index([email], name: "idx_user_email")
   @@index([username], name: "idx_user_username")
@@ -472,6 +473,7 @@ model Shop {
   pendingActions    PendingAction[]
   notifications     Notification[] // [เซิ่น] feature/notifications-resource
   chatMessages      ChatMessage[] // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
+  chatShopPrompts   ChatShopPrompt[] // [อั้ม] feature/chatbot-resource — ร้านที่เลือกค้างไว้ใน LINE
   aiRecommendations AiRecommendation[] // [อั้ม] feature/ai-recommendations-resource
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
@@ -699,6 +701,34 @@ model ChatMessage {
 
   @@index([shopId, userId, createdAt], name: "idx_chat_scope_date")
   @@map("chat_messages")
+}
+
+/// [อั้ม] feature/chatbot-resource
+/// จำคำสั่งที่ผู้ใช้พิมพ์มา ระหว่างรอให้เลือกว่าหมายถึงร้านไหน (เฉพาะคนที่มีหลายร้าน)
+///
+/// แยกจาก PendingAction เพราะตอนถามว่า "ร้านไหน" เรายังไม่รู้ shopId แต่
+/// PendingAction.shopId เป็น NOT NULL + มี FK จึงเก็บสถานะช่วงนี้ไม่ได้
+///
+/// ต้องเก็บลงฐานข้อมูล ไม่ใช่หน่วยความจำ เพราะ webhook ของ LINE เป็น HTTP ไร้สถานะ
+/// ข้อความถัดไปอาจมาถึงคนละ process และ production รีสตาร์ตทุกครั้งที่ deploy
+model ChatShopPrompt {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  /// unique เพื่อให้คำถามใหม่ทับของเก่าด้วย upsert — คนหนึ่งค้างได้คำถามเดียว
+  userId          String   @unique @map("user_id") @db.Uuid
+  originalMessage String   @map("original_message")
+  /// ร้านที่ผู้ใช้เพิ่งเลือก — ว่าง = ยังไม่ได้เลือก (เลขที่พิมพ์มาแปลว่า "เลือกร้าน")
+  /// มีค่า = เลือกแล้ว (เลขที่พิมพ์มาแปลว่า "เลือกสินค้า" และ "ยืนยัน" ใช้ร้านนี้)
+  ///
+  /// จำเป็นเพราะข้อความ LINE ทุกครั้งมาแบบไร้บริบท ถ้าไม่จำไว้ พอผู้ใช้พิมพ์
+  /// "ยืนยัน" ระบบจะถามว่าร้านไหนซ้ำอีกรอบ วนไม่จบ
+  selectedShopId  String?  @map("selected_shop_id") @db.Uuid
+  expiresAt       DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user         User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  selectedShop Shop? @relation(fields: [selectedShopId], references: [id], onDelete: Cascade)
+
+  @@map("chat_shop_prompts")
 }
 
 // =====================================================================

@@ -20,6 +20,9 @@ import { LineReplyService } from './line-reply.service';
 import { LineUserMessageError } from './line-user-message.error';
 import { LINE_IDENTITY_PORT } from './ports/line-identity.port';
 import type { LineIdentityPort } from './ports/line-identity.port';
+import { StockQueryService } from '../chat-command/stock-query.service';
+import { StockQueryRequestedError } from '../chat-command/stock-query-requested.error';
+import type { ShopSelectionRequired } from './ports/line-identity.port';
 
 const lineWebhookSchema = z.object({
   destination: z.string().min(1),
@@ -116,6 +119,7 @@ export class LineWebhookService {
     private readonly identity: LineIdentityPort,
     @Inject(STOCK_COMMAND_PARSER)
     private readonly parser: StockCommandParser,
+    private readonly stockQuery: StockQueryService,
   ) {}
 
   async handle(rawBody: Buffer, signature: string | undefined) {
@@ -163,7 +167,25 @@ export class LineWebhookService {
         lineUserId: input.lineUserId,
         message: input.text,
       });
-      const actorId = identity.actorId;
+
+      /**
+       * [อั้ม] บัญชีที่มีหลายร้าน — ข้อความจาก LINE ไม่มี context ของร้านติดมา
+       * (บอทตัวเดียวใช้ร่วมทุกร้าน destination จึงซ้ำกันหมด) ต้องถามก่อน
+       */
+      const scope =
+        identity.kind === 'NEEDS_SHOP'
+          ? await this.resolveShopChoice(identity, input.text, input.replyToken)
+          : {
+              shopId: identity.shopId,
+              actorId: identity.actorId,
+              message: identity.message,
+            };
+
+      // ถามไปแล้วว่าร้านไหน รอผู้ใช้ตอบรอบหน้า
+      if (!scope) return {};
+
+      const { shopId, message } = scope;
+      const actorId = scope.actorId;
 
       if (!actorId) {
         throw new LineUserMessageError(
@@ -172,43 +194,30 @@ export class LineWebhookService {
       }
 
       // รู้ร้านและผู้ใช้แล้ว — ถ้าพังหลังจากนี้ยังบันทึกข้อความตอบกลับลงประวัติได้
-      context = { shopId: identity.shopId, actorId };
+      context = { shopId, actorId };
 
-      const normalized = identity.message.trim().toLowerCase();
+      const normalized = message.trim().toLowerCase();
 
-      await this.record(identity.shopId, actorId, 'USER', input.text);
+      await this.record(shopId, actorId, 'USER', input.text);
 
       if (CONFIRM_KEYWORDS.includes(normalized)) {
-        return await this.confirmLatest(
-          identity.shopId,
-          actorId,
-          input.replyToken,
-        );
+        return await this.confirmLatest(shopId, actorId, input.replyToken);
       }
 
       if (CANCEL_KEYWORDS.includes(normalized)) {
-        return await this.cancelLatest(
-          identity.shopId,
-          actorId,
-          input.replyToken,
-        );
+        return await this.cancelLatest(shopId, actorId, input.replyToken);
       }
 
       // ทักทาย/ขอความช่วยเหลือไม่ใช่คำสั่งสต็อก ตอบวิธีใช้ไปเลยดีกว่าปล่อยให้
       // parser ล้มแล้วขึ้นเป็น error ทั้งที่ผู้ใช้ไม่ได้ทำอะไรผิด
       if (HELP_KEYWORDS.includes(normalized)) {
-        await this.respond(
-          identity.shopId,
-          actorId,
-          input.replyToken,
-          HELP_TEXT,
-        );
+        await this.respond(shopId, actorId, input.replyToken, HELP_TEXT);
 
         return {};
       }
 
       const chosen = await this.trySelectCandidate(
-        identity.shopId,
+        shopId,
         actorId,
         normalized,
         input.replyToken,
@@ -216,16 +225,33 @@ export class LineWebhookService {
 
       if (chosen) return chosen;
 
-      const pending = await this.createPending(
-        identity.shopId,
-        actorId,
-        identity.message,
-      );
+      let pending;
+
+      try {
+        pending = await this.createPending(shopId, actorId, message);
+      } catch (error) {
+        /**
+         * [อั้ม] ถามยอดคงเหลือ ไม่ใช่สั่งแก้ — ตอบทันที ไม่ต้องยืนยัน
+         * productQuery ติดมากับ error แล้ว จึงไม่ต้อง parse ซ้ำ (parser เรียก LLM)
+         */
+        if (error instanceof StockQueryRequestedError) {
+          const reply = await this.stockQuery.answer(
+            shopId,
+            error.productQuery,
+          );
+
+          await this.respond(shopId, actorId, input.replyToken, reply);
+
+          return {};
+        }
+
+        throw error;
+      }
 
       // shopProductId ว่าง = ชื่อกำกวม ยังเลือกไม่ได้ว่าตัวไหน ต้องให้ผู้ใช้เลือกก่อน
       if (!pending.shopProductId) {
         await this.respond(
-          identity.shopId,
+          shopId,
           actorId,
           input.replyToken,
           this.renderChoices(pending),
@@ -236,13 +262,13 @@ export class LineWebhookService {
       }
 
       const summary = [
-        ...(await this.renderItems(identity.shopId, pending)),
+        ...(await this.renderItems(shopId, pending)),
         '',
         'พิมพ์ "ยืนยัน" เพื่อบันทึก หรือ "ยกเลิก" เพื่อยกเลิก',
       ].join('\n');
 
       await this.respond(
-        identity.shopId,
+        shopId,
         actorId,
         input.replyToken,
         summary,
@@ -255,6 +281,127 @@ export class LineWebhookService {
 
       return {};
     }
+  }
+
+  /**
+   * [อั้ม] จัดการขั้น "ร้านไหน" ของบัญชีที่มีหลายร้าน
+   *
+   * คืน scope เมื่อรู้ร้านแล้ว หรือคืน null เมื่อเพิ่งถามไป ต้องรอผู้ใช้ตอบรอบหน้า
+   *
+   * ## ทำไมต้องจำร้านที่เลือกไว้ด้วย ไม่ใช่แค่จำคำสั่ง
+   *
+   * ข้อความ LINE มาแบบไร้บริบททุกครั้ง ถ้าจำแค่คำสั่ง พอผู้ใช้เลือกร้านแล้วระบบ
+   * ตอบ "พิมพ์ยืนยัน" แต่พอพิมพ์ "ยืนยัน" จริง ๆ ระบบจะถามว่าร้านไหนซ้ำอีกรอบ
+   * วนไม่จบ — selectedShopId จึงต้องอยู่ต่อหลังเลือกเสร็จ
+   *
+   * ## ตัวเลขมีสองความหมาย แยกด้วย selectedShopId
+   *
+   * ยังไม่ได้เลือกร้าน → เลข = เลือกร้าน
+   * เลือกร้านแล้ว → เลข = เลือกสินค้า (ส่งต่อให้ trySelectCandidate)
+   *
+   * ## คำสั่งใหม่ถามร้านใหม่เสมอ
+   *
+   * ไม่เดาว่าคำสั่งถัดไปหมายถึงร้านเดิม — สั่งปรับสต็อกผิดร้านแก้ทีหลังยาก
+   * ร้านที่จำไว้ใช้เฉพาะกับข้อความต่อเนื่อง (ยืนยัน/ยกเลิก/เลือกเลข) เท่านั้น
+   */
+  private async resolveShopChoice(
+    identity: ShopSelectionRequired,
+    rawText: string,
+    replyToken: string | undefined,
+  ): Promise<{ shopId: string; actorId: string; message: string } | null> {
+    const answer = rawText.trim();
+    const normalized = answer.toLowerCase();
+    const isNumber = /^[0-9]+$/.test(answer);
+    const isFollowUp =
+      isNumber ||
+      CONFIRM_KEYWORDS.includes(normalized) ||
+      CANCEL_KEYWORDS.includes(normalized);
+
+    const prompt = isFollowUp
+      ? await this.prisma.chatShopPrompt.findUnique({
+          where: { userId: identity.actorId },
+        })
+      : null;
+
+    const usable = prompt && prompt.expiresAt.getTime() > Date.now();
+
+    if (prompt && !usable) {
+      // หมดอายุแล้ว เก็บกวาดทิ้งไปเลยจะได้ไม่ค้างในตาราง
+      await this.prisma.chatShopPrompt.delete({ where: { id: prompt.id } });
+    }
+
+    if (usable && prompt) {
+      // เลือกร้านไปแล้ว — ข้อความต่อเนื่องใช้ร้านเดิม ไม่ถามซ้ำ
+      if (prompt.selectedShopId) {
+        return {
+          shopId: prompt.selectedShopId,
+          actorId: identity.actorId,
+          message: rawText,
+        };
+      }
+
+      // ยังไม่ได้เลือก และพิมพ์ตัวเลขมา = กำลังเลือกร้าน
+      if (isNumber) {
+        const chosen = await this.identity.selectShop({
+          actorId: identity.actorId,
+          index: Number(answer),
+        });
+
+        if (!chosen) {
+          await this.reply.reply(
+            replyToken ?? '',
+            `เลือกได้เฉพาะหมายเลข 1-${identity.shops.length} ครับ`,
+          );
+
+          return null;
+        }
+
+        await this.prisma.chatShopPrompt.update({
+          where: { id: prompt.id },
+          data: { selectedShopId: chosen.shopId },
+        });
+
+        return {
+          shopId: chosen.shopId,
+          actorId: identity.actorId,
+          message: prompt.originalMessage,
+        };
+      }
+    }
+
+    // คำสั่งใหม่ — จำไว้แล้วถามว่าร้านไหน (ล้าง selectedShopId ของรอบก่อนทิ้ง)
+    const ttl = this.config.get<number>('PENDING_ACTION_TTL_MINUTES', 15);
+    const expiresAt = new Date(Date.now() + ttl * 60_000);
+
+    await this.prisma.chatShopPrompt.upsert({
+      where: { userId: identity.actorId },
+      create: {
+        userId: identity.actorId,
+        originalMessage: rawText,
+        expiresAt,
+      },
+      update: {
+        originalMessage: rawText,
+        selectedShopId: null,
+        expiresAt,
+      },
+    });
+
+    const lines = identity.shops.map(
+      (shop, index) => `${index + 1}. ${shop.name}`,
+    );
+
+    await this.reply.reply(
+      replyToken ?? '',
+      [
+        'บัญชีนี้มีหลายร้าน ต้องการทำที่ร้านไหนครับ',
+        'พิมพ์หมายเลขที่ต้องการ',
+        '',
+        ...lines,
+      ].join('\n'),
+    );
+
+    return null;
   }
 
   /**
@@ -288,12 +435,28 @@ export class LineWebhookService {
       if (error instanceof ConflictException) {
         return await this.createChoicePending(shopId, actorId, message);
       }
+      /**
+       * StockQueryRequestedError สืบทอดจาก BadRequestException — ต้องเช็คก่อน
+       * ไม่งั้นกิ่งข้างล่างจะกลืนไปตอบว่า "ไม่เข้าใจคำสั่ง" ทั้งที่เป็นคำถามยอดคงเหลือ
+       * ที่ handleTextEvent รออยู่ (บั๊กนี้ทำให้ถามยอดบน LINE ไม่ได้เลย)
+       */
+      if (error instanceof StockQueryRequestedError) throw error;
 
-      // ผู้ใช้พิมพ์อะไรที่ไม่ใช่คำสั่งสต็อกเป็นเรื่องปกติ ไม่ใช่ error ของระบบ
-      // ถ้าไม่ดักไว้ log จะเต็มไปด้วย ERROR + stack trace ทุกครั้งที่มีคนคุยเล่น
+      /**
+       * ผู้ใช้พิมพ์อะไรที่ไม่ใช่คำสั่งสต็อกเป็นเรื่องปกติ ไม่ใช่ error ของระบบ
+       * ถ้าไม่ดักไว้ log จะเต็มไปด้วย ERROR + stack trace ทุกครั้งที่มีคนคุยเล่น
+       *
+       * ก่อนยอมแพ้ ลองมองว่าเป็นชื่อสินค้า — คนพิมพ์ "โค้ก" เฉย ๆ กำลังถามว่า
+       * ร้านมีไหม การตอบว่าไม่เข้าใจทั้งที่ตอบได้ทำให้เขาพิมพ์ซ้ำเดิมไปเรื่อย ๆ
+       */
       if (error instanceof BadRequestException) {
+        const guess = await this.stockQuery.answerUnknownCommand(
+          shopId,
+          message,
+        );
+
         throw new LineUserMessageError(
-          `ไม่เข้าใจคำสั่ง "${message}" ครับ\n\n${HELP_TEXT}`,
+          guess.matched ? guess.text : `${guess.text}\n\n${HELP_TEXT}`,
         );
       }
 
@@ -459,6 +622,14 @@ export class LineWebhookService {
     // ต้อง parse ซ้ำ เพราะ ChatCommandService.create() โยน error ทิ้งก่อนคืนผล
     // การตีความ — เกิดเฉพาะตอนชื่อกำกวมซึ่งไม่บ่อย จึงยอมเรียก LLM รอบที่สอง
     const parsed = await this.parser.parse(message);
+
+    // มาถึงตรงนี้ได้เฉพาะคำสั่งปรับสต็อก — คำถามยอดคงเหลือถูกดักตอบไปก่อนแล้ว
+    if (parsed.intent !== 'ADJUST_STOCK') {
+      throw new LineUserMessageError(
+        'ตีความคำสั่งไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+      );
+    }
+
     const { candidates, totalMatches } = await this.findCandidates(
       shopId,
       parsed.productQuery,

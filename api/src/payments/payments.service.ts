@@ -28,6 +28,15 @@ import { ConfigService } from '@nestjs/config';
 import type Stripe from 'stripe';
 
 const PROVIDER = 'stripe';
+
+/**
+ * เพดานของประวัติการชำระเงินที่ส่งกลับไป — ฝั่งเว็บแสดงทั้งหมดในกล่องที่เลื่อนได้
+ *
+ * เดิม take = 5 ซึ่งไม่ใช่การแบ่งหน้า แต่เป็นการ "ตัดทิ้ง" รายการที่เก่ากว่านั้น
+ * ไปเลยโดยไม่มีทางเปิดดู ตัวเลขนี้จึงเป็นแค่กันเคสสุดโต่งไม่ให้ payload บาน
+ * ไม่ใช่จำนวนที่ตั้งใจให้ผู้ใช้เห็น — ซื้อ/ต่ออายุกันปีละครั้ง 100 คือทั้งหมดจริง
+ */
+const HISTORY_LIMIT = 100;
 /** Stripe คิดเงินเป็นหน่วยย่อยที่สุด — บาทต้องคูณ 100 เป็นสตางค์ */
 const SATANG_PER_BAHT = 100;
 
@@ -188,9 +197,15 @@ export class PaymentsService {
     await this.expireStalePaymentsForUser(userId);
 
     const payments = await this.prisma.payment.findMany({
-      where: { userId },
+      // ใบที่ผู้ใช้กดยกเลิกเองไม่ใช่ประวัติการซื้อ มันคือรายการที่ตั้งใจไม่ให้
+      // เกิดขึ้น และไม่เหลืออะไรให้ทำต่อ — ตัดที่คิวรี ไม่ใช่ไปกรองฝั่งเว็บ
+      // จะได้ไม่กินโควตาของ take ไปเปล่าๆ
+      //
+      // FAILED ยังอยู่ — ใบที่หมดเวลา 24 ชม. ถูกพลิกเป็น FAILED (expirePayment)
+      // ไม่ได้หายไปไหน ผู้ใช้ต้องเห็นว่าความพยายามครั้งนั้นจบยังไง
+      where: { userId, status: { not: PaymentStatus.CANCELLED } },
       orderBy: { createdAt: 'desc' },
-      take: 5,
+      take: HISTORY_LIMIT,
       include: { subscription: { include: { plan: true } } },
     });
 

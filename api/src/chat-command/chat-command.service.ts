@@ -25,6 +25,7 @@ import type { StockAuthorizationPort } from '../stock/ports/stock-authorization.
 import { UpdatePendingActionDto } from './dto/chat-command.dto';
 import { STOCK_COMMAND_PARSER } from './parsers/stock-command-parser';
 import type { StockCommandParser } from './parsers/stock-command-parser';
+import { StockQueryRequestedError } from './stock-query-requested.error';
 
 const persistedItemSchema = z.object({
   id: z.string().uuid(),
@@ -71,6 +72,16 @@ export class ChatCommandService {
     const parsedItems = await Promise.all(
       commandLines.map(async (line) => {
         const parsed = await this.parser.parse(line);
+
+        /**
+         * [อั้ม] PendingAction เก็บได้เฉพาะคำสั่งปรับสต็อก (ต้องมี operation
+         * กับ quantity) การ "ถามยอดคงเหลือ" ต้องถูกดักไปตอบก่อนถึงจะมาถึงตรงนี้
+         * — ดู StockQueryService ที่ฝั่ง WEB/LINE เรียกก่อนเสมอ
+         */
+        if (parsed.intent !== 'ADJUST_STOCK') {
+          throw new StockQueryRequestedError(parsed.productQuery);
+        }
+
         const product = await this.inventory.resolveProduct(
           input.shopId,
           parsed.productQuery,
