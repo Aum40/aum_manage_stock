@@ -297,9 +297,9 @@ describe('UsersService', () => {
 
       await service.deleteStaff(OWNER, STAFF);
 
-      const updateArgs = prisma.user.update.mock.calls[0][0] as {
-        data: { lineUserId: string | null; googleId: string | null };
-      };
+      const [[updateArgs]] = prisma.user.update.mock.calls as [
+        [{ data: { lineUserId: string | null; googleId: string | null } }],
+      ];
       expect(updateArgs.data.lineUserId).toBeNull();
       expect(updateArgs.data.googleId).toBeNull();
     });

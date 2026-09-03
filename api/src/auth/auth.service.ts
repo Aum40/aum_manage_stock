@@ -155,7 +155,10 @@ export class AuthService {
         : null;
 
       user = existing
-        ? await this.userService.linkGoogleAccount(existing.id, profile.googleId)
+        ? await this.userService.linkGoogleAccount(
+            existing.id,
+            profile.googleId,
+          )
         : await this.userService.createGoogleUser({
             googleId: profile.googleId,
             displayName: profile.displayName,

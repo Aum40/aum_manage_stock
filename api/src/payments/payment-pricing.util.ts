@@ -44,7 +44,9 @@ export function isRenewalDue(
   now: Date = new Date(),
 ): boolean {
   if (expiresAt === null) return false;
-  return expiresAt.getTime() - now.getTime() <= RENEWAL_WINDOW_DAYS * MS_PER_DAY;
+  return (
+    expiresAt.getTime() - now.getTime() <= RENEWAL_WINDOW_DAYS * MS_PER_DAY
+  );
 }
 
 /** จำนวนวันที่เหลือก่อนหมดอายุ ปัดขึ้น — ติดลบแปลว่าหมดอายุไปแล้ว */

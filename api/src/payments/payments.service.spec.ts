@@ -412,9 +412,9 @@ describe('PaymentsService', () => {
     it('ตอบ 404 เมื่อใบไม่ใช่ของผู้ใช้คนนี้', async () => {
       prisma.payment.findFirst.mockResolvedValue(null);
 
-      await expect(service.cancelPayment(OTHER, PAYMENT)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.cancelPayment(OTHER, PAYMENT),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 
