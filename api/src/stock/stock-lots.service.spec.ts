@@ -211,6 +211,36 @@ describe('StockLotsService', () => {
     expect((created[0].unitCost as Prisma.Decimal).toString()).toBe('7.5');
   });
 
+  /**
+   * ค่าที่ receive() คืนออกไปคือสิ่งที่ผู้เรียกเอาไปบันทึกลง stock_movements
+   * ถ้าคืนผิด ประวัติจะโชว์ทุนคนละตัวกับล็อตที่เพิ่งเปิด
+   */
+  it('receive คืนทุนที่ระบุมาจริง', async () => {
+    const { tx } = makeTx({ lots: [] });
+
+    const result = await service.receive(tx as never, {
+      shopProductId: 'sp-1',
+      quantity: 20,
+      unitCost: 14,
+    });
+
+    expect(result.unitCost.toString()).toBe('14');
+  });
+
+  it('receive ที่ไม่ระบุทุน คืน cost_price ที่ใช้เปิดล็อตแทน', async () => {
+    const { tx } = makeTx({
+      lots: [],
+      product: { stockQty: 0, costPrice: 7.5 },
+    });
+
+    const result = await service.receive(tx as never, {
+      shopProductId: 'sp-1',
+      quantity: 3,
+    });
+
+    expect(result.unitCost.toString()).toBe('7.5');
+  });
+
   it('สินค้าที่ไม่มีของเลย ไม่สร้างล็อตตั้งต้นให้', async () => {
     const { tx, created } = makeTx({
       lots: [],

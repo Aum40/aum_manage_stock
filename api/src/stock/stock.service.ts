@@ -192,6 +192,7 @@ export class StockService {
           shopProductId: source.id,
           actorId: input.actorId,
           movementType: 'MANUAL_ADJUSTMENT',
+          unitCost: moved.unitCost,
           quantityDelta: -input.quantity,
           quantityBefore: outbound.quantityBefore,
           quantityAfter: outbound.quantityAfter,
@@ -204,7 +205,7 @@ export class StockService {
           shopProductId: destination.id,
           quantityDelta: input.quantity,
         });
-        await this.lots.receive(tx, {
+        const receivedAtDestination = await this.lots.receive(tx, {
           shopProductId: destination.id,
           quantity: input.quantity,
           unitCost: moved.unitCost.toNumber(),
@@ -215,6 +216,7 @@ export class StockService {
           shopProductId: destination.id,
           actorId: input.actorId,
           movementType: 'MANUAL_ADJUSTMENT',
+          unitCost: receivedAtDestination.unitCost,
           quantityDelta: input.quantity,
           quantityBefore: inbound.quantityBefore,
           quantityAfter: inbound.quantityAfter,
@@ -277,19 +279,18 @@ export class StockService {
      * ล็อตต้องขยับในทรานแซกชันเดียวกับ stock_qty เสมอ ถ้าแยกกันแล้วอันใดอันหนึ่ง
      * ล้ม จำนวนคงเหลือกับผลรวมของล็อตจะไม่ตรงกัน แล้วไม่มีอะไรจับได้เลย
      */
-    if (input.operation === 'INCREASE') {
-      await this.lots.receive(tx, {
-        shopProductId: input.shopProductId,
-        quantity: input.quantity,
-        unitCost: input.unitCost,
-        note: input.note,
-      });
-    } else {
-      await this.lots.consume(tx, {
-        shopProductId: input.shopProductId,
-        quantity: input.quantity,
-      });
-    }
+    const lot =
+      input.operation === 'INCREASE'
+        ? await this.lots.receive(tx, {
+            shopProductId: input.shopProductId,
+            quantity: input.quantity,
+            unitCost: input.unitCost,
+            note: input.note,
+          })
+        : await this.lots.consume(tx, {
+            shopProductId: input.shopProductId,
+            quantity: input.quantity,
+          });
 
     const movement = await this.movements.create(tx, {
       shopId: input.shopId,
@@ -298,6 +299,7 @@ export class StockService {
       movementType: input.pendingAction
         ? 'CHAT_ADJUSTMENT'
         : 'MANUAL_ADJUSTMENT',
+      unitCost: lot.unitCost,
       quantityDelta,
       quantityBefore: stock.quantityBefore,
       quantityAfter: stock.quantityAfter,
