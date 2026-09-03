@@ -38,6 +38,10 @@ enum PendingActionSource {
 
 enum PendingActionIntent {
   ADJUST_STOCK
+  // [อั้ม] ขายผ่านแชท — ตัดสต็อกพร้อมคิดเงิน แยกจาก ADJUST_STOCK ที่ลดของเฉยๆ
+  SELL
+  // [อั้ม] ย้ายของไปร้านอื่นของเจ้าของคนเดียวกัน ปลายทางอยู่ที่ destinationShopId
+  TRANSFER_STOCK
 }
 
 enum StockOperation {
@@ -93,28 +97,35 @@ model StockMovement {
 }
 
 model PendingAction {
-  id              String              @id @default(uuid()) @db.Uuid
-  shopId          String              @db.Uuid
-  actorId         String?             @db.Uuid
-  source          PendingActionSource
-  originalMessage String
-  intent          PendingActionIntent
-  shopProductId   String?             @db.Uuid
-  productQuery    String
-  operation       StockOperation
-  quantity        Int
-  status          PendingActionStatus @default(PENDING)
-  payload         Json?
-  parsedItems     Json?               @map("parsed_items")
-  expiresAt       DateTime
-  confirmedAt     DateTime?
-  cancelledAt     DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  shop            Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  shopProduct     ShopProduct?        @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
-  actor           User?               @relation("PendingActionActor", fields: [actorId], references: [id], onDelete: Restrict)
-  stockMovements  StockMovement[]
+  id                String              @id @default(uuid()) @db.Uuid
+  shopId            String              @db.Uuid
+  actorId           String?             @db.Uuid
+  source            PendingActionSource
+  originalMessage   String
+  intent            PendingActionIntent
+  shopProductId     String?             @db.Uuid
+  productQuery      String
+  operation         StockOperation
+  quantity          Int
+  status            PendingActionStatus @default(PENDING)
+  payload           Json?
+  parsedItems       Json?               @map("parsed_items")
+  /// [อั้ม] ร้านปลายทางของ intent = TRANSFER_STOCK เท่านั้น intent อื่นเป็น null
+  ///
+  /// แยกเป็นคอลัมน์ ไม่ยัดลง payload เพราะ payload ถูกใช้เก็บรายการตัวเลือก
+  /// ตอนชื่อสินค้ากำกวมอยู่แล้ว (StockChoiceService) ถ้าเอามาปนกัน คำสั่งย้าย
+  /// ที่ชื่อสินค้ากำกวมจะทับกันเอง
+  destinationShopId String?             @map("destination_shop_id") @db.Uuid
+  expiresAt         DateTime
+  confirmedAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  shop              Shop                @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  destinationShop   Shop?               @relation("PendingActionDestination", fields: [destinationShopId], references: [id], onDelete: Restrict)
+  shopProduct       ShopProduct?        @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
+  actor             User?               @relation("PendingActionActor", fields: [actorId], references: [id], onDelete: Restrict)
+  stockMovements    StockMovement[]
 
   @@index([shopId, status, createdAt(sort: Desc)])
   @@index([expiresAt, status])
@@ -263,13 +274,13 @@ model PasswordResetToken {
 /// จะ login ด้วยรหัสผ่านไม่ได้ (users.email_verified_at IS NULL)
 /// บัญชีที่สมัครด้วย Google ถือว่ายืนยันแล้วทันที เพราะ Google ยืนยันให้
 model EmailVerificationToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  pendingEmail String? @map("pending_email")
-  tokenHash String    @unique @map("token_hash")
-  expiresAt DateTime  @map("expires_at") @db.Timestamptz(2)
-  usedAt    DateTime? @map("used_at") @db.Timestamptz(2)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(2)
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  pendingEmail String?   @map("pending_email")
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(2)
+  usedAt       DateTime? @map("used_at") @db.Timestamptz(2)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(2)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -474,6 +485,7 @@ model Shop {
   notifications     Notification[] // [เซิ่น] feature/notifications-resource
   chatMessages      ChatMessage[] // [อั้ม] feature/chatbot-resource — back-relation ที่ Prisma บังคับ
   chatShopPrompts   ChatShopPrompt[] // [อั้ม] feature/chatbot-resource — ร้านที่เลือกค้างไว้ใน LINE
+  incomingTransfers PendingAction[]    @relation("PendingActionDestination") // [อั้ม] ร้านนี้เป็นปลายทางของคำสั่งย้าย
   aiRecommendations AiRecommendation[] // [อั้ม] feature/ai-recommendations-resource
 
   @@index([ownerId, deletedAt], name: "idx_shop_owner")
