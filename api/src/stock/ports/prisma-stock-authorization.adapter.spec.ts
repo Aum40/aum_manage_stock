@@ -1,0 +1,169 @@
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { PrismaStockAuthorizationAdapter } from './prisma-stock-authorization.adapter';
+
+describe('PrismaStockAuthorizationAdapter', () => {
+  const activeShop = {
+    ownerId: 'owner',
+    owner: { subscription: { status: 'ACTIVE', expiresAt: null } },
+  };
+
+  it('allows only the owner or an active shop assignment to view stock history', async () => {
+    const tx = {
+      shop: { findFirst: jest.fn().mockResolvedValue(activeShop) },
+      shopStaff: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'assignment' })
+          .mockResolvedValueOnce(null),
+      },
+    };
+    const adapter = new PrismaStockAuthorizationAdapter();
+    await expect(
+      adapter.assertCanViewStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'owner',
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      adapter.assertCanViewStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      adapter.assertCanViewStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'outsider',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('allows the owner and permitted active staff', async () => {
+    const tx = {
+      shop: { findFirst: jest.fn().mockResolvedValue(activeShop) },
+      shopStaff: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'assignment' }),
+      },
+    };
+    const adapter = new PrismaStockAuthorizationAdapter();
+    await expect(
+      adapter.assertCanAdjustStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'owner',
+      }),
+    ).resolves.toBeUndefined();
+    expect(tx.shopStaff.findFirst).not.toHaveBeenCalled();
+    await expect(
+      adapter.assertCanAdjustStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).resolves.toBeUndefined();
+    const [staffCall] = tx.shopStaff.findFirst.mock.calls as unknown as [
+      [{ where: { permission: { canAdjustStockManual: boolean } } }],
+    ];
+    expect(staffCall[0].where.permission.canAdjustStockManual).toBe(true);
+  });
+
+  it('fails closed for missing permission or shop', async () => {
+    const adapter = new PrismaStockAuthorizationAdapter();
+    const tx = {
+      shop: { findFirst: jest.fn().mockResolvedValue(activeShop) },
+      shopStaff: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    await expect(
+      adapter.assertCanAdjustStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    tx.shop.findFirst.mockResolvedValue(null);
+    await expect(
+      adapter.assertCanAdjustStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('requires both chatbot plan and staff permission', async () => {
+    const tx = {
+      shop: {
+        findFirst: jest.fn().mockResolvedValue({
+          ownerId: 'owner',
+          owner: {
+            subscription: {
+              status: 'ACTIVE',
+              expiresAt: null,
+              plan: { chatbotEnabled: true },
+            },
+          },
+        }),
+      },
+      shopStaff: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'assignment' }),
+      },
+    };
+    const adapter = new PrismaStockAuthorizationAdapter();
+    await expect(
+      adapter.assertCanUseChatbot(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).resolves.toBeUndefined();
+    const [staffCall] = tx.shopStaff.findFirst.mock.calls as unknown as [
+      [{ where: { permission: { canUseChatbot: boolean } } }],
+    ];
+    expect(staffCall[0].where.permission.canUseChatbot).toBe(true);
+
+    tx.shop.findFirst.mockResolvedValue({
+      ownerId: 'owner',
+      owner: {
+        subscription: {
+          status: 'ACTIVE',
+          expiresAt: null,
+          plan: { chatbotEnabled: false },
+        },
+      },
+    });
+    await expect(
+      adapter.assertCanUseChatbot(tx as never, {
+        shopId: 'shop',
+        actorId: 'owner',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('blocks stock adjustment and chatbot use for a paused shop, even for the owner', async () => {
+    const pausedShop = {
+      ownerId: 'owner',
+      pausedAt: new Date('2026-08-27T00:00:00.000Z'),
+      owner: {
+        subscription: {
+          status: 'ACTIVE',
+          expiresAt: null,
+          plan: { chatbotEnabled: true },
+        },
+      },
+    };
+    const tx = {
+      shop: { findFirst: jest.fn().mockResolvedValue(pausedShop) },
+      shopStaff: { findFirst: jest.fn() },
+    };
+    const adapter = new PrismaStockAuthorizationAdapter();
+
+    await expect(
+      adapter.assertCanAdjustStock(tx as never, {
+        shopId: 'shop',
+        actorId: 'owner',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      adapter.assertCanUseChatbot(tx as never, {
+        shopId: 'shop',
+        actorId: 'staff',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.shopStaff.findFirst).not.toHaveBeenCalled();
+  });
+});

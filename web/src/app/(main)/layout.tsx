@@ -1,0 +1,228 @@
+"use client";
+
+import { useEffect } from "react";
+
+import Sidebar from "@/components/layout/Sidebar";
+import QuotaMeter from "@/components/shared/QuotaMeter";
+import {
+  SelectedShopProvider,
+  useSelectedShop,
+} from "@/components/shared/SelectedShopContext";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { getNavSections, type SidebarRole } from "@/components/layout/nav-config";
+import { useLocale } from "@/components/i18n/LocaleContext";
+import { useMySubscription, useShops } from "@/lib/hooks/use-inventory";
+import { useMe } from "@/lib/hooks/use-profile";
+import type { CurrentUser } from "@/lib/types/user";
+import SessionRefresher from "@/components/auth/SessionRefresher";
+import { ShopOnboardingGate } from "@/components/shared/ShopOnboardingGate";
+
+/**
+ * เมนูใน sidebar ขึ้นกับทั้ง "บทบาท" และ "สถานะแพ็กเกจ" — พนักงานเห็นคนละชุดกับ
+ * เจ้าของร้าน ส่วนเจ้าของร้านยังแยกอีกว่าอยู่ Free (บางเมนูล็อก), หมดอายุ
+ * (อ่านอย่างเดียว) หรือปกติ
+ *
+ * readOnly คำนวณจาก status/expires_at ที่ api ส่งมาให้แล้ว ไม่ใช่คอลัมน์ใน DB
+ * จึงต้องอ่านจาก /subscriptions/me ทุกครั้ง ไม่ควรเดาจาก plan code เอง
+ */
+function resolveSidebarRole(
+  user: CurrentUser | undefined,
+  plan: { code: string } | undefined,
+  readOnly: boolean,
+): SidebarRole {
+  if (user?.role === "SUPER_ADMIN") return "superadmin";
+  if (user?.role === "ADMIN") return "admin";
+  if (user?.role === "SHOP_STAFF") return "staff";
+  if (readOnly) return "expired";
+  if (plan?.code === "FREE") return "free";
+  return "owner";
+}
+
+const content = {
+  th: {
+    shopSelectorLabel: "ร้านที่เข้าใช้งานอยู่",
+    shopName: "ยังไม่ได้เลือกร้าน",
+    planLabel: "แพ็กเกจ",
+    quotaShop: "ร้าน",
+    quotaProduct: "สินค้า",
+    manageBtn: "จัดการแพ็กเกจ",
+    readOnlyNotice:
+      "แพ็กเกจหมดอายุแล้ว ตอนนี้ดูข้อมูลได้อย่างเดียว แก้ไขหรือบันทึกรายการใหม่ไม่ได้",
+    readOnlyAction: "ต่ออายุแพ็กเกจ",
+  },
+  en: {
+    shopSelectorLabel: "Currently viewing",
+    shopName: "No shop selected",
+    planLabel: "Plan",
+    quotaShop: "Shops",
+    quotaProduct: "Products",
+    manageBtn: "Manage Plan",
+    readOnlyNotice:
+      "Your plan has expired. The shop is read-only — you can view data but not edit or record anything new.",
+    readOnlyAction: "Renew your plan",
+  },
+};
+
+/**
+ * เส้นทางที่ต้องเข้าได้แม้บัญชียังไม่มีร้าน — ไม่งั้นจะไปสร้างร้านไม่ได้เลย
+ * และจะจัดการแพ็กเกจหรือออกจากระบบก็ไม่ได้ด้วย
+ */
+const ALLOWED_WITHOUT_SHOP = ["/shops", "/membership", "/profile"];
+
+export default function MainLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <SelectedShopProvider>
+      <MainLayoutInner>{children}</MainLayoutInner>
+    </SelectedShopProvider>
+  );
+}
+
+function MainLayoutInner({ children }: { children: React.ReactNode }) {
+  const { locale } = useLocale();
+  const t = content[locale];
+  const router = useRouter();
+  // ต้องเรียกตรงนี้ ไม่ใช่ตอนคำนวณ needsShop ด้านล่าง — [แพรว] `if (isAdmin)
+  // return null` คั่นอยู่ hook ที่อยู่ใต้บรรทัดนั้นจะถูกข้ามเมื่อเป็นแอดมิน
+  // จำนวน hook ต่อ render ไม่เท่ากัน React จะจับคู่ state ผิดตัว
+  const pathname = usePathname();
+  const meQuery = useMe();
+  const shopsQuery = useShops();
+  const subscriptionQuery = useMySubscription();
+  const { selectedShopId, setSelectedShopId } = useSelectedShop();
+  const shops = shopsQuery.data ?? [];
+  // ยังไม่เคยเลือก (หรือร้านที่เคยเลือกถูกลบไปแล้ว) — fallback ไปร้านแรกในลิสต์
+  const activeShopId =
+    (selectedShopId && shops.some((s) => s.id === selectedShopId)
+      ? selectedShopId
+      : shops[0]?.id) ?? "";
+  const subscription = subscriptionQuery.data;
+  const planName = subscription
+    ? locale === "th"
+      ? subscription.subscription.plan.nameTh
+      : ({ FREE: "Free", PLUS: "Plus", PRO: "Pro" }[
+          subscription.subscription.plan.code
+        ] ?? subscription.subscription.plan.code)
+    : "—";
+  const readOnly = subscription?.readOnly ?? false;
+  const role = resolveSidebarRole(
+    meQuery.data,
+    subscription?.subscription.plan,
+    readOnly,
+  );
+  // พนักงานจ่ายเงินหรืออัปเกรดแพ็กเกจแทนเจ้าของร้านไม่ได้ (SRS §126)
+  const isStaff = role === "staff";
+  const isAdmin = role === "admin" || role === "superadmin";
+
+  /**
+   * แอดมินไม่มีร้าน — @OwnerId() ฝั่ง api ตอบ 403 ให้ทุก endpoint ของฝั่งร้านค้า
+   * ถ้าปล่อยให้ render ต่อจะเห็นเมนูของเจ้าของร้านที่กดแล้วพังทุกอัน
+   *
+   * ดักที่ layout เพราะทางเข้ามาที่นี่มีหลายทาง ไม่ใช่แค่หลังล็อกอิน — OAuth
+   * callback เด้งไป "/", ปุ่มบนหน้าแรก, ลิงก์ที่ bookmark ไว้, หรือพิมพ์ URL เอง
+   */
+  useEffect(() => {
+    if (isAdmin) router.replace("/admin");
+  }, [isAdmin, router]);
+
+  if (isAdmin) return null;
+  // Base UI ให้ <Select.Value /> แสดง "ค่า" ที่เลือก ไม่ใช่ข้อความใน <SelectItem>
+  // ถ้าใช้ตรงๆ จะได้ UUID ของร้านโผล่ในไซด์บาร์ จึงเรนเดอร์ชื่อร้านเอง
+  const activeShopName =
+    shops.find((s) => s.id === activeShopId)?.name ?? t.shopName;
+
+  /**
+   * บัญชีที่ยังไม่มีร้านเปิดหน้าไหนก็เห็นตารางว่างโดยไม่มีอะไรบอกว่าทำไม
+   * (5 จาก 8 หน้าไม่มี empty state) ดักที่นี่ที่เดียวครอบทุกหน้า
+   *
+   * ใช้ isSuccess ไม่ใช่ !isLoading — ถ้า query error ข้อมูลจะเป็น []
+   * เหมือนกัน แล้วผู้ใช้ที่มีร้านอยู่จริงจะโดนเด้งไปหน้า "สร้างร้าน" ผิด ๆ
+   *
+   * ไม่ต้องเช็คแอดมินตรงนี้ — [แพรว] `if (isAdmin) return null` ด้านบน
+   * ตัดแอดมินออกไปก่อนถึงบรรทัดนี้แล้ว เช็คซ้ำก็ไม่มีทางเป็นจริง
+   */
+  const needsShop =
+    shopsQuery.isSuccess &&
+    shops.length === 0 &&
+    !ALLOWED_WITHOUT_SHOP.some((allowed) => pathname.startsWith(allowed));
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      <SessionRefresher />
+      <Sidebar
+        sections={getNavSections(role)}
+        shopSelector={shops.length > 0 ? (
+          <div className="rounded-xl bg-white/5 p-3">
+            <div className="mb-1 text-[10px] tracking-[0.08em] text-white/40 uppercase">
+              {t.shopSelectorLabel}
+            </div>
+            <Select
+              value={activeShopId}
+              onValueChange={(value) => {
+                if (value) setSelectedShopId(value);
+              }}
+            >
+              <SelectTrigger className="w-full border-white/10 bg-transparent text-[13px] font-semibold text-white/90 hover:bg-white/5">
+                <span className="flex-1 truncate text-left">{activeShopName}</span>
+              </SelectTrigger>
+              <SelectContent>
+                {shops.map((shop) => (
+                  <SelectItem key={shop.id} value={shop.id}>
+                    {shop.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : undefined}
+        footer={isStaff ? undefined : (
+          <div className="rounded-xl bg-white/5 p-3">
+            <div className="mb-1.5 text-[10px] font-bold tracking-widest text-primary uppercase">
+              {planName} {planName !== "—" ? t.planLabel : ""}
+            </div>
+            <div className="mb-2.5 flex flex-col gap-2">
+              <QuotaMeter label={t.quotaShop} used={subscription?.quotas.shop.used ?? 0} total={subscription?.quotas.shop.allowed ?? 0} onDark />
+              <QuotaMeter label={t.quotaProduct} used={subscription?.quotas.product.used ?? 0} total={subscription?.quotas.product.allowed ?? null} onDark />
+            </div>
+            <Button variant="gradient" size="sm" className="w-full" render={<Link href="/membership" />}>
+              {t.manageBtn}
+            </Button>
+          </div>
+        )}
+      />
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/*
+          api บล็อกการแก้ไขทุกอย่างเมื่อแพ็กเกจหมดอายุอยู่แล้ว ถ้าไม่บอกตรงนี้
+          ผู้ใช้จะเห็นแค่ error ดิบๆ ตอนกดบันทึกโดยไม่รู้ว่าทำไม
+        */}
+        {readOnly && (
+          <Alert variant="destructive" className="rounded-none border-0 border-b border-destructive/20">
+            <AlertDescription>
+              {t.readOnlyNotice}{" "}
+              <Link href="/membership" className="font-bold underline">
+                {t.readOnlyAction}
+              </Link>
+            </AlertDescription>
+          </Alert>
+        )}
+        {needsShop ? (
+          <ShopOnboardingGate variant={isStaff ? "staff" : "owner"} />
+        ) : (
+          children
+        )}
+      </div>
+    </div>
+  );
+}

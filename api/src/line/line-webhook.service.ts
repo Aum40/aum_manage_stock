@@ -1,0 +1,809 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { z } from 'zod';
+import { ChatCommandService } from '../chat-command/chat-command.service';
+import { STOCK_COMMAND_PARSER } from '../chat-command/parsers/stock-command-parser';
+import type { StockCommandParser } from '../chat-command/parsers/stock-command-parser';
+import { Prisma } from '../database/generated/prisma/client';
+import { PrismaService } from '../database/prisma.service';
+import { LineReplyService } from './line-reply.service';
+import { LineUserMessageError } from './line-user-message.error';
+import { LINE_IDENTITY_PORT } from './ports/line-identity.port';
+import type { LineIdentityPort } from './ports/line-identity.port';
+
+const lineWebhookSchema = z.object({
+  destination: z.string().min(1),
+  events: z.array(
+    z.object({
+      type: z.string(),
+      replyToken: z.string().optional(),
+      source: z.object({ userId: z.string().optional() }).passthrough(),
+      message: z
+        .object({ type: z.string(), text: z.string().optional() })
+        .optional(),
+    }),
+  ),
+});
+
+const CONFIRM_KEYWORDS = ['ยืนยัน', 'confirm', 'ตกลง', 'ใช่'];
+const CANCEL_KEYWORDS = ['ยกเลิก', 'cancel', 'ไม่'];
+const HELP_KEYWORDS = [
+  'สวัสดี',
+  'สวัสดีครับ',
+  'สวัสดีค่ะ',
+  'หวัดดี',
+  'hello',
+  'hi',
+  'ช่วยเหลือ',
+  'help',
+  'เมนู',
+  'menu',
+  'วิธีใช้',
+];
+
+// แสดงตัวเลือกให้ครบทุกรายการ เพราะผู้ใช้มักจำชื่อสินค้าเต็มๆ ไม่ได้
+// การตัดเหลือไม่กี่รายการทำให้คนที่ไม่รู้ชื่อเต็มหาไม่เจอ
+//
+// LINE ส่งข้อความได้ครั้งละ 5,000 ตัวอักษร จึงต้องมีเพดานกันข้อความยาวจนยิงไม่ออก
+// (ร้าน Pro มีสินค้าได้ถึง 5,000 ตัว คำค้นกว้างๆ อย่าง "น้ำ" ชนได้เป็นร้อยรายการ)
+const CANDIDATE_FETCH_LIMIT = 100;
+const LINE_TEXT_LIMIT = 4800;
+
+/** รูปแบบ parsedItems ที่ ChatCommandService เขียนไว้ */
+const pendingItemsSchema = z
+  .array(
+    z.object({
+      shopProductId: z.string(),
+      productQuery: z.string(),
+      operation: z.enum(['INCREASE', 'DECREASE']),
+      quantity: z.number().int(),
+    }),
+  )
+  .min(1);
+
+const candidateSchema = z.object({
+  shopProductId: z.string(),
+  name: z.string(),
+  unit: z.string(),
+  stockQty: z.number(),
+});
+
+const choicePayloadSchema = z.object({
+  candidates: z.array(candidateSchema).min(1),
+  totalMatches: z.number().int().optional(),
+});
+
+type Candidate = z.infer<typeof candidateSchema>;
+
+/** รูปแบบที่ ChatCommandService.confirm() คืนมา — หนึ่งคำสั่งปรับได้หลายรายการ */
+type ConfirmResult = {
+  items?: Array<{
+    movement?: { shopProductId?: string };
+    stock?: { quantityBefore: number; quantityAfter: number };
+  }>;
+};
+
+const HELP_TEXT = [
+  'ผมช่วยปรับสต็อกสินค้าให้ได้ครับ พิมพ์เป็นภาษาพูดได้เลย',
+  '',
+  'ตัวอย่าง',
+  '• เพิ่มโค้ก 10',
+  '• ลดน้ำเปล่า 5',
+  '',
+  'ผมจะสรุปให้ดูก่อน แล้วพิมพ์ "ยืนยัน" เพื่อบันทึก หรือ "ยกเลิก" เพื่อยกเลิก',
+].join('\n');
+
+@Injectable()
+export class LineWebhookService {
+  private readonly logger = new Logger(LineWebhookService.name);
+
+  constructor(
+    private readonly config: ConfigService,
+    private readonly commands: ChatCommandService,
+    private readonly prisma: PrismaService,
+    private readonly reply: LineReplyService,
+    @Inject(LINE_IDENTITY_PORT)
+    private readonly identity: LineIdentityPort,
+    @Inject(STOCK_COMMAND_PARSER)
+    private readonly parser: StockCommandParser,
+  ) {}
+
+  async handle(rawBody: Buffer, signature: string | undefined) {
+    this.verifySignature(rawBody, signature);
+    const payload = lineWebhookSchema.parse(
+      JSON.parse(rawBody.toString('utf8')),
+    );
+    const results: Array<{ pendingActionId?: string }> = [];
+
+    for (const event of payload.events) {
+      if (
+        event.type !== 'message' ||
+        event.message?.type !== 'text' ||
+        !event.message.text ||
+        !event.source.userId
+      ) {
+        continue;
+      }
+
+      results.push(
+        await this.handleTextEvent({
+          destination: payload.destination,
+          lineUserId: event.source.userId,
+          text: event.message.text,
+          replyToken: event.replyToken,
+        }),
+      );
+    }
+
+    // LINE จะยิงซ้ำถ้าไม่ได้ 2xx จึงต้องตอบ accepted เสมอแม้บางเหตุการณ์จะล้มเหลว
+    return { accepted: true, results };
+  }
+
+  private async handleTextEvent(input: {
+    destination: string;
+    lineUserId: string;
+    text: string;
+    replyToken?: string;
+  }): Promise<{ pendingActionId?: string }> {
+    let context: { shopId: string; actorId: string } | undefined;
+
+    try {
+      const identity = await this.identity.resolve({
+        destination: input.destination,
+        lineUserId: input.lineUserId,
+        message: input.text,
+      });
+      const actorId = identity.actorId;
+
+      if (!actorId) {
+        throw new LineUserMessageError(
+          'ไม่สามารถระบุผู้ใช้ได้ กรุณาติดต่อผู้ดูแลระบบ',
+        );
+      }
+
+      // รู้ร้านและผู้ใช้แล้ว — ถ้าพังหลังจากนี้ยังบันทึกข้อความตอบกลับลงประวัติได้
+      context = { shopId: identity.shopId, actorId };
+
+      const normalized = identity.message.trim().toLowerCase();
+
+      await this.record(identity.shopId, actorId, 'USER', input.text);
+
+      if (CONFIRM_KEYWORDS.includes(normalized)) {
+        return await this.confirmLatest(
+          identity.shopId,
+          actorId,
+          input.replyToken,
+        );
+      }
+
+      if (CANCEL_KEYWORDS.includes(normalized)) {
+        return await this.cancelLatest(
+          identity.shopId,
+          actorId,
+          input.replyToken,
+        );
+      }
+
+      // ทักทาย/ขอความช่วยเหลือไม่ใช่คำสั่งสต็อก ตอบวิธีใช้ไปเลยดีกว่าปล่อยให้
+      // parser ล้มแล้วขึ้นเป็น error ทั้งที่ผู้ใช้ไม่ได้ทำอะไรผิด
+      if (HELP_KEYWORDS.includes(normalized)) {
+        await this.respond(
+          identity.shopId,
+          actorId,
+          input.replyToken,
+          HELP_TEXT,
+        );
+
+        return {};
+      }
+
+      const chosen = await this.trySelectCandidate(
+        identity.shopId,
+        actorId,
+        normalized,
+        input.replyToken,
+      );
+
+      if (chosen) return chosen;
+
+      const pending = await this.createPending(
+        identity.shopId,
+        actorId,
+        identity.message,
+      );
+
+      // shopProductId ว่าง = ชื่อกำกวม ยังเลือกไม่ได้ว่าตัวไหน ต้องให้ผู้ใช้เลือกก่อน
+      if (!pending.shopProductId) {
+        await this.respond(
+          identity.shopId,
+          actorId,
+          input.replyToken,
+          this.renderChoices(pending),
+          pending.id,
+        );
+
+        return { pendingActionId: pending.id };
+      }
+
+      const summary = [
+        ...(await this.renderItems(identity.shopId, pending)),
+        '',
+        'พิมพ์ "ยืนยัน" เพื่อบันทึก หรือ "ยกเลิก" เพื่อยกเลิก',
+      ].join('\n');
+
+      await this.respond(
+        identity.shopId,
+        actorId,
+        input.replyToken,
+        summary,
+        pending.id,
+      );
+
+      return { pendingActionId: pending.id };
+    } catch (error) {
+      await this.replyWithError(input.replyToken, error, context);
+
+      return {};
+    }
+  }
+
+  /**
+   * แปลง NotFoundException ของ ChatCommandService ให้เป็นข้อความที่ผู้ใช้เข้าใจ
+   *
+   * ฝั่ง WEB ต้องได้ 404 ตามเดิม จึงแปลงที่ชั้นนี้แทนการแก้ ChatCommandService
+   * ที่ใช้ร่วมกับโมดูลอื่น ข้อความเดิม ("ตีความคำสั่งไม่สำเร็จ") ทำให้เข้าใจผิด
+   * เพราะจริงๆ ตีความสำเร็จแล้ว แค่ไม่มีสินค้าชื่อนั้นในร้าน ผู้ใช้จึงพิมพ์ซ้ำเดิม
+   */
+  private async createPending(
+    shopId: string,
+    actorId: string,
+    message: string,
+  ) {
+    try {
+      return await this.commands.create({
+        shopId,
+        actorId,
+        source: 'LINE',
+        message,
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new LineUserMessageError(
+          `ไม่พบสินค้าที่ตรงกับ "${message}" ในร้าน กรุณาตรวจสอบชื่อสินค้าแล้วลองใหม่`,
+        );
+      }
+
+      // ชื่อกำกวมเกิดง่ายเมื่อสินค้าเยอะขึ้น เพราะ resolveProduct ใช้ contains
+      // เช่น "โค้ก" จะแมตช์ทั้ง "โค้ก 325ml" และ "โค้กซีโร่ 325ml"
+      if (error instanceof ConflictException) {
+        return await this.createChoicePending(shopId, actorId, message);
+      }
+
+      // ผู้ใช้พิมพ์อะไรที่ไม่ใช่คำสั่งสต็อกเป็นเรื่องปกติ ไม่ใช่ error ของระบบ
+      // ถ้าไม่ดักไว้ log จะเต็มไปด้วย ERROR + stack trace ทุกครั้งที่มีคนคุยเล่น
+      if (error instanceof BadRequestException) {
+        throw new LineUserMessageError(
+          `ไม่เข้าใจคำสั่ง "${message}" ครับ\n\n${HELP_TEXT}`,
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  private async confirmLatest(
+    shopId: string,
+    actorId: string,
+    replyToken?: string,
+  ): Promise<{ pendingActionId?: string }> {
+    const pending = await this.findLatestPending(shopId, actorId);
+
+    if (!pending) {
+      await this.respond(
+        shopId,
+        actorId,
+        replyToken,
+        'ไม่มีรายการที่รอยืนยันอยู่',
+      );
+
+      return {};
+    }
+
+    if (!pending.shopProductId) {
+      await this.respond(
+        shopId,
+        actorId,
+        replyToken,
+        `กรุณาเลือกหมายเลขสินค้าก่อนครับ\n\n${this.renderChoices(pending)}`,
+        pending.id,
+      );
+
+      return { pendingActionId: pending.id };
+    }
+
+    const result = await this.confirmPending(shopId, actorId, pending);
+    await this.respond(
+      shopId,
+      actorId,
+      replyToken,
+      await this.renderConfirmed(shopId, result, pending),
+      pending.id,
+    );
+
+    return { pendingActionId: pending.id };
+  }
+
+  /**
+   * ข้อความยืนยันบอกจำนวนก่อน→หลังด้วย เพราะเป็นจุดเดียวที่สต็อกเปลี่ยนจริง
+   * ผู้ใช้บน LINE ไม่มีหน้าจอสินค้าให้เปิดเช็ค จึงควรเห็นตัวเลขในแชทเลย
+   *
+   * ถ้าอ่าน items ไม่ได้ (เช่น api เปลี่ยนรูปแบบ) ถอยไปใช้สรุปแบบไม่มีตัวเลข
+   * ดีกว่าไม่ตอบอะไรเลย
+   */
+  private async renderConfirmed(
+    shopId: string,
+    result: ConfirmResult,
+    pending: {
+      productQuery: string | null;
+      operation: 'INCREASE' | 'DECREASE';
+      quantity: number;
+      shopProductId: string | null;
+      parsedItems?: unknown;
+    },
+  ): Promise<string> {
+    const adjusted = result.items ?? [];
+
+    if (adjusted.length === 0) {
+      return [
+        '✅ ยืนยันแล้ว',
+        ...(await this.renderItems(shopId, pending)),
+      ].join('\n');
+    }
+
+    const ids = adjusted
+      .map((item) => item.movement?.shopProductId)
+      .filter((id): id is string => Boolean(id));
+    const rows = ids.length
+      ? await this.prisma.shopProduct.findMany({
+          where: { id: { in: ids }, shopId },
+          select: { id: true, product: { select: { name: true } } },
+        })
+      : [];
+    const names = new Map(rows.map((row) => [row.id, row.product.name]));
+
+    const lines = adjusted.map((item) => {
+      const stock = item.stock;
+      const name =
+        names.get(item.movement?.shopProductId ?? '') ??
+        pending.productQuery ??
+        '';
+
+      if (!stock) return `• ${name}`;
+
+      const delta = stock.quantityAfter - stock.quantityBefore;
+      const sign = delta >= 0 ? '+' : '-';
+
+      return `• ${name} ${sign}${Math.abs(delta)} (${stock.quantityBefore} → ${stock.quantityAfter})`;
+    });
+
+    return ['✅ ยืนยันแล้ว', ...lines].join('\n');
+  }
+
+  /**
+   * หนึ่งคำสั่งมีได้หลายรายการ (คั่นด้วย ";" หรือขึ้นบรรทัดใหม่ — ดู
+   * ChatCommandService.create()) ฟิลด์ระดับบนของ PendingAction เก็บแค่รายการแรก
+   * ถ้าใช้มันสรุป ผู้ใช้ที่พิมพ์ "เพิ่มโค้ก 10; ลดน้ำเปล่า 3" จะเห็นแค่โค้ก
+   * แล้วยืนยันโดยไม่รู้ว่าน้ำเปล่าจะถูกตัดไปด้วย
+   */
+  private async renderItems(
+    shopId: string,
+    pending: {
+      productQuery: string | null;
+      operation: 'INCREASE' | 'DECREASE';
+      quantity: number;
+      shopProductId: string | null;
+      parsedItems?: unknown;
+    },
+  ): Promise<string[]> {
+    const parsed = pendingItemsSchema.safeParse(pending.parsedItems);
+    const items = parsed.success
+      ? parsed.data
+      : [
+          {
+            shopProductId: pending.shopProductId ?? '',
+            productQuery: pending.productQuery ?? '',
+            operation: pending.operation,
+            quantity: pending.quantity,
+          },
+        ];
+
+    const ids = items.map((item) => item.shopProductId).filter(Boolean);
+    const rows = ids.length
+      ? await this.prisma.shopProduct.findMany({
+          where: { id: { in: ids }, shopId },
+          select: { id: true, product: { select: { name: true } } },
+        })
+      : [];
+    const names = new Map(rows.map((row) => [row.id, row.product.name]));
+
+    return items.map((item) => {
+      const sign = item.operation === 'INCREASE' ? '+' : '-';
+      const label = names.get(item.shopProductId) ?? item.productQuery;
+
+      return `• ${label} ${sign}${item.quantity}`;
+    });
+  }
+
+  /**
+   * ชื่อกำกวม = แมตช์ได้หลายตัว ให้ผู้ใช้เลือกจากรายการแทนการเดาให้
+   *
+   * เก็บเป็น PendingAction ที่ shopProductId ยังว่าง (schema อนุญาต และ
+   * ChatCommandService.confirm() กันไว้อยู่แล้ว) ไม่เก็บใน memory เพราะผู้ใช้
+   * อาจตอบกลับมาอีกหลายนาทีต่อมา หรือคนละ process กัน
+   */
+  private async createChoicePending(
+    shopId: string,
+    actorId: string,
+    message: string,
+  ) {
+    // ต้อง parse ซ้ำ เพราะ ChatCommandService.create() โยน error ทิ้งก่อนคืนผล
+    // การตีความ — เกิดเฉพาะตอนชื่อกำกวมซึ่งไม่บ่อย จึงยอมเรียก LLM รอบที่สอง
+    const parsed = await this.parser.parse(message);
+    const { candidates, totalMatches } = await this.findCandidates(
+      shopId,
+      parsed.productQuery,
+    );
+
+    if (candidates.length === 0) {
+      throw new LineUserMessageError(
+        `ไม่พบสินค้าที่ตรงกับ "${parsed.productQuery}" ในร้าน`,
+      );
+    }
+
+    const ttl = this.config.get<number>('PENDING_ACTION_TTL_MINUTES', 15);
+
+    return this.prisma.pendingAction.create({
+      data: {
+        shopId,
+        actorId,
+        source: 'LINE',
+        originalMessage: message,
+        intent: parsed.intent,
+        shopProductId: null,
+        productQuery: parsed.productQuery,
+        operation: parsed.operation,
+        quantity: parsed.quantity,
+        expiresAt: new Date(Date.now() + ttl * 60_000),
+        payload: { ...parsed, candidates, totalMatches },
+      },
+    });
+  }
+
+  /**
+   * เงื่อนไขการค้นต้องตรงกับ PrismaStockInventoryAdapter.resolveProduct()
+   * ไม่งั้นรายการที่โชว์จะไม่ตรงกับที่ระบบหาเจอจริง — ถ้าฝั่ง stock แก้กติกา
+   * การค้น ต้องแก้ที่นี่ด้วย (ทางที่ดีคือย้ายขึ้นไปเป็นเมธอดใน StockInventoryPort)
+   */
+  private async findCandidates(
+    shopId: string,
+    productQuery: string,
+  ): Promise<{ candidates: Candidate[]; totalMatches: number }> {
+    const query = productQuery.trim();
+    const where = {
+      shopId,
+      status: 'ACTIVE' as const,
+      product: {
+        deletedAt: null,
+        OR: [
+          { barcode: query },
+          { name: { contains: query, mode: 'insensitive' as const } },
+        ],
+      },
+    };
+
+    // นับแยกจากที่ดึงมาแสดง เพราะ take จำกัดไว้ ถ้าใช้ length มานับจะแยกไม่ออก
+    // ว่า "เจอ 5 พอดี" หรือ "เจอ 30 แล้วถูกตัดเหลือ 5"
+    const [matches, totalMatches] = await Promise.all([
+      this.prisma.shopProduct.findMany({
+        where,
+        select: {
+          id: true,
+          stockQty: true,
+          product: { select: { name: true, unit: true } },
+        },
+        orderBy: { product: { name: 'asc' } },
+        take: CANDIDATE_FETCH_LIMIT,
+      }),
+      this.prisma.shopProduct.count({ where }),
+    ]);
+
+    return {
+      candidates: matches.map((match) => ({
+        shopProductId: match.id,
+        name: match.product.name,
+        unit: match.product.unit,
+        stockQty: match.stockQty,
+      })),
+      totalMatches,
+    };
+  }
+
+  private readChoicePayload(payload: Prisma.JsonValue | null): {
+    candidates: Candidate[];
+    totalMatches: number;
+  } {
+    const parsed = choicePayloadSchema.safeParse(payload);
+
+    if (!parsed.success) return { candidates: [], totalMatches: 0 };
+
+    return {
+      candidates: parsed.data.candidates,
+      totalMatches: parsed.data.totalMatches ?? parsed.data.candidates.length,
+    };
+  }
+
+  private renderChoices(pending: {
+    productQuery: string;
+    operation: 'INCREASE' | 'DECREASE';
+    quantity: number;
+    payload: Prisma.JsonValue | null;
+  }): string {
+    const { candidates, totalMatches } = this.readChoicePayload(
+      pending.payload,
+    );
+    const sign = pending.operation === 'INCREASE' ? '+' : '-';
+    const items = candidates.map(
+      (item, index) =>
+        `${index + 1}. ${item.name} (เหลือ ${item.stockQty} ${item.unit})`,
+    );
+
+    const compose = (shown: string[]): string => {
+      const lines = [
+        `พบ ${totalMatches} รายการที่ตรงกับ "${pending.productQuery}" ครับ`,
+        `พิมพ์หมายเลขที่ต้องการ ${sign}${pending.quantity}`,
+        '',
+        ...shown,
+        '',
+      ];
+
+      if (totalMatches > shown.length) {
+        lines.push(
+          `แสดง ${shown.length} จากทั้งหมด ${totalMatches} รายการ (ข้อความยาวเกินที่ LINE ส่งได้) ถ้าไม่เจอที่ต้องการ ให้พิมพ์ชื่อให้เจาะจงขึ้น หรือใช้บาร์โค้ด`,
+        );
+      }
+
+      lines.push('หรือพิมพ์ "ยกเลิก" เพื่อยกเลิก');
+
+      return lines.join('\n');
+    };
+
+    // ตัดออกทีละรายการเฉพาะเมื่อยาวเกินจริง ไม่ตัดตายตัวไว้ก่อน เพราะส่วนใหญ่
+    // ร้านมีสินค้าที่ชื่อชนกันไม่กี่ตัว ผู้ใช้ควรได้เห็นครบ
+    const shown = [...items];
+
+    while (shown.length > 1 && compose(shown).length > LINE_TEXT_LIMIT) {
+      shown.pop();
+    }
+
+    return compose(shown);
+  }
+
+  /** ตัวเลขล้วนจะถือเป็นการเลือก ก็ต่อเมื่อมีรายการรอเลือกค้างอยู่จริง */
+  private async trySelectCandidate(
+    shopId: string,
+    actorId: string,
+    normalized: string,
+    replyToken: string | undefined,
+  ): Promise<{ pendingActionId?: string } | null> {
+    if (!/^[0-9]+$/.test(normalized)) return null;
+
+    const pending = await this.findLatestPending(shopId, actorId);
+
+    if (!pending || pending.shopProductId) return null;
+
+    const { candidates } = this.readChoicePayload(pending.payload);
+    const choice = candidates[Number(normalized) - 1];
+
+    if (!choice) {
+      await this.respond(
+        shopId,
+        actorId,
+        replyToken,
+        `เลือกได้เฉพาะหมายเลข 1-${candidates.length} ครับ`,
+        pending.id,
+      );
+
+      return { pendingActionId: pending.id };
+    }
+
+    await this.commands.update(shopId, pending.id, actorId, {
+      shopProductId: choice.shopProductId,
+    });
+
+    await this.respond(
+      shopId,
+      actorId,
+      replyToken,
+      [
+        `• ${choice.name} ${pending.operation === 'INCREASE' ? '+' : '-'}${pending.quantity}`,
+        '',
+        'พิมพ์ "ยืนยัน" เพื่อบันทึก หรือ "ยกเลิก" เพื่อยกเลิก',
+      ].join('\n'),
+      pending.id,
+    );
+
+    return { pendingActionId: pending.id };
+  }
+
+  /**
+   * ตอนกดยืนยันคือจุดที่สต็อกถูกตัดจริง จึงเป็นที่เดียวที่ "สต็อกไม่พอ" โผล่ได้
+   *
+   * ระหว่างสร้างรายการกับกดยืนยันอาจห่างกันหลายนาที ของอาจถูกขายไปก่อน หรือ
+   * สินค้าถูกลบไปแล้ว — ทั้งสองกรณีเป็นสถานการณ์ปกติ ไม่ใช่ error ของระบบ
+   */
+  private async confirmPending(
+    shopId: string,
+    actorId: string,
+    pending: {
+      id: string;
+      shopProductId: string | null;
+      productQuery: string | null;
+    },
+  ): Promise<ConfirmResult> {
+    try {
+      return await this.commands.confirm(shopId, pending.id, actorId);
+    } catch (error) {
+      if (error instanceof ConflictException) {
+        throw new LineUserMessageError(await this.outOfStockMessage(pending));
+      }
+
+      if (error instanceof NotFoundException) {
+        throw new LineUserMessageError(
+          `ไม่พบสินค้า "${pending.productQuery ?? ''}" ในร้านแล้ว อาจถูกลบหรือปิดการขายไป`,
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  /** บอกจำนวนคงเหลือจริงไปด้วย ไม่งั้นผู้ใช้ต้องเดาว่าลดได้เท่าไหร่ */
+  private async outOfStockMessage(pending: {
+    shopProductId: string | null;
+  }): Promise<string> {
+    const fallback = 'สต็อกไม่พอครับ กรุณาตรวจสอบจำนวนคงเหลือ';
+
+    if (!pending.shopProductId) return fallback;
+
+    const current = await this.prisma.shopProduct.findUnique({
+      where: { id: pending.shopProductId },
+      select: {
+        stockQty: true,
+        product: { select: { name: true, unit: true } },
+      },
+    });
+
+    if (!current) return fallback;
+
+    return `สต็อกไม่พอครับ — ${current.product.name} เหลือ ${current.stockQty} ${current.product.unit}`;
+  }
+
+  private async cancelLatest(
+    shopId: string,
+    actorId: string,
+    replyToken?: string,
+  ): Promise<{ pendingActionId?: string }> {
+    const pending = await this.findLatestPending(shopId, actorId);
+
+    if (!pending) {
+      await this.respond(
+        shopId,
+        actorId,
+        replyToken,
+        'ไม่มีรายการที่รอยืนยันอยู่',
+      );
+
+      return {};
+    }
+
+    await this.commands.cancel(shopId, pending.id, actorId);
+    await this.respond(
+      shopId,
+      actorId,
+      replyToken,
+      'ยกเลิกรายการแล้ว',
+      pending.id,
+    );
+
+    return { pendingActionId: pending.id };
+  }
+
+  private findLatestPending(shopId: string, actorId: string) {
+    return this.prisma.pendingAction.findFirst({
+      where: { shopId, actorId, status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  private async respond(
+    shopId: string,
+    actorId: string,
+    replyToken: string | undefined,
+    text: string,
+    pendingActionId?: string,
+  ): Promise<void> {
+    await this.record(shopId, actorId, 'ASSISTANT', text, pendingActionId);
+
+    if (replyToken) await this.reply.reply(replyToken, text);
+  }
+
+  private async replyWithError(
+    replyToken: string | undefined,
+    error: unknown,
+    context?: { shopId: string; actorId: string },
+  ): Promise<void> {
+    const text =
+      error instanceof LineUserMessageError
+        ? error.message
+        : 'ตีความคำสั่งไม่สำเร็จ กรุณาลองพิมพ์ใหม่ เช่น "เพิ่มโค้ก 10"';
+
+    if (!(error instanceof LineUserMessageError)) {
+      this.logger.error(
+        `LINE event failed: ${String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+
+    // ข้อความ error ก็เป็นส่วนหนึ่งของบทสนทนา ถ้าไม่บันทึก ประวัติแชทจะมีข้อความ
+    // ผู้ใช้ค้างอยู่โดยไม่มีคำตอบ — บันทึกได้เฉพาะเมื่อรู้ร้าน/ผู้ใช้แล้วเท่านั้น
+    if (context) {
+      await this.record(context.shopId, context.actorId, 'ASSISTANT', text);
+    }
+
+    if (replyToken) await this.reply.reply(replyToken, text);
+  }
+
+  private async record(
+    shopId: string,
+    userId: string,
+    role: 'USER' | 'ASSISTANT',
+    content: string,
+    pendingActionId?: string,
+  ): Promise<void> {
+    await this.prisma.chatMessage.create({
+      data: { shopId, userId, channel: 'LINE', role, content, pendingActionId },
+    });
+  }
+
+  private verifySignature(
+    rawBody: Buffer,
+    signature: string | undefined,
+  ): void {
+    const secret = this.config.get<string>('LINE_CHANNEL_SECRET');
+    if (!secret) {
+      throw new ServiceUnavailableException('LINE webhook is not configured');
+    }
+    if (!signature) throw new UnauthorizedException('Missing LINE signature');
+    const expected = createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('base64');
+    const actualBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expected);
+    if (
+      actualBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(actualBuffer, expectedBuffer)
+    ) {
+      throw new UnauthorizedException('Invalid LINE signature');
+    }
+  }
+}
