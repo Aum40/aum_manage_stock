@@ -529,11 +529,28 @@ export class UsersService {
   async deleteStaff(ownerId: string, staffId: string) {
     const staff = await this.findOwnedStaff(ownerId, staffId);
 
-    // soft delete — staff quota คืนอัตโนมัติเพราะ quota นับจาก deletedAt IS NULL
+    /**
+     * soft delete — staff quota คืนอัตโนมัติเพราะ quota นับจาก deletedAt IS NULL
+     *
+     * **ต้องล้าง lineUserId/googleId ทิ้งด้วย** ไม่ใช่เก็บค้างไว้บนแถวที่ตายแล้ว:
+     *
+     * `lineUserId` เป็น @unique ที่ไม่ได้กรอง deletedAt (ต่างจาก uq_users_email_active
+     * ของอีเมลที่เป็น partial index) ถ้าไม่ล้าง อดีตพนักงานที่กดล็อกอินด้วย LINE
+     * จะเข้าเส้นทางนี้: findByLineId() กรอง deletedAt: null → หาไม่เจอ →
+     * createLineUser() → INSERT ชน unique → P2002 → ผู้ใช้เห็น error 500 ดิบๆ
+     * โดยไม่มีอะไรบอกว่าเกิดอะไรขึ้น
+     *
+     * ที่อันตรายกว่าคือมันกันได้เพราะ constraint บังเอิญชน ไม่ใช่เพราะมีใครตรวจ
+     * วันไหนมีคนเปลี่ยน @unique เป็น partial index ให้เหมือนอีเมล เส้นทางเดิมจะ
+     * กลายเป็น "สร้างบัญชีเจ้าของร้านใหม่ให้อดีตพนักงานเงียบๆ" ทันที
+     *
+     * ล้างทิ้งแล้วตัวตน LINE/Google จะถูกคืนให้เจ้าตัวไปใช้สมัครใหม่เองได้ตามปกติ
+     * (ได้บัญชีใหม่แพ็กเกจ Free ซึ่งเข้าถึงร้านเดิมไม่ได้อยู่แล้ว)
+     */
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: staff.id },
-        data: { deletedAt: new Date() },
+        data: { deletedAt: new Date(), lineUserId: null, googleId: null },
       }),
       this.prisma.refreshToken.updateMany({
         where: { userId: staff.id, revokedAt: null },
