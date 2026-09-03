@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { LowStockNotifier } from '../notifications/low-stock.notifier';
 import { StockMovementsService } from '../stock-movements/stock-movements.service';
+import { StockLotsService } from './stock-lots.service';
 import { STOCK_AUTHORIZATION_PORT } from './ports/stock-authorization.port';
 import type { StockAuthorizationPort } from './ports/stock-authorization.port';
 import { STOCK_INVENTORY_PORT } from './ports/stock-inventory.port';
@@ -38,6 +39,8 @@ export interface ExecuteAdjustmentInput {
   note?: string;
   pendingAction?: PendingAction;
   pendingItemReferenceId?: string;
+  /** ทุนต่อชิ้นของล็อตที่รับเข้า — ใช้กับ INCREASE เท่านั้น */
+  unitCost?: number;
 }
 
 @Injectable()
@@ -50,6 +53,7 @@ export class StockService {
     @Inject(STOCK_AUTHORIZATION_PORT)
     private readonly authorization: StockAuthorizationPort,
     private readonly lowStock: LowStockNotifier,
+    private readonly lots: StockLotsService,
   ) {}
 
   async adjust(input: ExecuteAdjustmentInput) {
@@ -172,6 +176,17 @@ export class StockService {
           shopProductId: source.id,
           quantityDelta: -input.quantity,
         });
+
+        /**
+         * ตัดล็อตต้นทางแล้วเอา "ทุนของที่ย้ายไปจริง" ไปเปิดล็อตที่ปลายทาง
+         *
+         * ถ้าปลายทางเปิดล็อตด้วย cost_price ของร้านตัวเองแทน ต้นทุนจะเพี้ยน
+         * ทันทีที่สองร้านตั้งทุนไม่เท่ากัน ทั้งที่เป็นของชิ้นเดียวกันที่แค่ย้ายที่
+         */
+        const moved = await this.lots.consume(tx, {
+          shopProductId: source.id,
+          quantity: input.quantity,
+        });
         const outboundMovement = await this.movements.create(tx, {
           shopId: input.fromShopId,
           shopProductId: source.id,
@@ -188,6 +203,12 @@ export class StockService {
           shopId: input.toShopId,
           shopProductId: destination.id,
           quantityDelta: input.quantity,
+        });
+        await this.lots.receive(tx, {
+          shopProductId: destination.id,
+          quantity: input.quantity,
+          unitCost: moved.unitCost.toNumber(),
+          note: inboundNote,
         });
         const inboundMovement = await this.movements.create(tx, {
           shopId: input.toShopId,
@@ -251,6 +272,25 @@ export class StockService {
       shopProductId: input.shopProductId,
       quantityDelta,
     });
+
+    /**
+     * ล็อตต้องขยับในทรานแซกชันเดียวกับ stock_qty เสมอ ถ้าแยกกันแล้วอันใดอันหนึ่ง
+     * ล้ม จำนวนคงเหลือกับผลรวมของล็อตจะไม่ตรงกัน แล้วไม่มีอะไรจับได้เลย
+     */
+    if (input.operation === 'INCREASE') {
+      await this.lots.receive(tx, {
+        shopProductId: input.shopProductId,
+        quantity: input.quantity,
+        unitCost: input.unitCost,
+        note: input.note,
+      });
+    } else {
+      await this.lots.consume(tx, {
+        shopProductId: input.shopProductId,
+        quantity: input.quantity,
+      });
+    }
+
     const movement = await this.movements.create(tx, {
       shopId: input.shopId,
       shopProductId: input.shopProductId,

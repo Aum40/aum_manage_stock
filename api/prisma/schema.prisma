@@ -582,11 +582,41 @@ model ShopProduct {
   pendingActions    PendingAction[]
   saleItems         SaleItem[]
   aiRecommendations AiRecommendation[] // [อั้ม] feature/ai-recommendations-resource
+  stockLots         StockLot[] // [เซิ่น] feature/stock-lots — ต้นทุนแยกตามล็อตที่รับเข้า
 
   @@unique([shopId, productId], map: "uq_shop_product")
   @@index([shopId, status], name: "idx_shop_product_shop_status")
   @@index([productId], name: "idx_shop_product_product")
   @@map("shop_products")
+}
+
+/// [เซิ่น] ล็อตสินค้าที่รับเข้าแต่ละครั้ง พร้อมต้นทุนของล็อตนั้น
+///
+/// เหตุผลที่ต้องมี: shop_products.cost_price เก็บได้ค่าเดียว พอรับของล็อตใหม่
+/// ที่ต้นทุนไม่เท่าเดิม ของเก่าที่ยังขายไม่หมดจะถูกตีเป็นราคาใหม่ไปด้วย
+/// กำไรของที่ยังไม่ได้ขายจึงคลาดเคลื่อนทันที ตารางนี้เก็บแต่ละล็อตแยกกัน
+/// แล้วตัดของเก่าก่อน (FIFO) ตามลำดับ received_at
+///
+/// qty_remaining ลดลงเมื่อของถูกตัดออก ล็อตที่เหลือ 0 ไม่ลบทิ้ง เก็บไว้เป็น
+/// ประวัติว่าเคยรับของราคานี้เข้ามาเมื่อไหร่ และ unit_cost ของบิลเก่าต้องตรวจย้อนได้
+///
+/// shop_products.cost_price ยังอยู่และยังใช้อยู่ — ทำหน้าที่เป็นค่าตั้งต้นของ
+/// ล็อตใหม่ที่ไม่ได้ระบุต้นทุนมา และเป็นค่าสำรองสำหรับสินค้าที่ยังไม่มีล็อต
+model StockLot {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  shopProductId String   @map("shop_product_id") @db.Uuid
+  unitCost      Decimal  @map("unit_cost") @db.Decimal(12, 2)
+  qtyReceived   Int      @map("qty_received")
+  qtyRemaining  Int      @map("qty_remaining")
+  note          String?
+  receivedAt    DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  shopProduct ShopProduct @relation(fields: [shopProductId], references: [id], onDelete: Restrict)
+
+  /// ตัดของเก่าก่อน — คิวรีหลักคือ "ล็อตของสินค้านี้ที่ยังเหลือ เรียงเก่าสุดก่อน"
+  @@index([shopProductId, receivedAt], name: "idx_stock_lot_fifo")
+  @@map("stock_lots")
 }
 
 // =====================================================================

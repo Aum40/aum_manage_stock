@@ -3,6 +3,8 @@ import { PrismaService } from '../database/prisma.service';
 import type { StockAuthorizationPort } from './ports/stock-authorization.port';
 import type { StockInventoryPort } from './ports/stock-inventory.port';
 import { LowStockNotifier } from '../notifications/low-stock.notifier';
+import { Prisma } from '../database/generated/prisma/client';
+import { StockLotsService } from './stock-lots.service';
 import { StockService } from './stock.service';
 
 describe('StockService', () => {
@@ -33,12 +35,23 @@ describe('StockService', () => {
     const lowStock = {
       notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
     } as unknown as LowStockNotifier;
+    const lots = {
+      receive: jest.fn().mockResolvedValue(undefined),
+      consume: jest.fn().mockResolvedValue({
+        unitCost: new Prisma.Decimal(0),
+        totalCost: new Prisma.Decimal(0),
+        picked: [],
+        quantityWithoutLot: 0,
+      }),
+      ensureOpeningLot: jest.fn().mockResolvedValue(undefined),
+    } as unknown as StockLotsService;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
       lowStock,
+      lots,
     );
 
     await expect(
@@ -95,12 +108,23 @@ describe('StockService', () => {
     const lowStock = {
       notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
     } as unknown as LowStockNotifier;
+    const lots = {
+      receive: jest.fn().mockResolvedValue(undefined),
+      consume: jest.fn().mockResolvedValue({
+        unitCost: new Prisma.Decimal(0),
+        totalCost: new Prisma.Decimal(0),
+        picked: [],
+        quantityWithoutLot: 0,
+      }),
+      ensureOpeningLot: jest.fn().mockResolvedValue(undefined),
+    } as unknown as StockLotsService;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
       lowStock,
+      lots,
     );
 
     await expect(
@@ -144,12 +168,23 @@ describe('StockService', () => {
     const lowStock = {
       notifyIfCrossed: jest.fn().mockResolvedValue(undefined),
     } as unknown as LowStockNotifier;
+    const lots = {
+      receive: jest.fn().mockResolvedValue(undefined),
+      consume: jest.fn().mockResolvedValue({
+        unitCost: new Prisma.Decimal(0),
+        totalCost: new Prisma.Decimal(0),
+        picked: [],
+        quantityWithoutLot: 0,
+      }),
+      ensureOpeningLot: jest.fn().mockResolvedValue(undefined),
+    } as unknown as StockLotsService;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
       lowStock,
+      lots,
     );
 
     await service.adjustInTransaction(tx as never, {
@@ -222,12 +257,23 @@ describe('StockService.transfer', () => {
       notifyIfCrossed: notifyMock,
     } as unknown as LowStockNotifier;
 
+    const lots = {
+      receive: jest.fn().mockResolvedValue(undefined),
+      consume: jest.fn().mockResolvedValue({
+        unitCost: new Prisma.Decimal(0),
+        totalCost: new Prisma.Decimal(0),
+        picked: [],
+        quantityWithoutLot: 0,
+      }),
+      ensureOpeningLot: jest.fn().mockResolvedValue(undefined),
+    } as unknown as StockLotsService;
     const service = new StockService(
       prisma,
       movements,
       inventory,
       authorization,
       lowStock,
+      lots,
     );
     return {
       service,
