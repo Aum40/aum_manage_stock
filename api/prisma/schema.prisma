@@ -64,6 +64,15 @@ model StockMovement {
   quantityBefore  Int
   quantityAfter   Int
   source          StockMovementSource
+  /// [เซิ่น] ทุนต่อชิ้นของการเคลื่อนไหวครั้งนี้
+  ///
+  /// ของเข้า = ทุนของล็อตที่เพิ่งเปิด
+  /// ของออก = ทุนเฉลี่ยถ่วงน้ำหนักของล็อตที่ถูกตัดจริง (ดู StockLotsService.consume)
+  ///
+  /// nullable โดยตั้งใจ — รายการที่เกิดก่อนระบบล็อตไม่มีทุนให้บันทึก และ
+  /// หน้าเว็บต้องแสดงเป็น "—" ไม่ใช่ ฿0.00 เพราะไม่มีข้อมูลกับทุนเป็นศูนย์
+  /// เป็นคนละเรื่องกัน (หลักเดียวกับ shop_products.cost_price = 0)
+  unitCost        Decimal?            @map("unit_cost") @db.Decimal(12, 2)
   note            String?
   referenceType   String?
   referenceId     String?
