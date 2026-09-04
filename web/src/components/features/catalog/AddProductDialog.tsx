@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -207,6 +207,22 @@ export default function AddProductDialog({
   const [saving, setSaving] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const unitInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * เปิด modal ทุกครั้งต้องเริ่มที่หัวฟอร์มเสมอ
+   *
+   * modal ไม่เคยถูกถอดออกจากหน้า (หน้าแคตตาล็อกเรนเดอร์ค้างไว้ตลอด แค่สลับ
+   * open) กล่องที่เลื่อนได้ข้างในจึงจำ scrollTop ของรอบก่อนไว้ รอบแรกผู้ใช้
+   * เลื่อนลงล่างสุดไปใส่ราคาแล้วกดบันทึก พอเปิดเพิ่มสินค้าชิ้นถัดไปมันเปิด
+   * ค้างที่ล่างสุด ช่องชื่อสินค้ากับหน่วยนับอยู่เหนือขอบจอ ผู้ใช้เห็นแค่ปุ่ม
+   * บันทึกที่กดไม่ได้ โดยไม่เห็นว่าอะไรยังไม่ได้กรอก = ดูเหมือนปุ่มค้าง
+   */
+  useEffect(() => {
+    if (open) scrollRef.current?.scrollTo({ top: 0 });
+  }, [open]);
 
   /**
    * ความคืบหน้าของการบันทึกรอบก่อน — ต้องอยู่ข้ามการกดซ้ำ
@@ -251,12 +267,20 @@ export default function AddProductDialog({
    * ทำเป็น default ตอนอ่าน ไม่ใช่ seed ลง state ผ่าน useEffect เพราะรายชื่อร้าน
    * มาแบบ async ถ้า seed จะเขียนทับค่าที่ผู้ใช้เพิ่งกดปิดไปตอน query ตอบกลับมา
    */
-  const rowOf = (shopId: string) =>
-    rows[shopId] ?? (shopId === activeShopId ? ACTIVE_SHOP_ROW : EMPTY_ROW);
+  const defaultRow = (shopId: string) =>
+    shopId === activeShopId ? ACTIVE_SHOP_ROW : EMPTY_ROW;
+  const rowOf = (shopId: string) => rows[shopId] ?? defaultRow(shopId);
+  /*
+    ต้องตั้งต้นจาก defaultRow ตัวเดียวกับ rowOf ห้ามใช้ EMPTY_ROW ตรง ๆ
+
+    ร้านที่กำลังใช้งานอยู่ถูกเปิดสวิตช์ไว้จาก default ไม่ได้มีแถวใน state จริง
+    พอผู้ใช้พิมพ์ราคาขายเป็นอย่างแรก แถวถูกสร้างจาก EMPTY_ROW (enabled: false)
+    สวิตช์ที่เห็นว่าเปิดอยู่จึงดีดปิดเองกลางคัน
+  */
   const patchRow = (shopId: string, patch: Partial<ShopRow>) =>
     setRows((previous) => ({
       ...previous,
-      [shopId]: { ...(previous[shopId] ?? EMPTY_ROW), ...patch },
+      [shopId]: { ...(previous[shopId] ?? defaultRow(shopId)), ...patch },
     }));
 
   const enabledShops = shops.filter((shop) => rowOf(shop.id).enabled);
@@ -293,13 +317,45 @@ export default function AddProductDialog({
     setError(null);
     setPartiallySaved(false);
     setScanOpen(false);
+    // ต้องปลดด้วย ไม่งั้นรอบที่บันทึกสำเร็จ saving ค้างเป็น true ตลอด
+    // (เดิมปลดแค่ใน catch) — modal ไม่ถูกถอด ปุ่มบันทึกจึง disable ค้างยาว
+    setSaving(false);
     createdProductId.current = null;
     shopProgress.current = new Map();
   };
 
+  /**
+   * พาไปที่ช่องที่ยังไม่ได้กรอก แทนที่จะปล่อยให้ปุ่มตายเฉย ๆ
+   *
+   * ฟอร์มยาวเกินหนึ่งหน้าจอ ช่องที่ขาดจึงมักอยู่นอกสายตา ข้อความข้างปุ่มบอกว่า
+   * ขาดอะไรก็จริง แต่ไม่ได้บอกว่าอยู่ตรงไหน ผู้ใช้เลยตีความว่าปุ่มเสีย
+   */
+  const focusFirstMissing = () => {
+    // ร้านแรกที่เปิดสวิตช์ไว้แต่ยังไม่ใส่ราคา — ไม่ใช่ร้านแรกในรายการ
+    const shopMissingPrice = enabledShops.find(
+      (shop) => !rowOf(shop.id).sellPrice.trim(),
+    );
+    const target = !name.trim()
+      ? nameInputRef.current
+      : !unit.trim()
+        ? unitInputRef.current
+        : shopMissingPrice
+          ? (scrollRef.current?.querySelector(
+              `[data-field="sellPrice"][data-shop="${shopMissingPrice.id}"]`,
+            ) as HTMLInputElement | null)
+          : null;
+    target?.scrollIntoView({ block: "center" });
+    target?.focus();
+  };
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canSubmit || saving) return;
+    if (saving) return;
+    // ปุ่มกดได้เสมอ ความถูกต้องมาเช็คตรงนี้ — ปุ่มที่กดไม่ได้อธิบายตัวเองไม่ได้
+    if (!canSubmit) {
+      focusFirstMissing();
+      return;
+    }
     setError(null);
     setSaving(true);
 
@@ -397,13 +453,13 @@ export default function AddProductDialog({
 
           85vh ต้องตรงกับ max-h ของ popup ถ้าแก้ที่ใดที่หนึ่งต้องแก้ทั้งคู่
         */}
-        <div className="grid max-h-[85vh] gap-4 overflow-y-auto p-4">
+        <div ref={scrollRef} className="grid max-h-[85vh] gap-4 overflow-y-auto p-4">
         <DialogHeader>
           <DialogTitle>{t.title}</DialogTitle>
           <DialogDescription>{t.card1Sub}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit}>
+        <form onSubmit={onSubmit} noValidate>
           <div className="grid grid-cols-1 items-start gap-5">
             <div className="flex flex-col gap-5">
               <Card>
@@ -420,6 +476,7 @@ export default function AddProductDialog({
                       {t.name}
                     </Label>
                     <Input
+                      ref={nameInputRef}
                       value={name}
                       onChange={(event) => setName(event.target.value)}
                       placeholder={t.namePh}
@@ -502,6 +559,7 @@ export default function AddProductDialog({
                       {t.unit}
                     </Label>
                     <Input
+                      ref={unitInputRef}
                       value={unit}
                       onChange={(event) => setUnit(event.target.value)}
                       placeholder={t.unitPh}
@@ -672,6 +730,8 @@ export default function AddProductDialog({
                             ).map(([field, label]) => (
                               <Input
                                 key={field}
+                                data-field={field}
+                                data-shop={shop.id}
                                 aria-label={label}
                                 type="number"
                                 min={0}
@@ -800,7 +860,7 @@ export default function AddProductDialog({
           )}
 
           <div className="mt-5 flex flex-wrap items-center gap-3">
-            <Button type="submit" variant="gradient" disabled={!canSubmit || saving}>
+            <Button type="submit" variant="gradient" disabled={saving}>
               {saving ? t.saving : t.saveBtn}
             </Button>
             <Button
@@ -813,9 +873,17 @@ export default function AddProductDialog({
             >
               {t.cancelBtn}
             </Button>
+            {/*
+              เช็คชื่อ/หน่วยนับก่อนราคาเสมอ ห้ามสลับลำดับ
+
+              ร้านที่ใช้งานอยู่ถูกเปิดสวิตช์ไว้จาก default โดยยังไม่มีราคา
+              missingPrice จึงเป็น true ตั้งแต่ฟอร์มยังว่าง ถ้าเอามาเช็คก่อน
+              ฟอร์มเปล่าจะขึ้นว่า "ต้องใส่ราคาขาย" ทั้งที่ตัวที่ขาดจริงคือชื่อ
+              สินค้า — ผู้ใช้ใส่ราคาแล้วปุ่มก็ยังกดไม่ได้ เลยดูเหมือนปุ่มค้าง
+            */}
             {!canSubmit && (
               <span className="text-xs text-muted-foreground">
-                {missingPrice ? t.requiredPrice : t.required}
+                {!name.trim() || !unit.trim() ? t.required : t.requiredPrice}
               </span>
             )}
           </div>
